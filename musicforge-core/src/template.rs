@@ -250,4 +250,20 @@ mod tests {
         let out = render_filename("{format}", Some(&m), &long_stem);
         assert_eq!(out.chars().count(), MAX_SEGMENT_CHARS, "回退值也必须受段长上界约束");
     }
+
+    /// P1a 保护网：中文快照。中文标题/艺人/专辑 + track 零填充 + 目录段
+    /// 组合渲染必须保持稳定 —— 这是绞杀者重构时最容易被打断的用户可见契约。
+    ///
+    /// 注意：`render_filename` 返回**相对路径且不含扩展名**——扩展名由 CLI
+    /// `plan_one` 按判定格式追加（见 `batch_template_dirs_and_padding` 的
+    /// `测试曲目.flac` 断言）。故期望值末尾没有 `.flac`。
+    #[test]
+    fn chinese_template_snapshot() {
+        let m = meta("晴天", "周杰伦", "叶惠美", Some(1));
+        assert_eq!(
+            render_filename("{artist}/{album}/{track:02d} {title}", Some(&m), "flac"),
+            "周杰伦/叶惠美/01 晴天",
+            "中文模板快照变化：渲染输出不得改变（扩展名由 CLI 层追加，不归本函数管）"
+        );
+    }
 }

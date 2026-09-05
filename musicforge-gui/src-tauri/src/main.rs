@@ -347,3 +347,179 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+// ============ P1a 保护网：GUI ↔ 前端 IPC 契约测试 ============
+//
+// 两类覆盖：
+// 1. **可纯调用的命令**（无 AppHandle/State 依赖）：真实行为断言。
+// 2. **需要 AppHandle/State 的命令**：`cargo test` 下无法构造 Tauri 运行时，
+//    用「包装函数 + 显式返回类型标注」做**编译期类型钉子** —— 返回类型一变，
+//    本模块立即编译失败。字段级 schema 另由 InputPair/BatchArgs/FailureRow
+//    的 serde 断言覆盖（前端真正依赖的是字段名与形状）。
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// preview_template：两行 = 完整元数据 / 无元数据回退。
+    /// 前端靠它实时预览输出文件名，行数或内容变化即破坏契约。
+    #[test]
+    fn preview_template_returns_two_rows_with_rendered_names() {
+        let rows = preview_template("{artist} - {title}".to_string());
+        assert_eq!(rows.len(), 2, "必须返回两行：完整元数据 / 无元数据回退");
+        assert_eq!(rows[0], "李荣浩 - 贝贝", "完整元数据行");
+        assert_eq!(
+            rows[1], "未知艺术家 - unknown.ncm",
+            "无元数据回退行（title 回退到 fallback_stem）"
+        );
+
+        // 目录模板：GUI 预览与 CLI 渲染语义必须一致（含 track 零填充）
+        let rows = preview_template("{artist}/{album}/{track:02d} {title}".to_string());
+        assert_eq!(rows[0], "李荣浩/耳朵/01 贝贝", "GUI 预览必须与 CLI 渲染同语义");
+    }
+
+    /// collect_files：目录输入按 recursive 过滤 .ncm，且 root 必须随行返回
+    /// （G3 契约：root 丢失会让自定义输出目录下的源目录树不被镜像）。
+    #[test]
+    fn collect_files_filters_ncm_and_keeps_root() {
+        let base = std::env::temp_dir().join(format!("mf-gui-contract-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let sub = base.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(base.join("a.ncm"), b"x").unwrap();
+        std::fs::write(base.join("b.txt"), b"x").unwrap();
+        std::fs::write(sub.join("c.ncm"), b"x").unwrap();
+
+        // 非递归：只收 base 层，且不收 .txt
+        let flat = collect_files(vec![base.to_string_lossy().into_owned()], false);
+        assert_eq!(flat.len(), 1, "非递归不得进入 sub，且必须过滤非 .ncm");
+        assert!(flat[0].path.ends_with("a.ncm"), "应收集 a.ncm");
+        assert!(flat[0].root.is_some(), "目录输入必须带 root");
+
+        // 递归：a.ncm + sub/c.ncm
+        let rec = collect_files(vec![base.to_string_lossy().into_owned()], true);
+        assert_eq!(rec.len(), 2, "递归应收集 sub 下的 .ncm");
+
+        // 散文件输入：root 必须为 None（前端据此区分两种输入来源）
+        let single =
+            collect_files(vec![base.join("a.ncm").to_string_lossy().into_owned()], false);
+        assert_eq!(single.len(), 1);
+        assert!(single[0].root.is_none(), "散文件输入 root 必须为 None");
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// InputPair 序列化字段名集合：前端按 `{"path","root"}` 解构，
+    /// 字段名一旦增删改即 IPC 断裂（且是静默断裂——前端拿到 undefined）。
+    #[test]
+    fn input_pair_serializes_with_stable_field_names() {
+        let with_root = InputPair { path: "C:/a.ncm".into(), root: Some("C:/".into()) };
+        let v: serde_json::Value = serde_json::to_value(&with_root).unwrap();
+        let mut keys: Vec<&str> =
+            v.as_object().unwrap().keys().map(|s| s.as_str()).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, vec!["path", "root"], "InputPair 字段名集合发生变化");
+        assert_eq!(v["path"], "C:/a.ncm");
+        assert_eq!(v["root"], "C:/");
+
+        let without_root = InputPair { path: "a.ncm".into(), root: None };
+        let v2: serde_json::Value = serde_json::to_value(&without_root).unwrap();
+        assert!(
+            v2["root"].is_null(),
+            "root=None 必须序列化为 null（前端据此区分散文件/目录输入）"
+        );
+    }
+
+    /// BatchArgs 反序列化：前端 `start_batch` 发送的 camelCase 载荷必须可解析。
+    /// 同时钉住必填字段 —— 缺省会导致并发/跳过等语义静默漂移。
+    #[test]
+    fn batch_args_deserializes_camel_case_ipc_payload() {
+        let ok = r#"{
+            "inputs": [{"path": "C:/a.ncm", "root": null}],
+            "outDir": "C:/out",
+            "template": "{title}",
+            "skipExisting": true,
+            "recursive": false,
+            "jobs": 4
+        }"#;
+        let args: BatchArgs = serde_json::from_str(ok).expect("camelCase 载荷必须可解析");
+        assert_eq!(args.inputs.len(), 1);
+        assert!(args.inputs[0].root.is_none());
+        assert_eq!(args.out_dir.as_deref(), Some("C:/out"));
+        assert_eq!(args.template, "{title}");
+        assert!(args.skip_existing);
+        assert!(!args.recursive);
+        assert_eq!(args.jobs, 4);
+
+        // 反例 1：把 skipExisting 写成 snake_case → 必填布尔字段缺席 → 必须失败。
+        //（serde 默认忽略未知字段，故此断言证明的是「skipExisting 是必填 camelCase 键」）
+        let snake = r#"{ "inputs": [], "outDir": null, "template": "t", "skip_existing": false, "recursive": false, "jobs": 1 }"#;
+        assert!(
+            serde_json::from_str::<BatchArgs>(snake).is_err(),
+            "缺少 skipExisting 的载荷不应被接受"
+        );
+
+        // 反例 2：jobs 缺失 → 必须失败（并发语义不可静默取默认）
+        let no_jobs = r#"{ "inputs": [], "outDir": null, "template": "t", "skipExisting": false, "recursive": false }"#;
+        assert!(
+            serde_json::from_str::<BatchArgs>(no_jobs).is_err(),
+            "jobs 缺失的载荷不应被接受"
+        );
+    }
+
+    /// FailureRow 反序列化：`save_failures` 入参契约（前端只传失败行）。
+    #[test]
+    fn failure_row_deserializes_camel_case() {
+        let rows: Vec<FailureRow> = serde_json::from_str(
+            r#"[
+                {"source":"C:/a.ncm","status":"failed","reason":"NCM-X: bad"},
+                {"source":"b.ncm","status":"ok","reason":null}
+            ]"#,
+        )
+        .expect("FailureRow 载荷必须可解析");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].source, "C:/a.ncm");
+        assert_eq!(rows[0].status, "failed");
+        assert_eq!(rows[0].reason.as_deref(), Some("NCM-X: bad"));
+        assert!(rows[1].reason.is_none(), "reason 为 null 必须可解析");
+    }
+
+    // ---- 编译期返回类型钉子（无 AppHandle/State，无法运行期断言） ----
+    // 每个包装函数的返回类型标注即断言：底层命令返回类型一旦变化，本文件无法编译。
+
+    #[allow(dead_code)]
+    fn pin_cancel_batch(state: tauri::State<'_, AppState>) -> bool {
+        cancel_batch(state)
+    }
+
+    #[allow(dead_code)]
+    fn pin_start_batch(
+        app: AppHandle,
+        state: tauri::State<'_, AppState>,
+        args: BatchArgs,
+    ) -> Result<(), String> {
+        // start_batch 本身是**同步**命令（立即返回，进度走事件），故此处不加 async/await
+        start_batch(app, state, args)
+    }
+
+    #[allow(dead_code)]
+    async fn pin_select_ncm_files(app: AppHandle, start_dir: Option<String>) -> Vec<String> {
+        select_ncm_files(app, start_dir).await
+    }
+
+    #[allow(dead_code)]
+    async fn pin_select_directory(
+        app: AppHandle,
+        start_dir: Option<String>,
+        title: Option<String>,
+    ) -> Option<String> {
+        select_directory(app, start_dir, title).await
+    }
+
+    #[allow(dead_code)]
+    async fn pin_save_failures(
+        app: AppHandle,
+        rows: Vec<FailureRow>,
+    ) -> Result<Option<String>, String> {
+        save_failures(app, rows).await
+    }
+}

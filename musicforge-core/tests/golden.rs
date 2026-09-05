@@ -150,3 +150,34 @@ fn metadata_len_zero_regression() {
         load_expected("metadata_len0.ncm")["audio_sha256"].as_str().unwrap()
     );
 }
+
+/// P1a 保护网：解码**确定性**。同一 fixture 两次独立解码，音频负载 sha256 必须一致。
+///
+/// 这条管住的是「重构引入了隐藏状态 / 非确定初始化」这一类回归：
+/// 金标比对（`golden_all_fixtures_byte_exact`）只证明「与 Python 参考解码器一致」，
+/// 本条额外证明「自身可重复」。二者合起来才封死「确定性被破坏」的缝隙。
+/// 覆盖三类代表样本：flac（带封面）、mp3（带 ID3）、metadataLen=0（无元数据）。
+#[test]
+fn golden_decode_is_deterministic() {
+    for name in ["flac_with_cover.ncm", "mp3_with_id3.ncm", "metadata_len0.ncm"] {
+        let mut a = Decoder::open(fixtures_dir().join(name))
+            .unwrap_or_else(|e| panic!("{name}: 首次打开失败: {e}"));
+        let tmp_a = tempfile::tempdir().unwrap();
+        let out_a = a
+            .dump(Some(tmp_a.path()))
+            .unwrap_or_else(|e| panic!("{name}: 首次解码失败: {e}"));
+
+        let mut b = Decoder::open(fixtures_dir().join(name))
+            .unwrap_or_else(|e| panic!("{name}: 二次打开失败: {e}"));
+        let tmp_b = tempfile::tempdir().unwrap();
+        let out_b = b
+            .dump(Some(tmp_b.path()))
+            .unwrap_or_else(|e| panic!("{name}: 二次解码失败: {e}"));
+
+        assert_eq!(
+            sha256_file(&out_a),
+            sha256_file(&out_b),
+            "{name}: 两次解码结果不一致 —— 解码过程引入了非确定状态"
+        );
+    }
+}

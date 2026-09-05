@@ -1,0 +1,19 @@
+# core+cli 严格网络禁令（GUI 除外：tauri 合法引入 http 栈；插件进程是唯一允许联网的组件）
+[graph]
+all-features = false
+exclude = ["musicforge-gui", "musicforge-server"]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+deny = [
+  { name = "reqwest" },
+  { name = "hyper" },
+  { name = "ureq" },
+  { name = "isahc" },
+  { name = "surf" },
+  { name = "attohttpc" },
+  { name = "curl" },
+  { name = "tokio-tungstenite" },
+  { name = "tungstenite" },
+]
