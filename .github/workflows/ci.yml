@@ -25,6 +25,10 @@ jobs:
         with:
           components: clippy
 
+      # rust-toolchain.toml 会把工具链切到 pinned 1.98.0，clippy 组件需补装
+      - name: Ensure clippy component (pinned toolchain)
+        run: rustup component add clippy
+
       - name: Cache cargo
         uses: actions/cache@v4
         with:
