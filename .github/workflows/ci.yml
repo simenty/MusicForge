@@ -43,8 +43,13 @@ jobs:
         # （2026-09-02 实测：加上后才暴露 13 处历史遗留，已修）
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: 全量测试（golden + 单元 + 集成）
-        run: cargo test --workspace
+      - name: 全量测试（golden + 单元 + 集成；ubuntu 无 GTK，GUI 延后同 build job）
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            cargo test --workspace --exclude musicforge-gui
+          else
+            cargo test --workspace
+          fi
 
       - name: 零网络扫描（源级：use/依赖树）
         run: |
@@ -136,8 +141,11 @@ jobs:
         with:
           tool: cargo-deny,cargo-audit
 
-      - name: cargo deny check（许可证白名单 + 禁用依赖：网络客户端/DB 服务端客户端/GPL 传输）
+      - name: cargo deny check（全仓：许可证 + DB 服务端客户端/GPL 传输）
         run: cargo deny check licenses bans sources
+
+      - name: cargo deny check（core+cli 严格网络禁令，GUI 由 tauri 合法引入 http 栈）
+        run: cargo deny --config deny.core.toml check bans
 
       - name: cargo audit（RustSec 公告）
         run: cargo audit

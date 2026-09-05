@@ -336,3 +336,88 @@ fn collect_inputs_skips_symlinks() {
         "F3 回归失败：不应跟随符号链接收集 link.ncm"
     );
 }
+
+// ============ P1a 保护网：退出码语义 + 失败清单 CSV 字段兼容 ============
+//
+// 依据：`Summary::exit_code()` 的实际语义是「failed > 0 → 1，否则 0」
+//（musicforge-cli/src/lib.rs::BatchSummary::exit_code）。Skipped / Cancelled
+// 都**不**触发非零退出码。以下三条把这一契约独立钉死，重构时改坏退出码
+// 语义会立即在这里报红，而不是等 CI 集成才发现。
+
+/// 全成功批处理 → exit_code == 0
+#[test]
+fn exit_code_all_success_is_zero() {
+    let tmp = tempfile::tempdir().unwrap();
+    let summary = run(cfg(vec![fixtures()], tmp.path()));
+    assert_eq!(summary.ok, 7);
+    assert_eq!(summary.failed, 0);
+    assert_eq!(summary.exit_code(), 0, "全部成功必须是 0");
+}
+
+/// 含失败批处理 → exit_code != 0（且失败清单一行不落盘地给出错误码）
+#[test]
+fn exit_code_any_failure_is_nonzero() {
+    let tmp = tempfile::tempdir().unwrap();
+    let src_dir = tempfile::tempdir().unwrap();
+    std::fs::copy(
+        fixtures().join("flac_with_cover.ncm"),
+        src_dir.path().join("good.ncm"),
+    )
+    .unwrap();
+    let mut bad = std::fs::read(fixtures().join("flac_with_cover.ncm")).unwrap();
+    bad[100] ^= 0xff;
+    std::fs::write(src_dir.path().join("__bad.ncm"), &bad).unwrap();
+
+    let summary = run(cfg(vec![src_dir.path().to_path_buf()], tmp.path()));
+    assert_eq!(summary.failed, 1, "1 个坏文件失败");
+    assert_ne!(
+        summary.exit_code(),
+        0,
+        "只要有失败，退出码就必须非零（脚本/CI 依赖这一点判断成败）"
+    );
+}
+
+/// 失败清单 CSV 字段兼容：表头必须是 `source,code,reason`，且 code 列承载错误码。
+/// GUI 的 `save_failures` 复用同一实现，改这里会同时破坏两端。
+#[test]
+fn failures_csv_header_is_stable() {
+    let tmp = tempfile::tempdir().unwrap();
+    let src_dir = tempfile::tempdir().unwrap();
+    std::fs::copy(
+        fixtures().join("flac_with_cover.ncm"),
+        src_dir.path().join("good.ncm"),
+    )
+    .unwrap();
+    let mut bad = std::fs::read(fixtures().join("flac_with_cover.ncm")).unwrap();
+    bad[100] ^= 0xff;
+    std::fs::write(src_dir.path().join("__bad.ncm"), &bad).unwrap();
+
+    let summary = run(cfg(vec![src_dir.path().to_path_buf()], tmp.path()));
+    assert_eq!(summary.failed, 1);
+
+    let csv_path = tmp.path().join("failures.csv");
+    summary
+        .export_failures_csv(&csv_path)
+        .expect("失败清单导出必须成功");
+
+    let text = std::fs::read_to_string(&csv_path).unwrap();
+    let mut lines = text.lines();
+    assert_eq!(
+        lines.next(),
+        Some("source,code,reason"),
+        "CSV 表头字段名或顺序发生变化 —— 这是脚本/前端共同依赖的稳定契约"
+    );
+
+    // 失败行的 code 列必须承载错误码（repair receipt 的机器可读部分）
+    let row = lines.next().expect("必须有一行失败记录");
+    assert!(
+        row.contains("NCM-CRC-MISMATCH"),
+        "code 列应含错误码，实际行: {row}"
+    );
+
+    // 只有失败项入列：成功项不得出现
+    assert!(
+        !text.contains("good.ncm"),
+        "成功文件不应出现在失败清单里: {text}"
+    );
+}
