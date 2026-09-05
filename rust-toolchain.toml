@@ -1,0 +1,4 @@
+# MSRV 锚定：CI 与本地构建使用同一工具链，避免「本地能编 CI 编不过」的漂移。
+# 升级规则：升级 channel 需在 PR 中说明理由，且必须通过全量测试 + clippy + cargo-deny。
+[toolchain]
+channel = "1.98.0"

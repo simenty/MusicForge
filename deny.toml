@@ -1,0 +1,61 @@
+[graph]
+all-features = false
+# 插件宿主（plugin-host）等 feature 引入的依赖不参与默认构建审计
+no-index-update = false
+
+[licenses]
+version = 2
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "Zlib",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "MIT-0",
+  "BSL-1.0",
+  "OpenSSL",
+  "MPL-2.0",
+]
+confidence-threshold = 0.93
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = [
+  # 零网络品牌：核心/CLI 禁止网络客户端（插件进程是唯一允许联网的组件）
+  { name = "reqwest" },
+  { name = "hyper" },
+  { name = "ureq" },
+  { name = "isahc" },
+  { name = "surf" },
+  { name = "attohttpc" },
+  { name = "curl" },
+  { name = "tokio-tungstenite" },
+  { name = "tungstenite" },
+  # DB 服务端客户端库（嵌入式 rusqlite 不在禁止之列，见 docs/dependency-policy.md）
+  { name = "postgres" },
+  { name = "mysql" },
+  { name = "redis" },
+  { name = "mongodb" },
+  { name = "libpq-sys" },
+  { name = "libmysqlclient-sys" },
+  # GPL 传输风险
+  { name = "ffmpeg-sys-next" },
+  { name = "libffmpeg-sys" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+[advisories]
+version = 2
+yanked = "deny"
+ignore = []

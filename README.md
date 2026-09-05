@@ -1,8 +1,11 @@
 # MusicForge
 
-**默认离线、可靠、可观测的本地 `.ncm` 音乐格式转换工具。**
+**本地优先、可靠、可审计、可扩展的开源音乐文件处理平台。**
 
-将网易云音乐客户端缓存的 `.ncm` 加密文件解封装为 mp3/flac/m4a，回填标题/艺术家/专辑/封面，输出直接是可用音乐库。
+把散乱的音乐文件变成带封面、带歌词、按歌手/专辑/风格归档的标准曲库——以高可靠的 `.ncm`
+本地解封装为起点，逐步支持无损转换、标签与封面修复、曲库扫描清洗、重复治理与 NAS 自动化。
+
+> **No telemetry. No account. No background upload. No hidden network calls.**
 
 > ⚠️ **法律须知**：MusicForge 仅用于处理你已合法获得的文件的个人本地格式转换/备份。
 > 本项目与网易云音乐无任何关联。使用前请阅读下方[法律须知](#法律须知)全文。
@@ -13,13 +16,31 @@
 
 ## 特性
 
-- **默认完全离线**——零网络代码路径，CI 双层扫描断言
+- **默认完全离线**——零网络代码路径，CI 四层扫描断言（依赖树 / 源码正则 / feature 断言 / 断网行为测试）
 - **CRC32 头校验**——损坏文件明确报错，绝不静默产出损坏音频
 - **命名模板**——`{artist}/{album}/{track:02d} {title}`，跨平台非法字符清洗
 - **结构保留**——递归导入自动保留目录树，同名自动去重
 - **可靠批量**——有界并发、单文件失败不中断、失败清单 CSV 导出
-- **不覆盖已有值**——标签与封面仅在缺失时写入
-- **体积极小**——CLI 0.98 MB / GUI 3.1 MB（Rust + Tauri 2 + WebView2）
+- **不覆盖已有值**——标签与封面仅在缺失时写入（字段级写策略 + 来源溯源）
+- **体积极小**——CLI 1.04 MB / GUI 3.49 MB（Rust + Tauri 2 + WebView2）
+
+### 格式能力矩阵
+
+| 能力 | .ncm | WAV | FLAC | MP3 | AAC/M4A | QMC/MGG/MFLAC |
+|:--|:-:|:-:|:-:|:-:|:-:|:-:|
+| 解封装/读取 | ✅ | 📋 v0.5.0 | 📋 v0.5.0 | 📋 v0.6.0 | 📋 v0.6.0 | 🔌 可选格式插件 |
+| 无损转换 | ✅ 载荷直出 | 📋 v0.5.0 | 📋 v0.5.0 | —（有损源） | —（有损源） | 🔌 插件 |
+| 有损导出 | ✅ 载荷直出 | 📋 v0.6.0 | 📋 v0.6.0 | — | — | 🔌 插件 |
+
+✅ 已支持 · 📋 规划中（版本见 [ROADMAP.md](ROADMAP.md)） · 🔌 由[可选插件](PLUGIN_POLICY.md)提供（默认禁用）
+
+## 平台化路线与治理文档
+
+- [ROADMAP.md](ROADMAP.md) —— 定稿路线图（P0–P9，scope 已冻结）
+- [PRIVACY.md](PRIVACY.md) —— 隐私承诺：无遥测、无账号、无后台上传
+- [PLUGIN_POLICY.md](PLUGIN_POLICY.md) —— 插件边界：分级、权限清单、准入规则
+- [docs/threat-model.md](docs/threat-model.md) / [docs/architecture.md](docs/architecture.md) / [docs/dependency-policy.md](docs/dependency-policy.md)
+- [CHANGELOG.md](CHANGELOG.md) / [SECURITY.md](SECURITY.md) / [TRADEMARK.md](TRADEMARK.md)
 
 ## 安装
 
@@ -50,12 +71,12 @@ MusicForge-0.1.0-setup.exe /S
 ### 从源码构建
 
 ```bash
-git clone https://github.com/{owner}/MusicForge.git
+git clone https://github.com/simenty/MusicForge.git
 cd MusicForge
 
 cargo build --release -p musicforge-cli            # CLI
 cargo build --release -p musicforge-gui            # GUI（需先构建前端，见 CONTRIBUTING.md）
-cargo test --workspace                        # 48 项测试
+cargo test --workspace                        # 132 个测试函数（金标 + 对抗 + QA 双轮）
 ```
 
 ### macOS / Linux
