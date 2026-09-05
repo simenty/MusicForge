@@ -10,6 +10,11 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
+# 全 workflow 统一 bash：Windows runner 默认 pwsh，bash 条件脚本会 ParserError
+defaults:
+  run:
+    shell: bash
+
 jobs:
   # ---- 测试 + lint（三平台）----
   test:
