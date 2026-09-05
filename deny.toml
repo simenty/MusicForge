@@ -1,7 +1,6 @@
 [graph]
 all-features = false
 # 插件宿主（plugin-host）等 feature 引入的依赖不参与默认构建审计
-no-index-update = false
 
 [licenses]
 version = 2
