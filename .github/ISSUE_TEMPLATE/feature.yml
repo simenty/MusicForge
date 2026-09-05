@@ -1,0 +1,28 @@
+name: 功能提案
+description: 提出新能力或改进
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ 主线 scope 已冻结（ROADMAP.md §10）：新能力会转入 `docs/rfc/` 评估，v1.0 前不保证并入主线。
+        建议先确认提案未与 ROADMAP 中既有规划（P0–P9）重复。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题
+      description: 场景 + 现状痛点
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: 设想方案
+      description: 期望行为；若涉及联网/AI 请说明数据边界（PRIVACY.md）
+  - type: checkboxes
+    id: freeze
+    attributes:
+      label: 冻结确认
+      options:
+        - label: 我已阅读 ROADMAP.md §10 与 PLUGIN_POLICY.md，理解新能力将走 RFC 流程
+          required: true

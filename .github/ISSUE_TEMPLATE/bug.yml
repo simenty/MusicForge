@@ -1,0 +1,40 @@
+name: Bug 报告
+description: 报告一个可复现的问题
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么
+      description: 实际现象 + 期望行为
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      description: 命令行参数或 GUI 操作序列；越具体越好
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: `musicforge --version` 或安装包版本号
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 平台
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - NAS / Docker
+        - 其他
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 日志 / 失败清单 / 截图
+      description: 可脱敏后粘贴。⚠️ 请勿上传受版权保护的音频文件；畸形样本请先自行确认不含可识别内容。

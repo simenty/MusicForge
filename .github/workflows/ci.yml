@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, master, dev]
   pull_request:
-    branches: [main]
+    branches: [main, master]
 
 env:
   CARGO_TERM_COLOR: always
@@ -117,3 +117,62 @@ jobs:
             echo "⚠ skill-release.json 不存在（CLI-only 项目可跳过）"
           fi
           echo "Release identity check ✓"
+
+  # ---- 供应链门禁（P0.5）：许可证/禁用依赖/公告/源码正则/feature 断言 ----
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-deny & cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny,cargo-audit
+
+      - name: cargo deny check（许可证白名单 + 禁用依赖：网络客户端/DB 服务端客户端/GPL 传输）
+        run: cargo deny check licenses bans sources
+
+      - name: cargo audit（RustSec 公告）
+        run: cargo audit
+
+      - name: 源码正则扫描（核心/CLI 零网络字面量：URL/TcpStream/UdpSocket）
+        run: |
+          grep -rnE "https?://|TcpStream::|UdpSocket::" musicforge-core/src/ musicforge-cli/src/ \
+            && exit 1 || echo "源码零网络字面量 ✓"
+
+      - name: 默认构建 feature 断言（默认构建无插件宿主/云层）
+        run: |
+          cargo tree -e features -p musicforge-core 2>/dev/null | grep -iE "plugin-host|musicforge-cloud" \
+            && exit 1 || echo "默认构建零插件宿主/云层 ✓"
+
+  # ---- 断网行为测试（P0.5 第 4 层）：有网构建 → iptables 断网 → 跑金标 ----
+  offline-behavior:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build golden tests（有网：拉取 crates）
+        run: cargo test -p musicforge-core --test golden --no-run
+
+      - name: Run golden tests WITHOUT network（iptables 全断出口，跑完即恢复）
+        run: |
+          sudo iptables -A OUTPUT ! -o lo -j DROP
+          cargo test -p musicforge-core --test golden
+          RC=$?
+          sudo iptables -D OUTPUT ! -o lo -j DROP
+          exit $RC
