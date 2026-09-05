@@ -111,6 +111,10 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # rust-toolchain.toml 会切到 pinned 1.98.0，其 std 需单独为交叉目标补装
+      - name: Add target std for pinned toolchain
+        run: rustup target add ${{ matrix.target }}
+
       - name: Build CLI (release)
         run: cargo build --release -p musicforge-cli --target ${{ matrix.target }}
 
