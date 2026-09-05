@@ -43,6 +43,17 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - uses: actions/setup-node@v4
+        if: matrix.os != 'ubuntu-latest'
+        with:
+          node-version: '20'
+
+      - name: Build frontend（tauri 宏在编译期嵌入 ../ui/dist，CI 上必须先产出）
+        if: matrix.os != 'ubuntu-latest'
+        run: |
+          npm --prefix musicforge-gui/ui ci
+          npm --prefix musicforge-gui/ui run build
+
       - name: Lint（零 warning 目标；ubuntu 无 GTK，GUI 延后同 test/build job）
         # --all-targets 必带：不带时只扫 lib/bin，测试文件里的 warning 会全部漏掉
         # （2026-09-02 实测：加上后才暴露 13 处历史遗留，已修）
@@ -108,6 +119,17 @@ jobs:
         with:
           name: musicforge-cli-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/musicforge${{ matrix.suffix }}
+
+      - uses: actions/setup-node@v4
+        if: matrix.os != 'ubuntu-latest'
+        with:
+          node-version: '20'
+
+      - name: Build frontend（GUI 构建前置）
+        if: matrix.os != 'ubuntu-latest'
+        run: |
+          npm --prefix musicforge-gui/ui ci
+          npm --prefix musicforge-gui/ui run build
 
       - name: Build GUI (release, 非 Linux——Linux GUI 延后)
         if: matrix.os != 'ubuntu-latest'
