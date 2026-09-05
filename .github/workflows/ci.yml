@@ -38,10 +38,15 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Lint（零 warning 目标）
+      - name: Lint（零 warning 目标；ubuntu 无 GTK，GUI 延后同 test/build job）
         # --all-targets 必带：不带时只扫 lib/bin，测试文件里的 warning 会全部漏掉
         # （2026-09-02 实测：加上后才暴露 13 处历史遗留，已修）
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            cargo clippy --workspace --exclude musicforge-gui --all-targets -- -D warnings
+          else
+            cargo clippy --workspace --all-targets -- -D warnings
+          fi
 
       - name: 全量测试（golden + 单元 + 集成；ubuntu 无 GTK，GUI 延后同 build job）
         run: |
