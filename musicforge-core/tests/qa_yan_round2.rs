@@ -746,11 +746,14 @@ fn t3_fallback_stem_is_truncated() {
     m.album = Some(String::new()); // 空专辑名 ⇒ {album} 渲染为空 ⇒ 全部段为空
     let long_stem = "曲".repeat(300);
     let out = musicforge_core::template::render_filename("{album}", Some(&m), &long_stem);
-    assert_eq!(
+    // 2026-09-05 契约升级：段长上界从「100 字符」变为 min(100 字符, 200 字节)。
+    // 根因：Linux/macOS 文件名组件上限 255 字节，"曲"×100 = 300 字节在 ext4 上
+    // 直接 ENAMETOOLONG（CI ubuntu 实测暴露）。字符/字节双上限缺一不可。
+    assert!(
+        out.len() <= 200 && out.chars().count() <= 100,
+        "回退分支必须受字符+字节双上限约束，实际 {} chars / {} bytes",
         out.chars().count(),
-        100,
-        "回退分支必须同样受 100 字符段长上界约束，实际 {}",
-        out.chars().count()
+        out.len()
     );
 }
 

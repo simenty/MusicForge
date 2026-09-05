@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Cross-platform filename overflow**: naming-template segment truncation now enforces a
+  byte budget (≤200 UTF-8 bytes) in addition to the 100-char cap. Linux/macOS limit filename
+  components to 255 **bytes**; a 100-char CJK title (300 B) or emoji title (400 B) previously
+  failed with `ENAMETOOLONG` at write time (surfaced by new ubuntu CI runner).
+
 ### Planned (see ROADMAP.md)
 
 - v0.2.0 — Safety task layer: Plan / Manifest / Dry-run / Trash / Rollback / Resume + state db.

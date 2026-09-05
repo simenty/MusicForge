@@ -18,6 +18,10 @@ const RESERVED: &[&str] = &[
 ];
 /// 单路径段字符上限（UTF-8 安全按字符截断；防 MAX_PATH 爆炸）
 const MAX_SEGMENT_CHARS: usize = 100;
+/// Linux/macOS 文件名组件硬上限 255 **字节**（Windows 是 255 UTF-16 单元）。
+/// 按 100 字符截断对多字节字符（CJK 3B、emoji 4B）仍会超限（100×4=400B），
+/// 因此增加字节预算：≤200 字节，为扩展名（如 ".flac"）与多段路径留余量。
+const MAX_SEGMENT_BYTES: usize = 200;
 
 /// 缺失字段的回退文案
 pub struct Fallbacks {
@@ -135,7 +139,17 @@ fn sanitize(seg: &str) -> String {
 
 /// 按字符数截断（UTF-8 安全）
 fn truncate_chars(s: &str, max: usize) -> String {
-    s.chars().take(max).collect()
+    // 先按字符数截断（可读性上限）
+    let s: String = s.chars().take(max).collect();
+    // 再按字节数截断（文件系统组件上限；绝不切开 UTF-8 字符）
+    if s.len() <= MAX_SEGMENT_BYTES {
+        return s;
+    }
+    let mut end = MAX_SEGMENT_BYTES;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s[..end].to_string()
 }
 
 #[cfg(test)]
@@ -220,10 +234,14 @@ mod tests {
     }
 
     #[test]
-    fn long_name_truncated_by_chars() {
+    fn long_name_truncated_by_bytes() {
+        // 段长上界 = min(100 字符, 200 字节)。"曲" 为 3 字节/字符：
+        // 300 字符 → 100 字符(300B) → 字节截断至 66 字符(198B ≤ 200B)。
         let long = "曲".repeat(300);
         let m = meta(&long, "a", "al", None);
-        assert_eq!(render_filename("{title}", Some(&m), "s").chars().count(), 100);
+        let out = render_filename("{title}", Some(&m), "s");
+        assert_eq!(out.chars().count(), 66);
+        assert!(out.len() <= MAX_SEGMENT_BYTES, "组件字节必须 ≤ {MAX_SEGMENT_BYTES}，实际 {}", out.len());
     }
 
     #[test]
@@ -248,7 +266,11 @@ mod tests {
         m.format = None; // 让 {format} 渲染为空 → 走回退分支
         let long_stem = "曲".repeat(300);
         let out = render_filename("{format}", Some(&m), &long_stem);
-        assert_eq!(out.chars().count(), MAX_SEGMENT_CHARS, "回退值也必须受段长上界约束");
+        assert!(
+            out.len() <= MAX_SEGMENT_BYTES && out.chars().count() <= MAX_SEGMENT_CHARS,
+            "回退值也必须受段长上界约束（字符+字节双上限），实际 {} chars / {} bytes",
+            out.chars().count(), out.len()
+        );
     }
 
     /// P1a 保护网：中文快照。中文标题/艺人/专辑 + track 零填充 + 目录段
