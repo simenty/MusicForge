@@ -1,0 +1,13 @@
+{
+  "ncm": "mp3_raw_no_id3.ncm",
+  "format_ext": "mp3",
+  "audio_len": 6672,
+  "audio_sha256": "e41d5a90e1a1052900c219e93b855213635704fa02796d1b9e70a50788cd19ce",
+  "metadata": {
+    "musicName": "裸MP3",
+    "artist": "测试歌手",
+    "album": "测试专辑",
+    "format": "mp3"
+  },
+  "cover_len": 0
+}

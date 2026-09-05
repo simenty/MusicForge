@@ -1,0 +1,48 @@
+﻿MusicForge v0.1.0 — 使用前须知与许可条款
+======================================
+
+【一、法律须知（请先阅读）】
+
+MusicForge 是一个完全离线的本地音频格式转换工具。
+
+1. 本工具仅用于处理你已合法获得的文件的个人本地格式转换。
+
+2. 根据《中华人民共和国著作权法》第 49 条，故意避开或者破坏权利人为
+   其作品采取的技术措施，属于法律禁止的行为；第 50 条规定的五项法定
+   例外情形不包含个人格式转换，且该条设有但书，禁止向他人提供规避
+   工具或技术。
+
+3. 本工具不连接互联网、不上传任何文件、不收集任何数据、不内置任何
+   曲目数据库，也不提供任何下载、分享、破解服务。
+
+4. 是否使用本工具、用于何种用途，由你自行判断并自行承担相应责任。
+   开发者不对使用行为及其后果承担任何责任。
+
+5. 若你所在司法辖区的法律禁止此类转换行为，请立即删除本工具。
+
+继续安装即表示你已阅读并理解上述内容。
+
+
+【二、开源许可（MIT License）】
+
+MIT License
+
+Copyright (c) 2026 MusicForge contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

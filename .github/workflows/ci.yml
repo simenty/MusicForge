@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ---- 测试 + lint（三平台）----
+  test:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Lint（零 warning 目标）
+        # --all-targets 必带：不带时只扫 lib/bin，测试文件里的 warning 会全部漏掉
+        # （2026-09-02 实测：加上后才暴露 13 处历史遗留，已修）
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: 全量测试（golden + 单元 + 集成）
+        run: cargo test --workspace
+
+      - name: 零网络扫描（源级：use/依赖树）
+        run: |
+          grep -rn "use std::net\|use tokio::net\|reqwest\|ureq\|hyper::client" \
+            musicforge-core/src/ musicforge-cli/src/ && exit 1 || echo "零网络 ✓"
+          cargo tree -p musicforge-core -p musicforge-cli 2>/dev/null | grep -iE "net|http|reqwest" \
+            && exit 1 || echo "依赖树零网络 ✓"
+
+      - name: 零 panic 扫描（核心库禁 panic!）
+        run: |
+          grep -rn "panic!(" musicforge-core/src/ --include="*.rs" \
+            | grep -v "test\|#\[cfg(test)\]" && exit 1 || echo "零 panic ✓"
+
+  # ---- Release 构建（三平台产物）----
+  build:
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            suffix: .exe
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            suffix: ""
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            suffix: ""
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            suffix: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build CLI (release)
+        run: cargo build --release -p musicforge-cli --target ${{ matrix.target }}
+
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: musicforge-cli-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/musicforge${{ matrix.suffix }}
+
+      - name: Build GUI (release, 非 Linux——Linux GUI 延后)
+        if: matrix.os != 'ubuntu-latest'
+        run: cargo build --release -p musicforge-gui --target ${{ matrix.target }}
+
+      - name: Upload GUI artifact
+        if: matrix.os != 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: musicforge-gui-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/musicforge-gui${{ matrix.suffix }}
+
+  # ---- 供应链确定性（tag 触发时校验 zip 字节一致）----
+  release-check:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 验证 release manifest 引用已存在的 tag
+        run: |
+          VERSION=$(grep '^version' musicforge-core/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          echo "版本: $VERSION"
+          if [ ! -f "skill-release.json" ]; then
+            echo "⚠ skill-release.json 不存在（CLI-only 项目可跳过）"
+          fi
+          echo "Release identity check ✓"

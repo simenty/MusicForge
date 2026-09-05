@@ -1,0 +1,13 @@
+{
+  "ncm": "mp3_with_id3.ncm",
+  "format_ext": "mp3",
+  "audio_len": 7739,
+  "audio_sha256": "b939adf1c3caf0d12afd3264f1f455cf77b3d40405c651f29acac60dab95a02b",
+  "metadata": {
+    "musicName": "带ID3的MP3",
+    "artist": "测试歌手",
+    "album": "测试专辑",
+    "format": "mp3"
+  },
+  "cover_len": 0
+}

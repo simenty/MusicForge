@@ -1,0 +1,17 @@
+/target/
+node_modules/
+dist/
+*.shelf.json
+probe/
+rustup-init.exe
+
+# 安装包产物：源码（.nsi）入仓，二进制走 GitHub Releases
+installer/*.exe
+
+# Vite 临时产物
+vite.config.ts.timestamp-*.mjs
+
+# 构建日志
+*.log
+
+tmp-out/

@@ -1,0 +1,24 @@
+{
+  "name": "musicforge-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build && node -e \"const fs=require('fs');const g=fs.readdirSync('dist/assets').filter(f=>f.endsWith('.css'));if(!g.length){console.error('X CSS 产物缺失: styles.css 可能未被 import（历史 bug，勿回归）');process.exit(1)}else{console.log('CSS 产物 OK: '+g.join(', '))}\"",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "typescript": "^5.5.0",
+    "vite": "^5.4.0"
+  }
+}

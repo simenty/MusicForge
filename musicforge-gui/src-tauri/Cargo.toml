@@ -1,0 +1,23 @@
+[package]
+name = "musicforge-gui"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "MusicForge GUI (Tauri 2): offline, reliable, observable ncm converter"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+# 生产构建必须启用：启用后 Tauri 嵌入 frontendDist 资源而非连接 devUrl
+custom-protocol = ["tauri/custom-protocol"]
+
+[dependencies]
+tauri = { version = "2", features = [] }
+# 原生文件/目录/保存对话框。仅注册为 Rust 侧插件，不向 JS 暴露 API
+# ——前端只能通过下面白名单化的命令调用，ACL 面最小。
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+musicforge-cli = { path = "../../musicforge-cli" }
+musicforge-core = { path = "../../musicforge-core" }

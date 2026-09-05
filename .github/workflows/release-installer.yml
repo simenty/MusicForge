@@ -1,0 +1,91 @@
+name: Release Installer (Windows)
+
+# 仅手动触发：
+#   1. NSIS 在 GitHub windows-latest 上默认未预装，需 choco 安装（网络依赖，
+#      不应进入每次 push 的主 CI）
+#   2. 本流程**尚未在真实 CI 环境验证过**，先以 workflow_dispatch 灰度，
+#      跑通后再考虑接入 tag 触发
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号，例如 0.1.0'
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  nsis:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build GUI（含前端资产内联，必须启用 custom-protocol）
+        run: cargo build --release -p musicforge-gui
+
+      - name: Build CLI
+        run: cargo build --release -p musicforge-cli
+
+      - name: Stage dist tree
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "dist\musicforge-$env:VERSION-windows-x64" | Out-Null
+          Copy-Item target\release\musicforge.exe      "dist\musicforge-$env:VERSION-windows-x64\"
+          Copy-Item target\release\musicforge-gui.exe  "dist\musicforge-$env:VERSION-windows-x64\"
+          Copy-Item README.md, LICENSE            "dist\musicforge-$env:VERSION-windows-x64\"
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+
+      - name: Build zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist\musicforge-$env:VERSION-windows-x64" `
+            -DestinationPath "dist\musicforge-$env:VERSION-windows-x64.zip" -CompressionLevel Optimal
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+
+      - name: Install NSIS
+        run: choco install nsis --no-progress -y
+
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\NSIS\Bin\makensis.exe" /INPUTCHARSET UTF8 `
+            /DVERSION=$env:VERSION musicforge.nsi
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed with $LASTEXITCODE" }
+        working-directory: installer
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+
+      - name: Smoke test（静默安装 → 卸载 → 校验清理）
+        shell: pwsh
+        run: |
+          & ".\MusicForge-$env:VERSION-setup.exe" /S
+          if ($LASTEXITCODE -ne 0) { throw "silent install failed" }
+          $dir = "$env:LOCALAPPDATA\Programs\MusicForge"
+          if (-not (Test-Path "$dir\musicforge-gui.exe")) { throw "musicforge-gui.exe missing after install" }
+          if (-not (Test-Path "$dir\musicforge.exe"))     { throw "musicforge.exe missing after install" }
+          & "$dir\Uninstall.exe" /S
+          if ($LASTEXITCODE -ne 0) { throw "silent uninstall failed" }
+          if (Test-Path $dir) { throw "install dir not removed: $dir" }
+          Write-Host "::notice::install/uninstall lifecycle OK"
+        working-directory: installer
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: musicforge-windows-${{ github.event.inputs.version }}
+          path: |
+            installer/MusicForge-${{ github.event.inputs.version }}-setup.exe
+            dist/musicforge-${{ github.event.inputs.version }}-windows-x64.zip

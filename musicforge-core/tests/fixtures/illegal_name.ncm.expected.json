@@ -1,0 +1,13 @@
+{
+  "ncm": "illegal_name.ncm",
+  "format_ext": "flac",
+  "audio_len": 554,
+  "audio_sha256": "095d5b88df76a91e04246406e4681d434cfa046c583a28d06b4a6e249177a4fe",
+  "metadata": {
+    "musicName": "AC/DC: Back? *In* \"Black\"",
+    "artist": "测试歌手",
+    "album": "测试专辑",
+    "format": "flac"
+  },
+  "cover_len": 0
+}
