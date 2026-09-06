@@ -15,3 +15,7 @@ vite.config.ts.timestamp-*.mjs
 *.log
 
 tmp-out/
+
+# 编辑器/调试期间的临时备份
+*.editor-stale
+*.committed-backup
