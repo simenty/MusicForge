@@ -20,7 +20,7 @@ Unicode true
 ; 版本号：默认 0.1.0，可由命令行覆盖
 ;   makensis /DVERSION=0.2.0 musicforge.nsi
 !ifndef VERSION
-  !define VERSION  "0.1.1"
+  !define VERSION  "0.2.0"
 !endif
 
 !define PUBLISHER  "MusicForge contributors"

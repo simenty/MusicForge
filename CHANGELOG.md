@@ -7,10 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-06
+
 ### Added
-- P1a strangler-refactor protection net: 10 contract tests + 5 verified mutations
-  (template zh snapshot, golden payload determinism, exit-code semantics, failure-CSV
-  header compat, GUI command serde contracts).
+- **Safety task layer**: per-task NDJSON manifest (`schema_version=1`) with one item
+  per file (result, `MF-*` code, target sha256, adapter id); `--dry-run` (plan only,
+  zero writes); `--resume <manifest>` (skip completed; reserved target names prevent
+  overwrite-on-resume); atomic writes (temp + rename) with startup cleanup of stale
+  temp files.
+- **State layer** (`--state-db`, D16): SQLite `library.db` (files index / hash cache /
+  task history / ack records). Renewable cache only — the filesystem and manifest
+  remain the source of truth. Local config dir only; network mounts rejected.
+- **Safety grading**: destructive commands default to dry-run (`--apply` to execute,
+  `--yes` for high-risk); stable codes `MF-OP-CONFLICT` / `MF-OP-NEEDS-YES`.
+- **Strangler refactor (P1)**: `FormatAdapter` / `NcmAdapter` / `FormatRegistry` with
+  equivalence tests; CLI routes format detection through the registry; legacy paths
+  kept via facades (D9); `MF-*` error-code namespace added (legacy `NCM-*` retained).
+- **GUI**: dry-run toggle (persisted), planned badge, plan preview panel; full-
+  resolution icon set (1024px source art in docs/assets).
+
+### Changed
+- `MF-*` error-code namespace introduced alongside legacy `NCM-*` codes
+  (see docs/result-codes.md); contract tests pin the mapping.
+- Whole-tree rustfmt normalization; MSRV pinned via rust-toolchain.toml.
+
+### Docs
+- ROADMAP (frozen baseline), PRIVACY, PLUGIN_POLICY, TRADEMARK, SECURITY(SLA),
+  docs/{architecture, threat-model, dependency-policy, result-codes, refactor-invariants}.
 
 ## [0.1.1] - 2026-09-06
 
@@ -58,6 +81,7 @@ Initial public release (renamed from the private prototype "Shelf").
 
 - Core has zero network code paths (CI-enforced); no telemetry, no crash reporting, no analytics.
 
-[Unreleased]: https://github.com/simenty/MusicForge/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/simenty/MusicForge/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/simenty/MusicForge/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/simenty/MusicForge/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/simenty/MusicForge/releases/tag/v0.1.0
