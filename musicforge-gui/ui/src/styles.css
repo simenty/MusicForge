@@ -999,3 +999,48 @@ body {
     transition: none !important;
   }
 }
+
+/* ---------- 计划预览面板（v0.2.0 dry-run） ---------- */
+.plan-panel {
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  margin: 8px 12px 0;
+  background: var(--bg-elev, #1b1e27);
+  overflow: hidden;
+}
+.plan-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border, #333);
+}
+.plan-body {
+  max-height: 220px;
+  overflow: auto;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+}
+.plan-row {
+  display: flex;
+  gap: 8px;
+  padding: 3px 10px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--border, #333) 55%, transparent);
+}
+.plan-row:last-child {
+  border-bottom: none;
+}
+.plan-err {
+  color: var(--fail, #ff6b6b);
+}
+.plan-src,
+.plan-dst {
+  flex: 1 1 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plan-arrow {
+  flex: 0 0 auto;
+  opacity: 0.6;
+}

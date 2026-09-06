@@ -9,9 +9,11 @@ import {
   onBatchDone,
   onBatchFile,
   onDragDropEvent,
+  planBatch,
   startBatch,
   type BatchSummary,
   type FileResult,
+  type PlannedItem,
   type UnlistenFn,
 } from "./api";
 import { loadSettings, saveSettings, type Settings } from "./settings";
@@ -63,6 +65,8 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [rows, setRows] = useState<Row[]>([]);
   const [summary, setSummary] = useState<BatchSummary | null>(null);
+  /** 计划预览（dry-run）：planBatch 的结果，展示在列表上方的预览面板 */
+  const [plannedRows, setPlannedRows] = useState<PlannedItem[] | null>(null);
   const [running, setRunning] = useState(false);
   const [filter, setFilter] = useState<FilterKey>("all");
   const [dragOver, setDragOver] = useState(false);
@@ -294,6 +298,11 @@ export default function App() {
   // 不存在「计数与列表脱节」这类状态同步 bug。O(n) 每次 flush 可忽略。
   const counts = filterCounts;
 
+  // 输入行变化后，旧的计划预览即失效
+  useEffect(() => {
+    setPlannedRows(null);
+  }, [rows.length]);
+
   const start = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
   const end = Math.min(filtered.length, Math.ceil((scrollTop + viewH) / ROW_H) + OVERSCAN);
   const visible = filtered.slice(start, end);
@@ -364,9 +373,34 @@ export default function App() {
       showToast("已选择「自定义目录」，请先指定输出目录。");
       return;
     }
+    // dry-run：不进入执行流，改走计划预览（plan_batch 只规划不落盘）
+    if (settings.dryRun) {
+      try {
+        const items = await planBatch({
+          inputs: rows.map((r) => ({ path: r.source, root: r.root })),
+          outDir: settings.saveTo === "custom" ? settings.outDir.trim() : null,
+          template: settings.template,
+          skipExisting: settings.skipExisting,
+          recursive: settings.recursive,
+          jobs: settings.jobs,
+          dryRun: true,
+        });
+        const failed = items.filter((i) => i.error !== null).length;
+        setPlannedRows(items);
+        showToast(
+          `已生成计划：${items.length - failed} 项可执行` +
+            (failed > 0 ? `，${failed} 项失败（见预览面板）` : "（未改动任何文件）")
+        );
+      } catch (e) {
+        showToast(String(e));
+      }
+      return;
+    }
+
     // 允许重跑：先把所有行重置为等待。
     // （竞品在这里直接拒绝、逼用户重新导入，属于没必要的限制）
     pendingRef.current = [];
+    setPlannedRows(null);
     setRows((prev) =>
       prev.map((r) => ({ ...r, status: "pending" as const, output: null, reason: null }))
     );
@@ -430,6 +464,32 @@ export default function App() {
           <pre>{fatal}</pre>
         </div>
       )}
+      {plannedRows && plannedRows.length > 0 && (
+        <div className="plan-panel">
+          <div className="plan-head">
+            <b>
+              计划预览（{plannedRows.length} 项 ·{" "}
+              {plannedRows.filter((i) => i.error === null).length} 可执行 · 未改动任何文件）
+            </b>
+            <button className="btn sm" onClick={() => setPlannedRows(null)}>
+              关闭
+            </button>
+          </div>
+          <div className="plan-body">
+            {plannedRows.map((i) => (
+              <div key={i.source} className={"plan-row" + (i.error ? " plan-err" : "")}>
+                <span className="plan-src" title={i.source}>
+                  {i.source}
+                </span>
+                <span className="plan-arrow">→</span>
+                <span className="plan-dst" title={i.target ?? i.error ?? ""}>
+                  {i.error ? `✕ ${i.error}` : (i.target ?? "")}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {/* ---------- 标题栏 ---------- */}
       <div className="titlebar">
         <div className="brand">
@@ -464,7 +524,8 @@ export default function App() {
             </button>
           ) : (
             <button className="btn primary" onClick={startRun} disabled={rows.length === 0}>
-              <span className="ico">▶</span>开始转换
+              <span className="ico">{settings.dryRun ? "🗎" : "▶"}</span>
+              {settings.dryRun ? "生成计划（不写文件）" : "开始转换"}
             </button>
           )}
         </div>

@@ -110,6 +110,53 @@ pub struct FileResult {
     pub tags_written: usize,
 }
 
+/// 计划预览条目（`plan_only` 产出；供 GUI 预览面板与 dry-run 使用）。
+#[derive(Debug, Clone)]
+pub struct PlannedItem {
+    pub source: String,
+    /// 目标路径；None = 规划失败（`error` 说明原因，如 NCM-BAD-MAGIC）
+    pub target: Option<String>,
+    /// 判定的音频格式扩展名（如 "flac"）；失败时为 None
+    pub format: Option<String>,
+    pub error: Option<String>,
+}
+
+/// 只规划不执行：对输入做展开 + 逐文件规划（含目标名去重），返回计划条目。
+///
+/// 与 `run_inner` 共用同一套 `plan_one` 逻辑——预览与执行**不可能分叉**。
+pub fn plan_only(
+    inputs: &[PathBuf],
+    recursive: bool,
+    template: &str,
+    out_dir: Option<&Path>,
+) -> Vec<PlannedItem> {
+    let cfg = BatchConfig {
+        out_dir: out_dir.map(|p| p.to_path_buf()),
+        template: template.to_string(),
+        ..Default::default()
+    };
+    let sources = collect_inputs(inputs, recursive);
+    let mut used: HashSet<String> = HashSet::new();
+    let mut items = Vec::new();
+    for item in sources {
+        match plan_one(item.clone(), &cfg, &mut used) {
+            Ok(p) => items.push(PlannedItem {
+                source: p.source.display().to_string(),
+                target: Some(p.target.display().to_string()),
+                format: Some(p.fmt.extension().to_string()),
+                error: None,
+            }),
+            Err(e) => items.push(PlannedItem {
+                source: item.0.display().to_string(),
+                target: None,
+                format: None,
+                error: Some(format!("{}: {e}", e.code())),
+            }),
+        }
+    }
+    items
+}
+
 #[derive(Debug)]
 pub struct BatchSummary {
     pub results: Vec<FileResult>,
