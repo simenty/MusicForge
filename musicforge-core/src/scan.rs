@@ -286,7 +286,7 @@ pub fn scan_library(root: &Path, options: &ScanOptions) -> Result<ScanReport, Nc
                     (Category::Junk, Some("MF-CLEAN-003"))
                 } else if ext.as_deref() == Some("lrc") {
                     (Category::Lyrics, None)
-                } else if ext.as_deref().map(|e| is_audio_ext(e)).unwrap_or(false) {
+                } else if ext.as_deref().map(is_audio_ext).unwrap_or(false) {
                     (Category::Audio, None)
                 } else if is_cover_name(&name) {
                     (Category::Cover, None)
