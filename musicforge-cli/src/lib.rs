@@ -285,6 +285,8 @@ struct Plan {
     source: PathBuf,
     target: PathBuf,
     fmt: musicforge_core::Format,
+    /// 处理该文件的格式适配器 id（P1d 起由 FormatRegistry 分派得出）
+    adapter: &'static str,
 }
 
 fn plan_one(
@@ -292,6 +294,13 @@ fn plan_one(
     cfg: &BatchConfig,
     used: &mut HashSet<String>,
 ) -> Result<Plan, NcmError> {
+    // P1d：CLI 内部经 FormatRegistry 分派（外部 API 与退出码不变）。
+    // 认领不了的文件直接给明确错误，不再交给 Decoder 兜底猜测（G5 教训）。
+    let adapter = musicforge_core::formats::registry::builtin_registry()
+        .detect_file(&source)
+        .ok_or(NcmError::BadMagic)?;
+    let adapter: &'static str = adapter.id();
+
     let mut dec = Decoder::open(&source)?;
     let fmt = dec.detect_format()?;
     let meta = dec.metadata().cloned();
@@ -340,7 +349,12 @@ fn plan_one(
         }
         n += 1;
     };
-    Ok(Plan { source, target, fmt })
+    Ok(Plan {
+        source,
+        target,
+        fmt,
+        adapter,
+    })
 }
 
 fn execute_one(plan: &Plan, cfg: &BatchConfig) -> FileResult {
@@ -406,6 +420,8 @@ fn execute_one(plan: &Plan, cfg: &BatchConfig) -> FileResult {
                 Ok(serde_json::json!({
                     "sha256": hex(h.finalize()),
                     "size": size,
+                    // P1d：记录产出该文件的格式适配器（P6b 起外部格式插件可归因审计）
+                    "adapter": plan.adapter,
                 }))
             })()
             .and_then(|v| {

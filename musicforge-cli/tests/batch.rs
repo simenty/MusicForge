@@ -421,3 +421,44 @@ fn failures_csv_header_is_stable() {
         "成功文件不应出现在失败清单里: {text}"
     );
 }
+
+// ============ P1d：注册表分派回归 ============
+
+/// 魔数不符的 .ncm（垃圾文件）必须在规划阶段给出明确错误码 NCM-BAD-MAGIC，
+/// 而不是被适配器认领后产出可疑结果（G5「兜底伪装成功」教训的回归断言）。
+#[test]
+fn bad_magic_is_rejected_with_stable_code() {
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    let out = tmp.path().join("out");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("junk.ncm"), b"garbage data here").unwrap();
+
+    let summary = run(cfg(vec![src], &out));
+    assert_eq!(summary.failed, 1, "垃圾 .ncm 必须失败");
+    assert_eq!(summary.ok, 0);
+    let reason = summary.results[0].reason.as_deref().unwrap_or("");
+    assert!(
+        reason.contains("NCM-BAD-MAGIC"),
+        "失败原因应含稳定错误码 NCM-BAD-MAGIC，实际: {reason:?}"
+    );
+    assert_ne!(summary.exit_code(), 0, "含失败的批处理退出码应非 0");
+}
+
+/// 完整性侧车记录产出该文件的格式适配器 id（P6b 起外部格式插件可归因审计）。
+#[test]
+fn sidecar_records_adapter_id() {
+    let tmp = tempfile::tempdir().unwrap();
+    let summary = run(cfg(vec![fixtures().join("no_cover.ncm")], tmp.path()));
+    assert_eq!(summary.ok, 1, "fixture 应转换成功");
+
+    let sidecar = std::fs::read_dir(tmp.path())
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.to_string_lossy().ends_with(".musicforge.json"))
+        .expect("应生成完整性侧车");
+    let v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&sidecar).unwrap()).unwrap();
+    assert_eq!(v["adapter"].as_str(), Some("ncm"), "侧车应记录适配器 id=ncm");
+    assert!(v["sha256"].as_str().is_some(), "侧车仍需记录 sha256");
+}

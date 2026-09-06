@@ -105,7 +105,7 @@ impl FormatAdapter for NcmAdapter {
 
 /// 格式注册表：内置适配器在前，外部注册在后，命中即返回。
 pub struct FormatRegistry {
-    adapters: Vec<Box<dyn FormatAdapter>>,
+    adapters: Vec<Box<dyn FormatAdapter + Send + Sync>>,
 }
 
 impl FormatRegistry {
@@ -124,12 +124,15 @@ impl FormatRegistry {
     }
 
     /// 注册一个适配器（P6b 起：外部格式插件经 `PluginFormatAdapter` 走同一入口）。
-    pub fn register(&mut self, adapter: Box<dyn FormatAdapter>) {
+    pub fn register(&mut self, adapter: Box<dyn FormatAdapter + Send + Sync>) {
         self.adapters.push(adapter);
     }
 
     /// 按探测输入找到第一个支持的适配器。
-    pub fn detect<'a>(&'a self, input: &ProbeInput<'_>) -> Option<&'a dyn FormatAdapter> {
+    pub fn detect<'a>(
+        &'a self,
+        input: &ProbeInput<'_>,
+    ) -> Option<&'a (dyn FormatAdapter + Send + Sync)> {
         self.adapters
             .iter()
             .find(|a| a.probe(input).is_some())
@@ -137,7 +140,7 @@ impl FormatRegistry {
     }
 
     /// 便捷入口：读文件头后按路径探测。
-    pub fn detect_file<'a>(&'a self, path: &Path) -> Option<&'a dyn FormatAdapter> {
+    pub fn detect_file<'a>(&'a self, path: &Path) -> Option<&'a (dyn FormatAdapter + Send + Sync)> {
         let header = read_header(path).ok()?;
         self.detect(&ProbeInput {
             extension: path.extension().and_then(|e| e.to_str()),
@@ -160,6 +163,12 @@ impl Default for FormatRegistry {
     fn default() -> Self {
         Self::with_builtins()
     }
+}
+
+/// 进程级内置注册表（CLI/GUI 共用一份，避免逐文件重建）。
+pub fn builtin_registry() -> &'static FormatRegistry {
+    static REGISTRY: std::sync::OnceLock<FormatRegistry> = std::sync::OnceLock::new();
+    REGISTRY.get_or_init(FormatRegistry::with_builtins)
 }
 
 /// 读取文件前若干字节用于探测。读失败返回 `Err`，由调用方决定降级策略。
