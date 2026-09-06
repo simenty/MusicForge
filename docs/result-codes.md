@@ -38,9 +38,11 @@ MusicForge 的每个失败都携带一个**稳定错误码**：UI、日志、失
 | `MF-FFMPEG-*` | `MF-FFMPEG-MISSING` | P5b（sidecar 探测） |
 | `MF-PLUGIN-*` | `MF-PLUGIN-NOT-FOUND` / `MF-PLUGIN-DISABLED` / `MF-PLUGIN-ACK-REQUIRED` / `MF-PLUGIN-PERMISSION-DENIED` / `MF-PLUGIN-TIMEOUT` / `MF-PLUGIN-CRASHED` / `MF-PLUGIN-API-INCOMPATIBLE` | P6a/P6b |
 | `MF-FORMAT-*` | `MF-FORMAT-DRM-UNSUPPORTED` | P6b（平台 DRM 只识别不处理，D10-D 级） |
-| `MF-DB-*` | `MF-DB-FAILED`（状态库异常：可再生缓存，删除即重建；勿放网络挂载） | P2（D16 状态层） |
-| `MF-OP-*` | `MF-OP-CONFLICT`（`--dry-run` 与 `--apply` 同时给出）／`MF-OP-NEEDS-YES`（高危操作缺 `--yes`） | P2（安全分级 `safety::resolve`） |
+| `MF-DB-*` | `MF-DB-FAILED`（状态库异常：可再生缓存，删除即重建；勿放网络挂载） | P2（D16 状态层）✅ 已启用 |
+| `MF-OP-*` | `MF-OP-CONFLICT`（`--dry-run` 与 `--apply` 同时给出）／`MF-OP-NEEDS-YES`（高危操作缺 `--yes`） | P2（安全分级 `safety::resolve`）✅ 已启用 |
 | `MF-TASK-*` | — | P2（任务/报告） |
+| `MF-DUP-*` | `MF-DUP-EXACT`（exact 内容重复牺牲项，回滚清单 `rule` 字段）／`MF-DUP-SAME-NAME`（同名候选牺牲项，`--include-same-name` 才纳入执行） | P4（去重）✅ 已启用 |
+| `MF-PLUGIN-NOT-FOUND` | `dedupe --suggest` 在离线版显式报出（AI 保留建议 = v0.7.0 `review_duplicate_group` 插件；绝不静默装作给过建议） | P4 触发 / P6a 修复 ✅ 已启用 |
 
 ## 约定
 
