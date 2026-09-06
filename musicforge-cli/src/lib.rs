@@ -10,6 +10,7 @@
 //! - **执行阶段（并行）**：按分配好的目标落盘 + 写标签 + 写完整性标记。
 
 pub mod manifest;
+pub mod safety;
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
