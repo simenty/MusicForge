@@ -13,10 +13,11 @@ crc32fast = "1"
 thiserror = "2"
 base64 = "0.22"
 serde_json = "1"
+# D17 增量哈希缓存（scan/convert 共用 files.sha256 缓存；CLI 侧原本就在用）
+sha2 = "0.10"
 
 # [profile.release] 只在 workspace 根定义（Cargo 语义：非根包的 profile 会被忽略，
 # 保留重复副本只会制造"改了没生效"的漂移陷阱——QA 审计 K4，2026-09-03 移除）
 
 [dev-dependencies]
-sha2 = "0.10"
 tempfile = "3"

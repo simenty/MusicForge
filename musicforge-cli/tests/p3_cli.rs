@@ -135,6 +135,48 @@ fn clean_rules_filter_limits_actions() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+#[test]
+fn scan_state_db_builds_then_reuses_hash_cache() {
+    let root = polluted();
+    let tmp = tempfile::tempdir().unwrap();
+    let dbp = tmp.path().join("lib.db");
+
+    // 首扫：建缓存（重算 1 个音频）
+    let (code, out) = run_cli(&[
+        "scan",
+        root.to_str().unwrap(),
+        "--json",
+        "--state-db",
+        dbp.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "{out}");
+    let v: serde_json::Value = serde_json::from_str(&out).expect("JSON 可解析");
+    assert_eq!(
+        v["hash_cache"]["hashed"].as_u64(),
+        Some(1),
+        "首扫应重算 1 个音频: {out}"
+    );
+    assert_eq!(v["hash_cache"]["cache_hits"].as_u64(), Some(0));
+
+    // 二扫：全命中零重算（D17 增量验收）
+    let (code2, out2) = run_cli(&[
+        "scan",
+        root.to_str().unwrap(),
+        "--json",
+        "--state-db",
+        dbp.to_str().unwrap(),
+    ]);
+    assert_eq!(code2, 0, "{out2}");
+    let v2: serde_json::Value = serde_json::from_str(&out2).expect("JSON 可解析");
+    assert_eq!(
+        v2["hash_cache"]["cache_hits"].as_u64(),
+        Some(1),
+        "二扫应全命中: {out2}"
+    );
+    assert_eq!(v2["hash_cache"]["hashed"].as_u64(), Some(0));
+    std::fs::remove_dir_all(&root).ok();
+}
+
 /// legacy 顶层参数不受子命令引入影响：-d/-r/-o 转换路径照常。
 #[test]
 fn legacy_convert_args_still_work() {
