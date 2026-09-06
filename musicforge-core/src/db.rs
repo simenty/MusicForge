@@ -213,21 +213,27 @@ impl Db {
     }
 }
 
-/// 默认状态库位置：**本地配置目录**（Windows `%LOCALAPPDATA%\MusicForge`，
+/// 本地配置目录（Windows `%LOCALAPPDATA%\MusicForge`，
 /// unix `$XDG_CONFIG_HOME/musicforge` 或 `~/.config/musicforge`）。
-pub fn default_db_path() -> PathBuf {
+/// 状态库与 GUI 的 manifests 都放这里——**绝不放音乐目录或网络挂载**。
+pub fn local_config_dir() -> PathBuf {
     if cfg!(windows) {
-        let base = std::env::var_os("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
-        base.join("MusicForge").join(DB_FILE_NAME)
+        std::env::var_os("LOCALAPPDATA")
+            .map(|v| PathBuf::from(v).join("MusicForge"))
+            .unwrap_or_else(|| PathBuf::from(".").join("MusicForge"))
     } else {
-        let base = std::env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-            .unwrap_or_else(|| PathBuf::from("."));
-        base.join("musicforge").join(DB_FILE_NAME)
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(|v| PathBuf::from(v).join("musicforge"))
+            .or_else(|| {
+                std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config/musicforge"))
+            })
+            .unwrap_or_else(|| PathBuf::from(".").join("musicforge"))
     }
+}
+
+/// 默认状态库位置：本地配置目录下的 [`DB_FILE_NAME`]。
+pub fn default_db_path() -> PathBuf {
+    local_config_dir().join(DB_FILE_NAME)
 }
 
 /// 位置守卫：拒绝把状态库放到网络位置（UNC / `\\server\share`）。

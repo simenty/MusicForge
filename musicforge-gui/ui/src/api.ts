@@ -15,6 +15,8 @@ export interface FileResult {
 }
 
 export interface BatchSummary {
+  /** v0.2.0：仅规划未执行的条目数（dry-run 模式） */
+  planned: number;
   ok: number;
   skipped: number;
   cancelled: number;
@@ -32,6 +34,8 @@ export interface BatchArgs {
   skipExisting: boolean;
   recursive: boolean;
   jobs: number;
+  /** v0.2.0：仅规划不落盘 */
+  dryRun: boolean;
 }
 
 /** collect_files 返回的展开项：root = 目录输入的根（散文件为 null） */

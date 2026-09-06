@@ -10,6 +10,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -67,6 +68,9 @@ struct BatchArgs {
     skip_existing: bool,
     recursive: bool,
     jobs: usize,
+    /// v0.2.0：仅规划不落盘（dry-run）
+    #[serde(default)]
+    dry_run: bool,
 }
 
 /// 模板预览：给定模板 + 示例元数据 → 返回渲染后的文件名
@@ -133,6 +137,15 @@ fn start_batch(
         *cancel = Some(token.clone());
     }
 
+    // v0.2.0：manifest 落在 out_dir 的约定目录；无自定义输出目录时落本地配置目录
+    let task_id = musicforge_cli::manifest::new_task_id();
+    let manifest_path = musicforge_cli::manifest::default_manifest_path(
+        match args.out_dir.as_deref() {
+            Some(d) if !d.trim().is_empty() => Some(Path::new(d)),
+            _ => None,
+        },
+        &task_id,
+    );
     let cfg = musicforge_cli::BatchConfig {
         // G3：输入已在导入阶段展开且保留 root——走 expanded 入口，root 随行，
         // 自定义输出目录时源目录树镜像与 CLI 完全一致
@@ -143,8 +156,8 @@ fn start_batch(
         jobs: args.jobs,
         template: args.template,
         cancel: Some(token),
-        dry_run: false,
-        manifest: None,
+        dry_run: args.dry_run,
+        manifest: Some(manifest_path),
     };
     let expanded: Vec<(PathBuf, Option<PathBuf>)> = args
         .inputs
@@ -175,6 +188,7 @@ fn start_batch(
         });
 
         let payload = serde_json::json!({
+            "planned": summary.planned,
             "ok": summary.ok,
             "skipped": summary.skipped,
             "cancelled": summary.cancelled,
