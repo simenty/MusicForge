@@ -123,9 +123,13 @@ pub fn new_task_id() -> String {
     )
 }
 
-/// 默认 manifest 路径：`<out_dir>/.musicforge/manifests/<task_id>.jsonl`
+/// 默认 manifest 路径：`<out_dir>/.musicforge/manifests/<task_id>.jsonl`。
+/// `out_dir` 为 None 时落到**本地配置目录**（绝不落到进程 CWD，避免杂散目录）。
 pub fn default_manifest_path(out_dir: Option<&Path>, task_id: &str) -> PathBuf {
-    let base = out_dir.unwrap_or(Path::new("."));
+    let base = match out_dir {
+        Some(d) => d.to_path_buf(),
+        None => musicforge_core::db::local_config_dir(),
+    };
     base.join(MANIFEST_DIR).join(format!("{task_id}.jsonl"))
 }
 

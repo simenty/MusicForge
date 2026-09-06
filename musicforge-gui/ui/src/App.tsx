@@ -381,6 +381,7 @@ export default function App() {
         skipExisting: settings.skipExisting,
         recursive: settings.recursive,
         jobs: settings.jobs,
+        dryRun: settings.dryRun,
       });
     } catch (e) {
       setRunning(false);
@@ -562,6 +563,15 @@ export default function App() {
               <span>递归子目录（保留目录结构）</span>
             </label>
             <label className="check">
+              <input
+                type="checkbox"
+                checked={settings.dryRun}
+                onChange={(e) => patch({ dryRun: e.target.checked })}
+                disabled={running}
+              />
+              <span>仅规划（dry-run，不写文件）</span>
+            </label>
+            <label className="check">
               <span className="nowrap">并发</span>
               <input
                 className="num"
@@ -707,6 +717,9 @@ export default function App() {
           </span>
           <span className="sep">|</span>
           <span className="muted">{formatDuration(finishedMs)}</span>
+          {summary && summary.planned > 0 && (
+            <span className="muted">🗎 已规划 {summary.planned}（未落盘）</span>
+          )}
           {summary?.isCancelled && <span className="badge-cancel">已取消</span>}
         </div>
         <button

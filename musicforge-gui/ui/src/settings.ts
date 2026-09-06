@@ -17,6 +17,8 @@ export interface Settings {
   recursive: boolean;
   /** 并发数 */
   jobs: number;
+  /** 仅规划（dry-run）：产出 manifest 计划，不写音频/侧车 */
+  dryRun: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -26,6 +28,7 @@ export const DEFAULT_SETTINGS: Settings = {
   skipExisting: true,
   recursive: true,
   jobs: 4,
+  dryRun: false,
 };
 
 const KEY = "musicforge.settings.v1";
@@ -55,6 +58,8 @@ export function loadSettings(): Settings {
         typeof parsed.recursive === "boolean"
           ? parsed.recursive
           : DEFAULT_SETTINGS.recursive,
+      dryRun:
+        typeof parsed.dryRun === "boolean" ? parsed.dryRun : DEFAULT_SETTINGS.dryRun,
       jobs,
     };
   } catch {
