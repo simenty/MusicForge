@@ -9,10 +9,18 @@ pub enum NcmError {
     BadMagic,
 
     #[error("文件在 {at} 处截断：需要 {need} 字节，实际 {got} 字节")]
-    Truncated { at: &'static str, need: u64, got: u64 },
+    Truncated {
+        at: &'static str,
+        need: u64,
+        got: u64,
+    },
 
     #[error("{at} 的长度字段越界：{value}（上限 {max}）")]
-    LengthOutOfRange { at: &'static str, value: u64, max: u64 },
+    LengthOutOfRange {
+        at: &'static str,
+        value: u64,
+        max: u64,
+    },
 
     #[error("密钥明文前缀校验失败（期望 neteasecloudmusic 前缀）")]
     BadKeyPrefix,
@@ -38,7 +46,9 @@ pub enum NcmError {
     #[error("密钥明文为空：前缀之后无 RC4 密钥数据，文件结构损坏")]
     EmptyKey,
 
-    #[error("无法判定音频格式（元数据无 format 且魔数不匹配）：拒绝产出可能损坏的文件（硬约束 9）")]
+    #[error(
+        "无法判定音频格式（元数据无 format 且魔数不匹配）：拒绝产出可能损坏的文件（硬约束 9）"
+    )]
     UnknownFormat,
 
     #[error("输出完整性校验失败：写入 {written} 字节，预期 {expected} 字节（硬约束 5）")]
@@ -61,7 +71,9 @@ impl NcmError {
             NcmError::BadMagic => "NCM-BAD-MAGIC",
             NcmError::Truncated { .. } => "NCM-TRUNCATED",
             NcmError::LengthOutOfRange { .. } => "NCM-STRUCT-INVALID",
-            NcmError::BadKeyPrefix | NcmError::BadMetaPrefix | NcmError::BadMusicPrefix
+            NcmError::BadKeyPrefix
+            | NcmError::BadMetaPrefix
+            | NcmError::BadMusicPrefix
             | NcmError::EmptyKey => "NCM-STRUCT-INVALID",
             NcmError::CrcMismatch { .. } => "NCM-CRC-MISMATCH",
             NcmError::UnknownFormat => "NCM-FORMAT-UNKNOWN",

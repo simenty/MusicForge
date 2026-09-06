@@ -58,7 +58,9 @@ fn adapter_path_matches_legacy_decoder() {
         let legacy_format = legacy_decoder.detect_format().expect("旧路径格式判定成功");
         let legacy_meta = legacy_decoder.metadata().cloned();
         let legacy_target = legacy_dir.join(format!("{stem}.{}", legacy_format.extension()));
-        legacy_decoder.dump_to(&legacy_target).expect("旧路径落盘成功");
+        legacy_decoder
+            .dump_to(&legacy_target)
+            .expect("旧路径落盘成功");
 
         // ---- 新路径：Registry → Adapter ----
         let adapter = registry

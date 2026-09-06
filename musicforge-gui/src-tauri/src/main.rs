@@ -54,9 +54,7 @@ impl Drop for RunningGuard {
 /// 因此中毒只意味着「别的线程 panic 过」，数据本身依然完好。
 /// 统一走 `into_inner()` 恢复，`start_batch`/`cancel_batch` 便不会因中毒而
 /// 静默失效（尤其不会让 `running` 卡在 true 上）。
-fn lock_cancel(
-    m: &Mutex<Option<CancelToken>>,
-) -> std::sync::MutexGuard<'_, Option<CancelToken>> {
+fn lock_cancel(m: &Mutex<Option<CancelToken>>) -> std::sync::MutexGuard<'_, Option<CancelToken>> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -145,6 +143,8 @@ fn start_batch(
         jobs: args.jobs,
         template: args.template,
         cancel: Some(token),
+        dry_run: false,
+        manifest: None,
     };
     let expanded: Vec<(PathBuf, Option<PathBuf>)> = args
         .inputs
@@ -155,7 +155,9 @@ fn start_batch(
     let app_for_thread = app.clone();
     std::thread::spawn(move || {
         // 复位交给 Drop（见 RunningGuard 注释）；线程体内不再手动置 false
-        let _guard = RunningGuard { app: app_for_thread.clone() };
+        let _guard = RunningGuard {
+            app: app_for_thread.clone(),
+        };
         let summary = musicforge_cli::run_with_progress_expanded(expanded, cfg, |r| {
             let payload = serde_json::json!({
                 "source": r.source.to_string_lossy(),
@@ -232,7 +234,11 @@ async fn select_ncm_files(app: AppHandle, start_dir: Option<String>) -> Vec<Stri
         .file()
         .add_filter("NCM 音频文件", &["ncm"])
         .set_title("选择 .ncm 文件（可多选）");
-    if let Some(dir) = start_dir.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(dir) = start_dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         d = d.set_directory(dir);
     }
     match d.blocking_pick_files() {
@@ -258,7 +264,11 @@ async fn select_directory(
         .filter(|s| !s.is_empty())
         .unwrap_or("选择目录");
     let mut d = app.dialog().file().set_title(title);
-    if let Some(dir) = start_dir.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(dir) = start_dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         d = d.set_directory(dir);
     }
     d.blocking_pick_folder()
@@ -270,14 +280,8 @@ async fn select_directory(
 /// 复用 `musicforge_cli::BatchSummary::export_failures_csv`，保证与 CLI `--export-failures` 格式完全一致。
 /// 返回写入路径；无失败项或用户取消 → null。
 #[tauri::command]
-async fn save_failures(
-    app: AppHandle,
-    rows: Vec<FailureRow>,
-) -> Result<Option<String>, String> {
-    let failed: Vec<FailureRow> = rows
-        .into_iter()
-        .filter(|r| r.status == "failed")
-        .collect();
+async fn save_failures(app: AppHandle, rows: Vec<FailureRow>) -> Result<Option<String>, String> {
+    let failed: Vec<FailureRow> = rows.into_iter().filter(|r| r.status == "failed").collect();
     if failed.is_empty() {
         return Ok(None);
     }
@@ -315,6 +319,7 @@ async fn save_failures(
         .collect();
 
     let summary = musicforge_cli::BatchSummary {
+        planned: 0,
         failed: results.len(),
         results,
         ok: 0,
@@ -374,7 +379,10 @@ mod tests {
 
         // 目录模板：GUI 预览与 CLI 渲染语义必须一致（含 track 零填充）
         let rows = preview_template("{artist}/{album}/{track:02d} {title}".to_string());
-        assert_eq!(rows[0], "李荣浩/耳朵/01 贝贝", "GUI 预览必须与 CLI 渲染同语义");
+        assert_eq!(
+            rows[0], "李荣浩/耳朵/01 贝贝",
+            "GUI 预览必须与 CLI 渲染同语义"
+        );
     }
 
     /// collect_files：目录输入按 recursive 过滤 .ncm，且 root 必须随行返回
@@ -400,8 +408,10 @@ mod tests {
         assert_eq!(rec.len(), 2, "递归应收集 sub 下的 .ncm");
 
         // 散文件输入：root 必须为 None（前端据此区分两种输入来源）
-        let single =
-            collect_files(vec![base.join("a.ncm").to_string_lossy().into_owned()], false);
+        let single = collect_files(
+            vec![base.join("a.ncm").to_string_lossy().into_owned()],
+            false,
+        );
         assert_eq!(single.len(), 1);
         assert!(single[0].root.is_none(), "散文件输入 root 必须为 None");
 
@@ -412,16 +422,21 @@ mod tests {
     /// 字段名一旦增删改即 IPC 断裂（且是静默断裂——前端拿到 undefined）。
     #[test]
     fn input_pair_serializes_with_stable_field_names() {
-        let with_root = InputPair { path: "C:/a.ncm".into(), root: Some("C:/".into()) };
+        let with_root = InputPair {
+            path: "C:/a.ncm".into(),
+            root: Some("C:/".into()),
+        };
         let v: serde_json::Value = serde_json::to_value(&with_root).unwrap();
-        let mut keys: Vec<&str> =
-            v.as_object().unwrap().keys().map(|s| s.as_str()).collect();
+        let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(|s| s.as_str()).collect();
         keys.sort_unstable();
         assert_eq!(keys, vec!["path", "root"], "InputPair 字段名集合发生变化");
         assert_eq!(v["path"], "C:/a.ncm");
         assert_eq!(v["root"], "C:/");
 
-        let without_root = InputPair { path: "a.ncm".into(), root: None };
+        let without_root = InputPair {
+            path: "a.ncm".into(),
+            root: None,
+        };
         let v2: serde_json::Value = serde_json::to_value(&without_root).unwrap();
         assert!(
             v2["root"].is_null(),

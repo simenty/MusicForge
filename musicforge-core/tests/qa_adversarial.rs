@@ -59,8 +59,10 @@ mod ncm {
             "format": fmt,
         })
         .to_string();
-        let inner =
-            aes_ecb_encrypt(&musicforge_core::META_KEY, format!("music:{meta_json}").as_bytes());
+        let inner = aes_ecb_encrypt(
+            &musicforge_core::META_KEY,
+            format!("music:{meta_json}").as_bytes(),
+        );
         let full = format!(
             "163 key(Don't modify):{}",
             base64::engine::general_purpose::STANDARD.encode(inner)
@@ -168,7 +170,10 @@ fn meta_with(title: &str) -> Metadata {
 }
 
 fn meta_track(t: u64) -> Metadata {
-    Metadata { track: Some(t), ..meta_with("t") }
+    Metadata {
+        track: Some(t),
+        ..meta_with("t")
+    }
 }
 
 // ============ 攻击 2：空音频 —— 必须报 EmptyAudio，不得产出 0 字节文件 ============
@@ -182,7 +187,10 @@ fn empty_audio_must_error_not_zero_byte_output() {
 
     let result = Decoder::open(&p).and_then(|mut d| d.dump(Some(out.path())));
     let err = result.expect_err("空音频必须报错，不得静默成功");
-    assert!(matches!(err, NcmError::EmptyAudio), "应报 EmptyAudio，实际: {err}");
+    assert!(
+        matches!(err, NcmError::EmptyAudio),
+        "应报 EmptyAudio，实际: {err}"
+    );
     assert!(
         std::fs::read_dir(out.path()).unwrap().next().is_none(),
         "不得产出 0 字节半成品"
@@ -211,7 +219,10 @@ fn cover_len1_beyond_file_must_not_produce_zero_byte_output() {
     let result = Decoder::open(&p).and_then(|mut d| d.dump(Some(out.path())));
     let err = result.expect_err("coverLen1 越界必须报错");
     assert!(
-        matches!(err, NcmError::LengthOutOfRange { .. } | NcmError::EmptyAudio),
+        matches!(
+            err,
+            NcmError::LengthOutOfRange { .. } | NcmError::EmptyAudio
+        ),
         "应报 LengthOutOfRange/EmptyAudio，实际: {err}"
     );
     assert!(
@@ -237,7 +248,10 @@ fn header_only_truncation_must_not_produce_output() {
     let result = Decoder::open(&p2).and_then(|mut d| d.dump(Some(out.path())));
     let err = result.expect_err("仅剩头部的文件必须报错");
     assert!(
-        matches!(err, NcmError::EmptyAudio | NcmError::Truncated { .. } | NcmError::Io(_)),
+        matches!(
+            err,
+            NcmError::EmptyAudio | NcmError::Truncated { .. } | NcmError::Io(_)
+        ),
         "应报 EmptyAudio/Truncated/Io，实际: {err}"
     );
     assert!(std::fs::read_dir(out.path()).unwrap().next().is_none());
@@ -280,10 +294,12 @@ fn key_len_not_multiple_of_16_rejected() {
 
     let err = Decoder::open(&p)
         .and_then(|mut d| d.dump(Some(out.path())))
-        
         .expect_err("必须报错");
     assert!(
-        matches!(err, NcmError::LengthOutOfRange { .. } | NcmError::BadKeyPrefix),
+        matches!(
+            err,
+            NcmError::LengthOutOfRange { .. } | NcmError::BadKeyPrefix
+        ),
         "应报 LengthOutOfRange/BadKeyPrefix，实际: {err}"
     );
     assert!(std::fs::read_dir(out.path()).unwrap().next().is_none());
@@ -307,7 +323,10 @@ fn meta_len_over_bound_rejected() {
     let p = write_tmp(tmp.path(), "badmeta.ncm", &blob);
     // `expect_err` 要求 Ok 类型实现 Debug，Decoder 没实现 —— 先 map 成 () 再取错误
     let err = Decoder::open(&p).map(|_| ()).expect_err("必须报错");
-    assert!(matches!(err, NcmError::LengthOutOfRange { .. }), "实际: {err}");
+    assert!(
+        matches!(err, NcmError::LengthOutOfRange { .. }),
+        "实际: {err}"
+    );
 }
 
 // ============ 攻击 5：Unicode 边界 —— emoji/RTL/零宽/截断不 panic 不切坏 UTF-8 ============
@@ -317,9 +336,9 @@ fn unicode_adversarial_titles_render_safely() {
     let long = "曲".repeat(250);
     let cases = [
         "🎨🎶专辑".to_string(),
-        "\u{202E}gpj.exe".to_string(), // RTL override（视觉欺骗）
+        "\u{202E}gpj.exe".to_string(),     // RTL override（视觉欺骗）
         "a\u{200B}b\u{FEFF}c".to_string(), // 零宽字符
-        "🎉".repeat(150),              // 截断点落在 4 字节 emoji 内部
+        "🎉".repeat(150),                  // 截断点落在 4 字节 emoji 内部
         long,
         "\u{0000}控制\u{0007}字符".to_string(),
     ];
@@ -331,7 +350,11 @@ fn unicode_adversarial_titles_render_safely() {
             !out.contains(['/', '\\', ':', '<', '>', '"', '|', '?', '*']),
             "清洗失败: {title:?} → {out:?}"
         );
-        assert!(out.chars().count() <= 100, "截断失败: {} chars", out.chars().count());
+        assert!(
+            out.chars().count() <= 100,
+            "截断失败: {} chars",
+            out.chars().count()
+        );
         // 产物必须真实可写盘（Windows 文件系统级验证）
         let p = tmp.path().join(&out);
         std::fs::write(&p, b"x").unwrap();
@@ -342,13 +365,21 @@ fn unicode_adversarial_titles_render_safely() {
 
 #[test]
 fn reserved_names_case_insensitive_prefixed() {
-    for name in ["CON", "con", "Nul", "LpT2", "aux", "COM1.txt", "lpt9.zip", "PrN"] {
+    for name in [
+        "CON", "con", "Nul", "LpT2", "aux", "COM1.txt", "lpt9.zip", "PrN",
+    ] {
         let out = render_filename("{title}", Some(&meta_with(name)), "src");
         assert!(out.starts_with('_'), "{name} 应加前缀，实际 {out:?}");
     }
     // 非保留名（即便以保留名开头）不得误伤
-    assert_eq!(render_filename("{title}", Some(&meta_with("const")), "s"), "const");
-    assert_eq!(render_filename("{title}", Some(&meta_with("nullify")), "s"), "nullify");
+    assert_eq!(
+        render_filename("{title}", Some(&meta_with("const")), "s"),
+        "const"
+    );
+    assert_eq!(
+        render_filename("{title}", Some(&meta_with("nullify")), "s"),
+        "nullify"
+    );
 }
 
 // ============ 攻击 B2：track 宽度规格 ============
@@ -356,11 +387,21 @@ fn reserved_names_case_insensitive_prefixed() {
 #[test]
 fn track_width_moderate_spec_ok() {
     // 合理宽度（预修语义保留）
-    assert_eq!(render_filename("{track:03d}", Some(&meta_track(7)), "s"), "007");
-    assert_eq!(render_filename("{track:08d}", Some(&meta_track(1)), "s"), "00000001");
+    assert_eq!(
+        render_filename("{track:03d}", Some(&meta_track(7)), "s"),
+        "007"
+    );
+    assert_eq!(
+        render_filename("{track:08d}", Some(&meta_track(1)), "s"),
+        "00000001"
+    );
     // 超宽被钳制（QA-B2 修复语义：宽度上界 16）
     let out = render_filename("{track:100000d}", Some(&meta_track(1)), "s");
-    assert!(out.chars().count() <= 16, "宽度应被钳制，实际 {} chars", out.chars().count());
+    assert!(
+        out.chars().count() <= 16,
+        "宽度应被钳制，实际 {} chars",
+        out.chars().count()
+    );
 }
 
 #[test]
@@ -368,7 +409,11 @@ fn track_width_bomb_is_bounded() {
     // 恶意 metadata / 用户模板可注入任意宽度规格：
     // 修复前 format! 对宽度 > u16::MAX 直接 panic（"Formatting argument out of range"）
     let out = render_filename("{track:99999999999999d}", Some(&meta_track(1)), "s");
-    assert!(out.chars().count() < 64, "宽度规格必须有上界，实际 {} chars", out.chars().count());
+    assert!(
+        out.chars().count() < 64,
+        "宽度规格必须有上界，实际 {} chars",
+        out.chars().count()
+    );
 }
 
 // ============ 攻击 B6：RC4 密钥为空 → build_key_box 除零 panic ============
@@ -395,9 +440,19 @@ fn empty_rc4_key_does_not_panic() {
     // 解析路径（parse_stream）：不得 panic，必须返回 Err(EmptyKey)
     let r = std::panic::catch_unwind(|| Decoder::open(&p));
     assert!(r.is_ok(), "Decoder::open 不应 panic（索引越界）");
-    let err = r.unwrap().map(|_| ()).expect_err("空 RC4 密钥必须返回错误而非 panic");
-    assert!(matches!(err, NcmError::EmptyKey), "应报 EmptyKey，实际: {err}");
-    assert_eq!(err.code(), "NCM-STRUCT-INVALID", "稳定错误码必须归类结构损坏");
+    let err = r
+        .unwrap()
+        .map(|_| ())
+        .expect_err("空 RC4 密钥必须返回错误而非 panic");
+    assert!(
+        matches!(err, NcmError::EmptyKey),
+        "应报 EmptyKey，实际: {err}"
+    );
+    assert_eq!(
+        err.code(),
+        "NCM-STRUCT-INVALID",
+        "稳定错误码必须归类结构损坏"
+    );
 
     // parse_blob 路径（整读解析）同样不得 panic、必须 Err——两条解析路径都要钉死
     let r2 = std::panic::catch_unwind(|| musicforge_core::header::parse_blob(&blob));
@@ -419,7 +474,10 @@ fn unknown_format_rejected_without_output() {
         "artist": [["测试歌手", 0]], "bitrate": 320000, "duration": 1000,
     })
     .to_string();
-    let inner = ncm::aes_ecb_encrypt(&musicforge_core::META_KEY, format!("music:{meta_json}").as_bytes());
+    let inner = ncm::aes_ecb_encrypt(
+        &musicforge_core::META_KEY,
+        format!("music:{meta_json}").as_bytes(),
+    );
     let meta_raw: Vec<u8> = format!(
         "163 key(Don't modify):{}",
         base64::engine::general_purpose::STANDARD.encode(inner)
@@ -517,15 +575,22 @@ fn id3v1_only_mp3_must_not_claim_embedded_cover() {
     payload.extend(id3v1("Old Title", "Old Artist", "Old Album"));
     std::fs::write(&p, &payload).unwrap();
 
-    let (written, embedded) =
-        musicforge_core::tagger::write_tags(&p, musicforge_core::Format::Mp3, &sample_meta(), COVER)
-            .expect("写入应成功");
+    let (written, embedded) = musicforge_core::tagger::write_tags(
+        &p,
+        musicforge_core::Format::Mp3,
+        &sample_meta(),
+        COVER,
+    )
+    .expect("写入应成功");
 
     // 断言 1：报告嵌入了封面 → 磁盘上必须真的有封面
     let tagged = lofty::read_from_path(&p).unwrap();
     let total_pictures: usize = tagged.tags().iter().map(|t| t.pictures().len()).sum();
     if embedded {
-        assert!(total_pictures > 0, "报 embedded=true 却没有任何图片落盘（谎报）");
+        assert!(
+            total_pictures > 0,
+            "报 embedded=true 却没有任何图片落盘（谎报）"
+        );
     }
     // 断言 2：报告写了 N 个字段 → 主标签里必须真有对应文本
     assert!(written > 0, "报 written={written} 但字段数为 0（谎报）");
@@ -550,10 +615,17 @@ fn empty_string_tag_field_counts_as_missing() {
     payload.extend(id3v1("", "", ""));
     std::fs::write(&p, &payload).unwrap();
 
-    let (written, _) =
-        musicforge_core::tagger::write_tags(&p, musicforge_core::Format::Mp3, &sample_meta(), COVER)
-            .expect("写入应成功");
-    assert!(written >= 3, "三个文本字段都空 → 都应写入，实际 written={written}");
+    let (written, _) = musicforge_core::tagger::write_tags(
+        &p,
+        musicforge_core::Format::Mp3,
+        &sample_meta(),
+        COVER,
+    )
+    .expect("写入应成功");
+    assert!(
+        written >= 3,
+        "三个文本字段都空 → 都应写入，实际 written={written}"
+    );
 
     let tagged = lofty::read_from_path(&p).unwrap();
     let primary = tagged.primary_tag().expect("应存在主标签");
@@ -596,7 +668,9 @@ fn golden_fixtures_write_tags_reports_match_disk() {
         assert!(written > 0, "{name}: 应写入元数据");
 
         let tagged = lofty::read_from_path(&target).unwrap();
-        let primary = tagged.primary_tag().unwrap_or_else(|| panic!("{name}: 无主标签"));
+        let primary = tagged
+            .primary_tag()
+            .unwrap_or_else(|| panic!("{name}: 无主标签"));
         // 声明写入的字段必须真实可读回（值允许不同：已有值按设计不覆盖）
         assert!(
             primary.get_string(ItemKey::TrackTitle).is_some(),
@@ -609,10 +683,7 @@ fn golden_fixtures_write_tags_reports_match_disk() {
             );
         }
         if !cover.is_empty() {
-            assert!(
-                !primary.pictures().is_empty(),
-                "{name}: 有封面数据却未嵌入"
-            );
+            assert!(!primary.pictures().is_empty(), "{name}: 有封面数据却未嵌入");
         }
     }
 }

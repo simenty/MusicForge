@@ -6,8 +6,8 @@
 //! 3. 格式判定（约束 8 回归：裸 MP3 必须判 mp3）
 //! 4. CRC 篡改检出（约束 9 回归：报错且无产物）
 
-use sha2::{Digest, Sha256};
 use musicforge_core::{Decoder, NcmError};
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 fn fixtures_dir() -> PathBuf {
@@ -36,7 +36,9 @@ fn golden_all_fixtures_byte_exact() {
     let dir = fixtures_dir();
     for entry in std::fs::read_dir(&dir).unwrap() {
         let p = entry.unwrap().path();
-        let is_expected = p.file_name().and_then(|f| f.to_str())
+        let is_expected = p
+            .file_name()
+            .and_then(|f| f.to_str())
             .map(|f| f.ends_with(".expected.json"))
             .unwrap_or(false);
         if !is_expected {
@@ -47,8 +49,7 @@ fn golden_all_fixtures_byte_exact() {
         let name = exp["ncm"].as_str().unwrap().to_string();
         let ncm_path = dir.join(&name);
 
-        let mut dec = Decoder::open(&ncm_path)
-            .unwrap_or_else(|e| panic!("open {name} 失败: {e}"));
+        let mut dec = Decoder::open(&ncm_path).unwrap_or_else(|e| panic!("open {name} 失败: {e}"));
 
         // 元数据断言（None 或逐字段）
         match exp.get("metadata") {
@@ -57,7 +58,11 @@ fn golden_all_fixtures_byte_exact() {
             }
             Some(m) => {
                 let md = dec.metadata().expect("{name}: 元数据不应为 None");
-                assert_eq!(md.name.as_deref(), m["musicName"].as_str(), "{name}: musicName");
+                assert_eq!(
+                    md.name.as_deref(),
+                    m["musicName"].as_str(),
+                    "{name}: musicName"
+                );
                 assert_eq!(md.artist.as_deref(), m["artist"].as_str(), "{name}: artist");
                 assert_eq!(md.album.as_deref(), m["album"].as_str(), "{name}: album");
                 assert_eq!(md.format.as_deref(), m["format"].as_str(), "{name}: format");
@@ -78,7 +83,9 @@ fn golden_all_fixtures_byte_exact() {
             "{name}: 音频长度"
         );
         let tmp = tempfile::tempdir().unwrap();
-        let out = dec.dump(Some(tmp.path())).unwrap_or_else(|e| panic!("dump {name} 失败: {e}"));
+        let out = dec
+            .dump(Some(tmp.path()))
+            .unwrap_or_else(|e| panic!("dump {name} 失败: {e}"));
         assert_eq!(
             out.extension().and_then(|e| e.to_str()),
             exp["format_ext"].as_str(),
@@ -132,7 +139,9 @@ fn cover_padding_regression() {
     let out = dec.dump(Some(tmp.path())).unwrap();
     assert_eq!(
         sha256_file(&out),
-        load_expected("cover_with_padding.ncm")["audio_sha256"].as_str().unwrap(),
+        load_expected("cover_with_padding.ncm")["audio_sha256"]
+            .as_str()
+            .unwrap(),
         "padding 必须被正确跳过"
     );
 }
@@ -147,7 +156,9 @@ fn metadata_len_zero_regression() {
     let out = dec.dump(Some(tmp.path())).unwrap();
     assert_eq!(
         sha256_file(&out),
-        load_expected("metadata_len0.ncm")["audio_sha256"].as_str().unwrap()
+        load_expected("metadata_len0.ncm")["audio_sha256"]
+            .as_str()
+            .unwrap()
     );
 }
 
@@ -159,7 +170,11 @@ fn metadata_len_zero_regression() {
 /// 覆盖三类代表样本：flac（带封面）、mp3（带 ID3）、metadataLen=0（无元数据）。
 #[test]
 fn golden_decode_is_deterministic() {
-    for name in ["flac_with_cover.ncm", "mp3_with_id3.ncm", "metadata_len0.ncm"] {
+    for name in [
+        "flac_with_cover.ncm",
+        "mp3_with_id3.ncm",
+        "metadata_len0.ncm",
+    ] {
         let mut a = Decoder::open(fixtures_dir().join(name))
             .unwrap_or_else(|e| panic!("{name}: 首次打开失败: {e}"));
         let tmp_a = tempfile::tempdir().unwrap();

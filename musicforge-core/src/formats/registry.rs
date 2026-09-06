@@ -67,7 +67,8 @@ impl FormatAdapter for NcmAdapter {
         // 只认魔数，不认扩展名：靠 `.ncm` 后缀认领会把「损坏/非 ncm 文件」
         // 伪装成可处理对象，正是 G5 教训（兜底伪装成功）。认领不了就交给
         // 旧路径产出明确错误（NCM-BAD-MAGIC / NCM-FORMAT-UNKNOWN，硬约束 9）。
-        let magic_matches = input.header.len() >= MAGIC.len() && input.header[..MAGIC.len()] == MAGIC;
+        let magic_matches =
+            input.header.len() >= MAGIC.len() && input.header[..MAGIC.len()] == MAGIC;
 
         if magic_matches {
             Some(ProbeResult {

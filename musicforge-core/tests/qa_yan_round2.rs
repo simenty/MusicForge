@@ -193,7 +193,8 @@ fn selftest_my_flac_is_readable() {
     assert_eq!(t.file_type(), lofty::file::FileType::Flac);
     assert_eq!(t.primary_tag_type(), TagType::VorbisComments);
     assert_eq!(
-        t.primary_tag().and_then(|x| x.get_string(ItemKey::TrackTitle)),
+        t.primary_tag()
+            .and_then(|x| x.get_string(ItemKey::TrackTitle)),
         Some("旧标题"),
         "手搓的 Vorbis Comment 必须能被读出"
     );
@@ -262,7 +263,10 @@ fn b7_id3v1_nonempty_writes_into_id3v2_and_cover_lands() {
     }
 
     // 断言 4：written 与实际写入字段数一致
-    assert_eq!(written, 4, "3 文本 + 1 封面 ⇒ written 应为 4，实际 {written}");
+    assert_eq!(
+        written, 4,
+        "3 文本 + 1 封面 ⇒ written 应为 4，实际 {written}"
+    );
 
     // 断言 5：原始 ID3v1 不应被破坏
     let v1 = lofty::read_from_path(&p)
@@ -288,7 +292,8 @@ fn b7_long_title_not_silently_truncated() {
     payload.extend(id3v1("Old", "Old", "Old"));
     std::fs::write(&p, &payload).unwrap();
 
-    let long_title = "这是一个远超三十字符上限的超长标题内容用于验证静默截断是否已经彻底消除".to_string();
+    let long_title =
+        "这是一个远超三十字符上限的超长标题内容用于验证静默截断是否已经彻底消除".to_string();
     assert!(long_title.chars().count() > 30);
 
     let mut m = meta();
@@ -333,10 +338,12 @@ fn b7b_empty_id3v2_text_frames_count_as_missing() {
         "样本前提：TIT2 存在且为空串（若不是，本用例未命中 B7b）"
     );
 
-    let (written, embedded) =
-        write_tags(&p, Format::Mp3, &meta(), REAL_PNG).expect("写入应成功");
+    let (written, embedded) = write_tags(&p, Format::Mp3, &meta(), REAL_PNG).expect("写入应成功");
 
-    assert!(written >= 3, "空串必须按缺失处理并写入，实际 written={written}");
+    assert!(
+        written >= 3,
+        "空串必须按缺失处理并写入，实际 written={written}"
+    );
     assert!(embedded);
     assert!(total_pictures(&p) > 0, "报 embedded=true 却无图片落盘");
 
@@ -364,7 +371,10 @@ fn b7b_whitespace_only_frames_count_as_missing() {
 
     let (written, _) = write_tags(&p, Format::Mp3, &meta(), REAL_PNG).expect("写入应成功");
     assert!(written >= 3, "纯空白必须按缺失处理，实际 written={written}");
-    assert_eq!(primary_string(&p, ItemKey::TrackTitle).as_deref(), Some("验证标题"));
+    assert_eq!(
+        primary_string(&p, ItemKey::TrackTitle).as_deref(),
+        Some("验证标题")
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -381,15 +391,22 @@ fn b7c_id3v1_with_real_png_cover_lands_byte_exact() {
     payload.extend(id3v1("旧标题", "旧歌手", "旧专辑"));
     std::fs::write(&p, &payload).unwrap();
 
-    let (written, embedded) =
-        write_tags(&p, Format::Mp3, &meta(), REAL_PNG).expect("写入应成功");
+    let (written, embedded) = write_tags(&p, Format::Mp3, &meta(), REAL_PNG).expect("写入应成功");
     assert!(embedded, "应报告已嵌入封面");
 
     let tagged = lofty::read_from_path(&p).unwrap();
-    let pics: Vec<_> = tagged.tags().iter().flat_map(|t| t.pictures().iter()).collect();
+    let pics: Vec<_> = tagged
+        .tags()
+        .iter()
+        .flat_map(|t| t.pictures().iter())
+        .collect();
     assert_eq!(pics.len(), 1, "磁盘上应恰好 1 张图片，实际 {}", pics.len());
     assert_eq!(pics[0].data(), REAL_PNG, "封面必须**逐字节**落盘");
-    assert_eq!(pics[0].mime_type(), Some(&MimeType::Png), "PNG magic 应识别为 image/png");
+    assert_eq!(
+        pics[0].mime_type(),
+        Some(&MimeType::Png),
+        "PNG magic 应识别为 image/png"
+    );
     assert_eq!(written, 4, "3 文本 + 1 封面，实际 {written}");
 }
 
@@ -402,7 +419,9 @@ fn b7c_jpeg_cover_gets_jpeg_mime() {
     payload.extend(id3v1("T", "A", "AL"));
     std::fs::write(&p, &payload).unwrap();
 
-    let jpeg: Vec<u8> = vec![0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0x00];
+    let jpeg: Vec<u8> = vec![
+        0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0x00,
+    ];
     let (_, embedded) = write_tags(&p, Format::Mp3, &meta(), &jpeg).expect("写入应成功");
     assert!(embedded);
     let tagged = lofty::read_from_path(&p).unwrap();
@@ -424,8 +443,7 @@ fn b7c_existing_cover_is_not_overwritten() {
     // 传入一张不同的图
     let mut other = REAL_PNG.to_vec();
     other.extend_from_slice(&[0x01, 0x02, 0x03]);
-    let (written, embedded) =
-        write_tags(&p, Format::Mp3, &meta(), &other).expect("写入应成功");
+    let (written, embedded) = write_tags(&p, Format::Mp3, &meta(), &other).expect("写入应成功");
 
     assert!(!embedded, "已有封面 ⇒ 不得覆盖，embedded 必须为 false");
     assert_eq!(total_pictures(&p), 1, "图片数量应保持 1");
@@ -435,7 +453,10 @@ fn b7c_existing_cover_is_not_overwritten() {
         REAL_PNG,
         "原有封面字节必须原样保留"
     );
-    assert_eq!(written, 3, "只应写入 3 个文本字段（无封面），实际 {written}");
+    assert_eq!(
+        written, 3,
+        "只应写入 3 个文本字段（无封面），实际 {written}"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -454,7 +475,10 @@ fn regression_bare_mp3_path() {
     assert!(embedded);
     let tagged = lofty::read_from_path(&p).unwrap();
     assert_eq!(tagged.primary_tag().unwrap().tag_type(), TagType::Id3v2);
-    assert_eq!(primary_string(&p, ItemKey::TrackTitle).as_deref(), Some("验证标题"));
+    assert_eq!(
+        primary_string(&p, ItemKey::TrackTitle).as_deref(),
+        Some("验证标题")
+    );
     assert_eq!(total_pictures(&p), 1);
 }
 
@@ -481,7 +505,7 @@ pub fn minimal_flac(comments: &[(&str, &str)]) -> Vec<u8> {
     si.extend_from_slice(&4096u16.to_be_bytes()); // max block size
     si.extend_from_slice(&[0u8; 3]); // min frame size (24bit)
     si.extend_from_slice(&[0u8; 3]); // max frame size (24bit)
-    // sample_rate(20) | (channels-1)(3) | (bps-1)(5) | total_samples(36)
+                                     // sample_rate(20) | (channels-1)(3) | (bps-1)(5) | total_samples(36)
     let packed: u64 = ((44100u64 & 0xfffff) << 44) | (1u64 << 41) | (15u64 << 36);
     si.extend_from_slice(&packed.to_be_bytes()); // 8 字节
     si.extend(std::iter::repeat_n(0u8, 16)); // MD5
@@ -517,8 +541,14 @@ fn regression_flac_path_writes_vorbis_comments() {
     assert_eq!(written, 4, "FLAC 也应写 3 文本 + 1 封面，实际 {written}");
     assert!(embedded);
     let tagged = lofty::read_from_path(&p).unwrap();
-    assert_eq!(tagged.primary_tag().unwrap().tag_type(), TagType::VorbisComments);
-    assert_eq!(primary_string(&p, ItemKey::TrackTitle).as_deref(), Some("验证标题"));
+    assert_eq!(
+        tagged.primary_tag().unwrap().tag_type(),
+        TagType::VorbisComments
+    );
+    assert_eq!(
+        primary_string(&p, ItemKey::TrackTitle).as_deref(),
+        Some("验证标题")
+    );
     assert_eq!(total_pictures(&p), 1, "FLAC 封面必须真的落盘");
 }
 
@@ -527,19 +557,34 @@ fn regression_flac_path_writes_vorbis_comments() {
 fn b7b_flac_empty_vorbis_value_counts_as_missing() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("x.flac");
-    std::fs::write(&p, minimal_flac(&[("TITLE", ""), ("ARTIST", ""), ("ALBUM", "")])).unwrap();
+    std::fs::write(
+        &p,
+        minimal_flac(&[("TITLE", ""), ("ARTIST", ""), ("ALBUM", "")]),
+    )
+    .unwrap();
 
     let before = lofty::read_from_path(&p).unwrap();
     assert_eq!(
-        before.primary_tag().and_then(|t| t.get_string(ItemKey::TrackTitle)),
+        before
+            .primary_tag()
+            .and_then(|t| t.get_string(ItemKey::TrackTitle)),
         Some(""),
         "样本前提：TITLE 存在且为空（若不是，本用例未命中 B7b）"
     );
 
     let (written, _) = write_tags(&p, Format::Flac, &meta(), REAL_PNG).expect("写入应成功");
-    assert!(written >= 3, "FLAC 空值也必须按缺失写入，实际 written={written}");
-    assert_eq!(primary_string(&p, ItemKey::TrackTitle).as_deref(), Some("验证标题"));
-    assert_eq!(primary_string(&p, ItemKey::TrackArtist).as_deref(), Some("验证歌手"));
+    assert!(
+        written >= 3,
+        "FLAC 空值也必须按缺失写入，实际 written={written}"
+    );
+    assert_eq!(
+        primary_string(&p, ItemKey::TrackTitle).as_deref(),
+        Some("验证标题")
+    );
+    assert_eq!(
+        primary_string(&p, ItemKey::TrackArtist).as_deref(),
+        Some("验证歌手")
+    );
 }
 
 pub fn mp4_box(kind: &[u8; 4], payload: &[u8]) -> Vec<u8> {
@@ -626,7 +671,10 @@ pub fn minimal_m4a() -> Vec<u8> {
 
     // ---- minf ----
     let smhd = mp4_box(b"smhd", &[be32(0), be16(0), be16(0)].concat());
-    let dref = mp4_box(b"dref", &[be32(0), be32(1), mp4_box(b"url ", &be32(1))].concat());
+    let dref = mp4_box(
+        b"dref",
+        &[be32(0), be32(1), mp4_box(b"url ", &be32(1))].concat(),
+    );
     let mut minf_p = smhd;
     minf_p.extend(mp4_box(b"dinf", &dref));
     minf_p.extend(stbl);
@@ -673,8 +721,8 @@ pub fn minimal_m4a() -> Vec<u8> {
             be32(0), // reserved
             be32(1000),
             std::iter::repeat_n(0u8, 8).collect::<Vec<u8>>(),
-            be16(0), // layer
-            be16(0), // alternate_group
+            be16(0),      // layer
+            be16(0),      // alternate_group
             be16(0x0100), // volume
             be16(0),
             unity_matrix(),
@@ -702,7 +750,10 @@ fn regression_mp4_path_writes_ilst() {
     if embedded {
         assert!(total_pictures(&p) > 0, "M4A 报 embedded=true 却无图片落盘");
     }
-    assert_eq!(primary_string(&p, ItemKey::TrackTitle).as_deref(), Some("验证标题"));
+    assert_eq!(
+        primary_string(&p, ItemKey::TrackTitle).as_deref(),
+        Some("验证标题")
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

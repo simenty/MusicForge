@@ -25,7 +25,10 @@ pub fn aes128_ecb_decrypt_strict(key: &[u8; 16], data: &[u8]) -> Result<Vec<u8>,
     }
     // 严格 PKCS7：尾字节 1..=16，且末尾 pad 个字节全部等于 pad
     let pad = *out.last().ok_or(NcmError::EmptyAudio)? as usize;
-    if pad == 0 || pad > 16 || pad > out.len() || out[out.len() - pad..].iter().any(|&b| b as usize != pad)
+    if pad == 0
+        || pad > 16
+        || pad > out.len()
+        || out[out.len() - pad..].iter().any(|&b| b as usize != pad)
     {
         return Err(NcmError::LengthOutOfRange {
             at: "pkcs7 padding",

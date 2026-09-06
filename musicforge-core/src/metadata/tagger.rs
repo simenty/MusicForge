@@ -9,10 +9,10 @@
 
 use std::path::Path;
 
+use lofty::config::WriteOptions;
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::prelude::*;
 use lofty::tag::{ItemKey, Tag};
-use lofty::config::WriteOptions;
 
 use crate::error::NcmError;
 use crate::formats::probe::Format;
@@ -42,8 +42,7 @@ pub fn write_tags(
     meta: &Metadata,
     cover: &[u8],
 ) -> Result<(usize, bool), NcmError> {
-    let mut tagged =
-        lofty::read_from_path(target).map_err(|e| NcmError::TagRead(e.to_string()))?;
+    let mut tagged = lofty::read_from_path(target).map_err(|e| NcmError::TagRead(e.to_string()))?;
 
     let tag_type = tagged.primary_tag_type();
     if tagged.tag(tag_type).is_none() {

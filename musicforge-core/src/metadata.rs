@@ -10,5 +10,5 @@
 pub mod model;
 pub mod tagger;
 
-pub use model::Metadata;
 pub use model::parse;
+pub use model::Metadata;

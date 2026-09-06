@@ -68,7 +68,10 @@ fn meta_block(music_name: &str, artist: &str, album: &str, fmt: &str) -> Vec<u8>
         "format": fmt,
     })
     .to_string();
-    let inner = aes_ecb_encrypt(&musicforge_core::META_KEY, format!("music:{json}").as_bytes());
+    let inner = aes_ecb_encrypt(
+        &musicforge_core::META_KEY,
+        format!("music:{json}").as_bytes(),
+    );
     let full = format!(
         "163 key(Don't modify):{}",
         base64::engine::general_purpose::STANDARD.encode(inner)
@@ -134,6 +137,8 @@ fn cfg(inputs: Vec<PathBuf>, out: &Path, template: &str) -> BatchConfig {
         skip_existing: false,
         jobs: 2,
         template: template.to_string(),
+        dry_run: false,
+        manifest: None,
         cancel: None,
     }
 }
@@ -145,7 +150,15 @@ fn cfg(inputs: Vec<PathBuf>, out: &Path, template: &str) -> BatchConfig {
 fn yan_selftest_my_ncm_encoder_roundtrips() {
     let dir = tempfile::tempdir().unwrap();
     let audio = bare_mp3(8);
-    let blob = encode_ncm(&audio, "自检曲", "自检歌手", "自检专辑", "mp3", b"", &yan_rc4_key());
+    let blob = encode_ncm(
+        &audio,
+        "自检曲",
+        "自检歌手",
+        "自检专辑",
+        "mp3",
+        b"",
+        &yan_rc4_key(),
+    );
     let p = dir.path().join("selftest.ncm");
     std::fs::write(&p, &blob).unwrap();
 
@@ -206,7 +219,15 @@ fn yan_tagread_degrades_to_ok_with_visible_product() {
     std::fs::create_dir_all(&out_dir).unwrap();
 
     let audio = bare_mp3(6);
-    let blob = encode_ncm(&audio, "降级曲", "QA", "QA专辑", "flac", b"", &yan_rc4_key());
+    let blob = encode_ncm(
+        &audio,
+        "降级曲",
+        "QA",
+        "QA专辑",
+        "flac",
+        b"",
+        &yan_rc4_key(),
+    );
     let p = src.join("mismatch.ncm");
     std::fs::write(&p, &blob).unwrap();
 
@@ -218,7 +239,10 @@ fn yan_tagread_degrades_to_ok_with_visible_product() {
 
     // 产物可见性（B8 核心）
     let out_path = r.output.as_ref().expect("必须如实带出输出路径");
-    assert!(out_path.exists(), "报出的输出路径必须真实存在：{out_path:?}");
+    assert!(
+        out_path.exists(),
+        "报出的输出路径必须真实存在：{out_path:?}"
+    );
 
     // 逐字节相等 —— 证明「降级」只是状态判定，解密本身没被破坏
     assert_eq!(
@@ -229,9 +253,18 @@ fn yan_tagread_degrades_to_ok_with_visible_product() {
 
     // reason 三要素
     let reason = r.reason.as_deref().unwrap_or("");
-    assert!(reason.contains("NCM-TAG-READ"), "reason 必须带错误码：{reason}");
-    assert!(reason.contains("音频已完整导出"), "reason 必须说明音频已导出：{reason}");
-    assert!(reason.contains("建议"), "reason 必须给出可操作建议：{reason}");
+    assert!(
+        reason.contains("NCM-TAG-READ"),
+        "reason 必须带错误码：{reason}"
+    );
+    assert!(
+        reason.contains("音频已完整导出"),
+        "reason 必须说明音频已导出：{reason}"
+    );
+    assert!(
+        reason.contains("建议"),
+        "reason 必须给出可操作建议：{reason}"
+    );
 
     assert_eq!(summary.failed, 0, "降级项不得计入 failed");
     assert_eq!(summary.ok, 1);
@@ -254,7 +287,15 @@ fn yan_non_tagread_post_dump_failure_stays_failed() {
     std::fs::create_dir_all(&out_dir).unwrap();
 
     let audio = bare_mp3(6);
-    let blob = encode_ncm(&audio, "真失败曲", "QA", "QA专辑", "mp3", b"", &yan_rc4_key());
+    let blob = encode_ncm(
+        &audio,
+        "真失败曲",
+        "QA",
+        "QA专辑",
+        "mp3",
+        b"",
+        &yan_rc4_key(),
+    );
     let p = src.join("boom.ncm");
     std::fs::write(&p, &blob).unwrap();
 
@@ -374,7 +415,9 @@ fn yan_degraded_item_is_absent_from_failure_csv() {
 
     let summary = run(cfg(vec![pa, pb], &out_dir, "{title}"));
     let csv_path = dir.path().join("failures.csv");
-    summary.export_failures_csv(&csv_path).expect("CSV 导出应成功");
+    summary
+        .export_failures_csv(&csv_path)
+        .expect("CSV 导出应成功");
     let csv = std::fs::read_to_string(&csv_path).unwrap();
 
     println!("===== 实测 CSV 全文 =====");
@@ -413,7 +456,15 @@ fn yan_jobs_200k_is_bounded_and_completes() {
         let p = src.join(format!("j{i}.ncm"));
         std::fs::write(
             &p,
-            encode_ncm(&audio, &format!("曲{i}"), "QA", "AL", "mp3", b"", &yan_rc4_key()),
+            encode_ncm(
+                &audio,
+                &format!("曲{i}"),
+                "QA",
+                "AL",
+                "mp3",
+                b"",
+                &yan_rc4_key(),
+            ),
         )
         .unwrap();
         inputs.push(p);
@@ -423,8 +474,16 @@ fn yan_jobs_200k_is_bounded_and_completes() {
     c.jobs = 200_000;
     let summary = run(c);
 
-    assert_eq!(summary.results.len(), n, "结果数必须等于输入数（不得静默丢结果）");
-    assert_eq!(summary.ok, n, "jobs=200000 被钳制后应全部成功，实际 ok={}", summary.ok);
+    assert_eq!(
+        summary.results.len(),
+        n,
+        "结果数必须等于输入数（不得静默丢结果）"
+    );
+    assert_eq!(
+        summary.ok, n,
+        "jobs=200000 被钳制后应全部成功，实际 ok={}",
+        summary.ok
+    );
     assert_eq!(summary.failed, 0);
     assert_eq!(summary.exit_code(), 0);
 }
@@ -440,8 +499,11 @@ fn yan_jobs_zero_is_bounded_to_at_least_one() {
 
     let audio = bare_mp3(4);
     let p = src.join("z.ncm");
-    std::fs::write(&p, encode_ncm(&audio, "零并发", "QA", "AL", "mp3", b"", &yan_rc4_key()))
-        .unwrap();
+    std::fs::write(
+        &p,
+        encode_ncm(&audio, "零并发", "QA", "AL", "mp3", b"", &yan_rc4_key()),
+    )
+    .unwrap();
 
     let mut c = cfg(vec![p], &out_dir, "{title}");
     c.jobs = 0;
@@ -571,8 +633,14 @@ fn yan_self_referential_junction_if_constructible() {
     );
 
     // 关键：**先删 junction 再删树**，避免 remove_dir_all 顺着链接走到目标
-    let _ = Command::new("cmd").args(["/c", "rmdir"]).arg(&link).output();
-    assert!(!link.exists(), "junction 必须被移除，否则 tempdir 清理有风险");
+    let _ = Command::new("cmd")
+        .args(["/c", "rmdir"])
+        .arg(&link)
+        .output();
+    assert!(
+        !link.exists(),
+        "junction 必须被移除，否则 tempdir 清理有风险"
+    );
 }
 
 // ==================== B11：输入静默成功 ====================
@@ -657,7 +725,11 @@ fn yan_regression_b6_empty_key_rejected() {
     std::fs::create_dir_all(&out_dir).unwrap();
     let summary = run(cfg(vec![p], &out_dir, "{title}"));
     assert_eq!(summary.results.len(), 1);
-    assert_eq!(summary.results[0].status, Status::Failed, "空密钥必须 Failed，不得静默成功");
+    assert_eq!(
+        summary.results[0].status,
+        Status::Failed,
+        "空密钥必须 Failed，不得静默成功"
+    );
     assert!(
         summary.results[0]
             .reason
@@ -689,7 +761,10 @@ fn yan_regression_k2_unknown_format_no_output() {
     let r = &summary.results[0];
     assert_eq!(r.status, Status::Failed, "未知格式必须 Failed");
     assert!(
-        r.reason.as_deref().unwrap_or("").contains("NCM-FORMAT-UNKNOWN"),
+        r.reason
+            .as_deref()
+            .unwrap_or("")
+            .contains("NCM-FORMAT-UNKNOWN"),
         "错误码必须是 NCM-FORMAT-UNKNOWN，实际：{:?}",
         r.reason
     );
@@ -700,7 +775,10 @@ fn yan_regression_k2_unknown_format_no_output() {
         .flatten()
         .filter(|e| e.path().extension().is_some())
         .collect();
-    assert!(produced.is_empty(), "未知格式必须零产物，实际产生了 {produced:?}");
+    assert!(
+        produced.is_empty(),
+        "未知格式必须零产物，实际产生了 {produced:?}"
+    );
 }
 
 /// G3：`run_with_progress_expanded` 在自定义输出目录下镜像源目录树。
@@ -728,6 +806,8 @@ fn yan_regression_g3_expanded_mirrors_source_tree() {
         skip_existing: false,
         jobs: 2,
         template: "{title}".to_string(),
+        dry_run: false,
+        manifest: None,
         cancel: None,
     };
     let summary = run_with_progress_expanded(vec![(f, Some(root.clone()))], cfg, |_| {});
@@ -765,10 +845,18 @@ fn yan_regression_g5_magic_sniff_reads_real_bytes() {
     let summary = run(cfg(vec![p], &out_dir, "{title}"));
     assert_eq!(summary.results.len(), 1);
     let r = &summary.results[0];
-    assert_eq!(r.status, Status::Ok, "无声明格式时必须靠魔数嗅探成功，实际：{:?}", r.reason);
+    assert_eq!(
+        r.status,
+        Status::Ok,
+        "无声明格式时必须靠魔数嗅探成功，实际：{:?}",
+        r.reason
+    );
     let out_path = r.output.as_ref().expect("应有产物");
-    assert!(out_path.extension().unwrap().eq_ignore_ascii_case("mp3"),
-        "嗅探结果必须是 mp3，实际扩展名 {:?}", out_path.extension());
+    assert!(
+        out_path.extension().unwrap().eq_ignore_ascii_case("mp3"),
+        "嗅探结果必须是 mp3，实际扩展名 {:?}",
+        out_path.extension()
+    );
     // 嗅探成功 ⇒ 打标签也成功 ⇒ 产物 = ID3v2 + 音频
     assert_audio_is_suffix_of(out_path, &audio, "魔数嗅探路径");
 }

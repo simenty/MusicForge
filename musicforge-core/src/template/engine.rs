@@ -31,7 +31,10 @@ pub struct Fallbacks {
 
 impl Default for Fallbacks {
     fn default() -> Self {
-        Self { artist: "未知艺术家".to_string(), album: "未知专辑".to_string() }
+        Self {
+            artist: "未知艺术家".to_string(),
+            album: "未知专辑".to_string(),
+        }
     }
 }
 
@@ -91,8 +94,12 @@ fn value_for(ph: &str, meta: Option<&Metadata>, fb: &Fallbacks, fallback_stem: &
         "title" => meta
             .and_then(|m| m.name.clone())
             .unwrap_or_else(|| fallback_stem.to_string()),
-        "artist" => meta.and_then(|m| m.artist.clone()).unwrap_or_else(|| fb.artist.clone()),
-        "album" => meta.and_then(|m| m.album.clone()).unwrap_or_else(|| fb.album.clone()),
+        "artist" => meta
+            .and_then(|m| m.artist.clone())
+            .unwrap_or_else(|| fb.artist.clone()),
+        "album" => meta
+            .and_then(|m| m.album.clone())
+            .unwrap_or_else(|| fb.album.clone()),
         "format" => meta.and_then(|m| m.format.clone()).unwrap_or_default(),
         "track" => track_value(meta, spec),
         other => format!("{{{other}}}"),
@@ -128,7 +135,11 @@ fn sanitize(seg: &str) -> String {
         })
         .collect();
     let trimmed = mapped.trim_end_matches(['.', ' ']);
-    let s = if trimmed.is_empty() { "_".to_string() } else { trimmed.to_string() };
+    let s = if trimmed.is_empty() {
+        "_".to_string()
+    } else {
+        trimmed.to_string()
+    };
     let first = s.split('.').next().unwrap_or("");
     if RESERVED.iter().any(|r| r.eq_ignore_ascii_case(first)) {
         format!("_{s}")
@@ -201,9 +212,24 @@ mod tests {
 
     #[test]
     fn sanitizes_illegal_chars() {
-        let m = meta("AC/DC: Back? *In* \"Black\" <Vol|1>", "AC\\DC", "耳朵", None);
+        let m = meta(
+            "AC/DC: Back? *In* \"Black\" <Vol|1>",
+            "AC\\DC",
+            "耳朵",
+            None,
+        );
         let out = render_filename("{title}", Some(&m), "s");
-        assert!(!out.contains('/') && !out.contains(':') && !out.contains('?') && !out.contains('*') && !out.contains('"') && !out.contains('<') && !out.contains('>') && !out.contains('|'), "{out}");
+        assert!(
+            !out.contains('/')
+                && !out.contains(':')
+                && !out.contains('?')
+                && !out.contains('*')
+                && !out.contains('"')
+                && !out.contains('<')
+                && !out.contains('>')
+                && !out.contains('|'),
+            "{out}"
+        );
         assert_eq!(out, "AC_DC_ Back_ _In_ _Black_ _Vol_1_");
     }
 
@@ -241,7 +267,11 @@ mod tests {
         let m = meta(&long, "a", "al", None);
         let out = render_filename("{title}", Some(&m), "s");
         assert_eq!(out.chars().count(), 66);
-        assert!(out.len() <= MAX_SEGMENT_BYTES, "组件字节必须 ≤ {MAX_SEGMENT_BYTES}，实际 {}", out.len());
+        assert!(
+            out.len() <= MAX_SEGMENT_BYTES,
+            "组件字节必须 ≤ {MAX_SEGMENT_BYTES}，实际 {}",
+            out.len()
+        );
     }
 
     #[test]
@@ -269,7 +299,8 @@ mod tests {
         assert!(
             out.len() <= MAX_SEGMENT_BYTES && out.chars().count() <= MAX_SEGMENT_CHARS,
             "回退值也必须受段长上界约束（字符+字节双上限），实际 {} chars / {} bytes",
-            out.chars().count(), out.len()
+            out.chars().count(),
+            out.len()
         );
     }
 
