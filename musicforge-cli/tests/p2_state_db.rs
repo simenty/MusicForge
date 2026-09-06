@@ -1,6 +1,6 @@
 //! v0.2.0 状态层（D16）CLI 集成：--state-db 写任务历史 + 源文件哈希缓存。
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 fn fixtures() -> PathBuf {
