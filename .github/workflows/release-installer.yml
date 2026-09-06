@@ -99,13 +99,24 @@ jobs:
         env:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          & ".\MusicForge-$env:VERSION-setup.exe" /S
-          if ($LASTEXITCODE -ne 0) { throw "silent install failed" }
+          $exe = ".\MusicForge-$env:VERSION-setup.exe"
+          Write-Host "installer path: $(Resolve-Path $exe) | exists: $(Test-Path $exe)"
+          $out = & $exe /S 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Host "installer exit code: $code"
+          Write-Host "installer output:`n$out"
+          if ($code -ne 0) {
+            Write-Host "::error::silent install failed (exit $code) - see installer output above"
+            throw "silent install failed (exit $code)"
+          }
           $dir = "$env:LOCALAPPDATA\Programs\MusicForge"
+          Start-Sleep -Seconds 3
+          Write-Host "install dir contents: $((Get-ChildItem $dir -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join ', ')"
           if (-not (Test-Path "$dir\musicforge-gui.exe")) { throw "musicforge-gui.exe missing after install" }
           if (-not (Test-Path "$dir\musicforge.exe"))     { throw "musicforge.exe missing after install" }
           & "$dir\Uninstall.exe" /S
           if ($LASTEXITCODE -ne 0) { throw "silent uninstall failed" }
+          Start-Sleep -Seconds 2
           if (Test-Path $dir) { throw "install dir not removed: $dir" }
           Write-Host "::notice::install/uninstall lifecycle OK"
 
