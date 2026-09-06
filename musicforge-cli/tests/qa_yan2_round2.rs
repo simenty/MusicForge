@@ -80,7 +80,10 @@ fn meta_raw(music_name: &str, album: &str, fmt: Option<&str>) -> Vec<u8> {
     if let Some(f) = fmt {
         j["format"] = serde_json::json!(f);
     }
-    let inner = aes_ecb_encrypt(&musicforge_core::META_KEY, format!("music:{}", j).as_bytes());
+    let inner = aes_ecb_encrypt(
+        &musicforge_core::META_KEY,
+        format!("music:{}", j).as_bytes(),
+    );
     let full = format!(
         "163 key(Don't modify):{}",
         base64::engine::general_purpose::STANDARD.encode(inner)
@@ -212,8 +215,15 @@ fn yan2_regression_b6_empty_key_rejected() {
     let r = std::panic::catch_unwind(|| musicforge_core::Decoder::open(&p));
     assert!(r.is_ok(), "Decoder::open 不得 panic（索引越界）");
     let err = r.unwrap().map(|_| ()).expect_err("空 RC4 密钥必须返回错误");
-    assert!(matches!(err, NcmError::EmptyKey), "应报 EmptyKey，实际: {err}");
-    assert_eq!(err.code(), "NCM-STRUCT-INVALID", "稳定错误码必须归类结构损坏");
+    assert!(
+        matches!(err, NcmError::EmptyKey),
+        "应报 EmptyKey，实际: {err}"
+    );
+    assert_eq!(
+        err.code(),
+        "NCM-STRUCT-INVALID",
+        "稳定错误码必须归类结构损坏"
+    );
 
     // 路径 2：parse_blob（整读解析）
     let r2 = std::panic::catch_unwind(|| musicforge_core::header::parse_blob(&blob));
@@ -237,7 +247,10 @@ fn yan2_regression_k2_unknown_format_no_output() {
     let err = musicforge_core::Decoder::open(&p)
         .and_then(|mut d| d.dump(Some(out.as_path())))
         .expect_err("未知格式必须显式报错，不得兜底 flac 产出垃圾文件");
-    assert!(matches!(err, NcmError::UnknownFormat), "应报 UnknownFormat，实际: {err}");
+    assert!(
+        matches!(err, NcmError::UnknownFormat),
+        "应报 UnknownFormat，实际: {err}"
+    );
     assert_eq!(err.code(), "NCM-FORMAT-UNKNOWN");
     assert!(
         std::fs::read_dir(&out).unwrap().next().is_none(),
@@ -258,7 +271,11 @@ fn yan2_regression_g5_magic_sniff_reads_real_bytes() {
 
     let mut dec = musicforge_core::Decoder::open(&p).unwrap();
     let fmt = dec.detect_format().expect("魔数兜底应识别裸 MP3");
-    assert_eq!(fmt, musicforge_core::Format::Mp3, "魔数嗅探必须读到真字节（stream_offset 应为 0）");
+    assert_eq!(
+        fmt,
+        musicforge_core::Format::Mp3,
+        "魔数嗅探必须读到真字节（stream_offset 应为 0）"
+    );
 
     let target = dir.path().join("bare.mp3");
     dec.dump_to(&target).unwrap();
@@ -279,6 +296,8 @@ fn cfg(inputs: Vec<PathBuf>, out: &Path, template: &str) -> BatchConfig {
         skip_existing: false,
         jobs: 4,
         template: template.to_string(),
+        dry_run: false,
+        manifest: None,
         cancel: None,
     }
 }
@@ -315,15 +334,27 @@ fn yan2_b8_tagread_product_visible_and_byte_exact() {
     assert_eq!(s.results.len(), 1, "结果数必须等于输入数");
 
     let r = find(&s, "mismatch");
-    assert_eq!(r.status, Status::Ok, "TagRead 必须降级为 Ok，实际 reason={:?}", r.reason);
+    assert_eq!(
+        r.status,
+        Status::Ok,
+        "TagRead 必须降级为 Ok，实际 reason={:?}",
+        r.reason
+    );
 
     let p = r.output.as_ref().expect("产物已落盘就必须带出路径");
     assert!(p.exists(), "报出的输出路径必须真实存在：{p:?}");
-    assert_eq!(std::fs::read(p).unwrap(), audio, "落盘内容必须与解密后音频逐字节相等");
+    assert_eq!(
+        std::fs::read(p).unwrap(),
+        audio,
+        "落盘内容必须与解密后音频逐字节相等"
+    );
 
     let reason = r.reason.as_deref().unwrap_or("");
     assert!(reason.contains("NCM-TAG-READ"), "需带稳定错误码：{reason}");
-    assert!(reason.contains("音频已完整导出"), "需说明音频已导出：{reason}");
+    assert!(
+        reason.contains("音频已完整导出"),
+        "需说明音频已导出：{reason}"
+    );
     assert!(reason.contains("建议"), "需给出可操作建议：{reason}");
 
     assert_eq!(s.failed, 0);
@@ -354,8 +385,14 @@ fn yan2_reverse_marker_failure_stays_failed() {
     assert!(!std::fs::read(p).unwrap().is_empty());
 
     let reason = r.reason.as_deref().unwrap_or("");
-    assert!(!reason.contains("NCM-TAG-READ"), "不得复用降级文案：{reason}");
-    assert!(reason.contains("完整性标记写入失败"), "需说明具体哪一步失败：{reason}");
+    assert!(
+        !reason.contains("NCM-TAG-READ"),
+        "不得复用降级文案：{reason}"
+    );
+    assert!(
+        reason.contains("完整性标记写入失败"),
+        "需说明具体哪一步失败：{reason}"
+    );
     assert_eq!(s.failed, 1);
     assert_eq!(s.exit_code(), 1);
 
@@ -389,8 +426,16 @@ fn yan2_mixed_degraded_and_real_failure_exit_code_is_one() {
     ));
     assert_eq!(s.results.len(), 2, "结果数必须等于输入数");
 
-    assert_eq!(find(&s, "degraded").status, Status::Ok, "TagRead 项应降级为 Ok");
-    assert_eq!(find(&s, "failed").status, Status::Failed, "标记失败项应判 Failed");
+    assert_eq!(
+        find(&s, "degraded").status,
+        Status::Ok,
+        "TagRead 项应降级为 Ok"
+    );
+    assert_eq!(
+        find(&s, "failed").status,
+        Status::Failed,
+        "标记失败项应判 Failed"
+    );
 
     assert_eq!(s.ok, 1, "降级项计入 ok");
     assert_eq!(s.failed, 1, "真实失败项计入 failed");
@@ -436,7 +481,10 @@ fn yan2_degraded_item_is_absent_from_failures_csv() {
     s.export_failures_csv(&csv).unwrap();
     let text = std::fs::read_to_string(&csv).unwrap();
     eprintln!("[CSV 实测内容]\n{text}");
-    assert!(!text.contains("降级项"), "实测：降级项不应出现在失败清单 CSV 中，实际 CSV=\n{text}");
+    assert!(
+        !text.contains("降级项"),
+        "实测：降级项不应出现在失败清单 CSV 中，实际 CSV=\n{text}"
+    );
     assert_eq!(text.lines().count(), 1, "CSV 应只剩表头一行，实际 {text:?}");
 
     let _ = std::fs::remove_dir_all(&base);
@@ -465,7 +513,10 @@ fn yan2_degraded_warning_visibility_in_cli_output() {
 
     let stdout = String::from_utf8_lossy(&o.stdout);
     let stderr = String::from_utf8_lossy(&o.stderr);
-    eprintln!("[stdout]\n{stdout}\n[stderr]\n{stderr}\n[exit] {:?}", o.status.code());
+    eprintln!(
+        "[stdout]\n{stdout}\n[stderr]\n{stderr}\n[exit] {:?}",
+        o.status.code()
+    );
 
     let mentioned = stdout.contains("NCM-TAG-READ")
         || stderr.contains("NCM-TAG-READ")
@@ -490,8 +541,11 @@ fn yan2_b9_absurd_jobs_bounded_and_completes() {
     let inputs: Vec<PathBuf> = (0..n)
         .map(|i| {
             let p = base.join(format!("f{i}.ncm"));
-            std::fs::write(&p, craft_ncm(&minimal_flac(), &format!("曲{i}"), "QA", Some("flac")))
-                .unwrap();
+            std::fs::write(
+                &p,
+                craft_ncm(&minimal_flac(), &format!("曲{i}"), "QA", Some("flac")),
+            )
+            .unwrap();
             p
         })
         .collect();
@@ -501,7 +555,11 @@ fn yan2_b9_absurd_jobs_bounded_and_completes() {
     let s = musicforge_cli::run(c);
 
     assert_eq!(s.results.len(), n, "结果数必须等于输入数");
-    assert_eq!(s.ok, n, "荒谬并发值不得影响正确性，实际 ok={} failed={}", s.ok, s.failed);
+    assert_eq!(
+        s.ok, n,
+        "荒谬并发值不得影响正确性，实际 ok={} failed={}",
+        s.ok, s.failed
+    );
     assert_eq!(s.failed, 0);
     assert_eq!(s.exit_code(), 0);
 
@@ -519,8 +577,11 @@ fn yan2_b9_jobs_zero_is_bounded_to_at_least_one() {
     let inputs: Vec<PathBuf> = (0..3)
         .map(|i| {
             let p = base.join(format!("z{i}.ncm"));
-            std::fs::write(&p, craft_ncm(&minimal_flac(), &format!("零{i}"), "QA", Some("flac")))
-                .unwrap();
+            std::fs::write(
+                &p,
+                craft_ncm(&minimal_flac(), &format!("零{i}"), "QA", Some("flac")),
+            )
+            .unwrap();
             p
         })
         .collect();
@@ -528,7 +589,11 @@ fn yan2_b9_jobs_zero_is_bounded_to_at_least_one() {
     let mut c = cfg(inputs, &out, "{title}");
     c.jobs = 0;
     let s = musicforge_cli::run(c);
-    assert_eq!(s.results.len(), 3, "jobs=0 也必须处理完全部输入（结果数恒等于输入数）");
+    assert_eq!(
+        s.results.len(),
+        3,
+        "jobs=0 也必须处理完全部输入（结果数恒等于输入数）"
+    );
     assert_eq!(s.ok, 3, "jobs=0 应被钳制到 >=1，实际 ok={}", s.ok);
 
     let _ = std::fs::remove_dir_all(&base);
@@ -564,13 +629,28 @@ fn yan2_b10_depth_cap_is_at_64_and_no_overflow() {
     let mut found: Vec<String> = s
         .results
         .iter()
-        .map(|r| r.source.file_stem().and_then(|x| x.to_str()).unwrap_or("").to_string())
+        .map(|r| {
+            r.source
+                .file_stem()
+                .and_then(|x| x.to_str())
+                .unwrap_or("")
+                .to_string()
+        })
         .collect();
     found.sort();
 
-    assert!(found.contains(&"shallow".to_string()), "根层文件必须被收集，实际 {found:?}");
-    assert!(found.contains(&"lv63".to_string()), "第 63 层属正常深度，不得被上界误伤，实际 {found:?}");
-    assert!(!found.contains(&"lv66".to_string()), "第 66 层必须被深度上界截断（深度 > 64），实际 {found:?}");
+    assert!(
+        found.contains(&"shallow".to_string()),
+        "根层文件必须被收集，实际 {found:?}"
+    );
+    assert!(
+        found.contains(&"lv63".to_string()),
+        "第 63 层属正常深度，不得被上界误伤，实际 {found:?}"
+    );
+    assert!(
+        !found.contains(&"lv66".to_string()),
+        "第 66 层必须被深度上界截断（深度 > 64），实际 {found:?}"
+    );
     assert_eq!(s.results.len(), 2, "应恰好收集 2 个，实际 {found:?}");
 
     let _ = std::fs::remove_dir_all(&base);
@@ -616,7 +696,11 @@ fn yan2_b10_self_referencing_junction_does_not_overflow() {
         "自引用 junction 不得影响正常文件的收集，实际结果数 {}",
         s.results.len()
     );
-    assert!(s.results.len() <= 64, "结果数应在上界内，实际 {}", s.results.len());
+    assert!(
+        s.results.len() <= 64,
+        "结果数应在上界内，实际 {}",
+        s.results.len()
+    );
 
     let _ = std::process::Command::new("cmd")
         .args(["/C", "rmdir", "loop"])
@@ -652,7 +736,11 @@ fn yan2_b11_nonexistent_path_warns_on_stderr() {
         stderr.contains("不存在") || stderr.contains("未发现任何"),
         "不存在的输入必须在 stderr 告警，实际 stderr={stderr:?}"
     );
-    eprintln!("[B11-不存在] exit={:?} stderr={}", o.status.code(), stderr.trim());
+    eprintln!(
+        "[B11-不存在] exit={:?} stderr={}",
+        o.status.code(),
+        stderr.trim()
+    );
 
     let empty = base.join("empty");
     std::fs::create_dir_all(&empty).unwrap();
@@ -668,8 +756,15 @@ fn yan2_b11_nonexistent_path_warns_on_stderr() {
         .output()
         .expect("CLI 应可执行");
     let stderr2 = String::from_utf8_lossy(&o2.stderr);
-    assert!(stderr2.contains("未发现任何"), "无 .ncm 的目录必须给出告警，实际 stderr={stderr2:?}");
-    eprintln!("[B11-无ncm] exit={:?} stderr={}", o2.status.code(), stderr2.trim());
+    assert!(
+        stderr2.contains("未发现任何"),
+        "无 .ncm 的目录必须给出告警，实际 stderr={stderr2:?}"
+    );
+    eprintln!(
+        "[B11-无ncm] exit={:?} stderr={}",
+        o2.status.code(),
+        stderr2.trim()
+    );
     eprintln!(
         "[B11 退出码语义] 不存在={:?} / 无ncm={:?}（观测值，用于确认告警未破坏退出码语义）",
         o.status.code(),
@@ -690,7 +785,11 @@ fn yan2_c1_result_count_equals_input_count() {
     let inputs: Vec<PathBuf> = (0..12)
         .map(|i| {
             let p = base.join(format!("c{i}.ncm"));
-            let audio: Vec<u8> = if i % 6 == 5 { vec![0u8; 256] } else { minimal_flac() };
+            let audio: Vec<u8> = if i % 6 == 5 {
+                vec![0u8; 256]
+            } else {
+                minimal_flac()
+            };
             // 全零音频**不声明** format → 三级判定皆失败 → 规划阶段 UnknownFormat
             let declared = if i % 6 == 5 { None } else { Some("flac") };
             std::fs::write(&p, craft_ncm(&audio, &format!("曲{i}"), "QA", declared)).unwrap();
@@ -709,7 +808,11 @@ fn yan2_c1_result_count_equals_input_count() {
         inputs.len(),
         "四类计数之和必须等于输入数"
     );
-    assert!(s.failed >= 1, "全零音频应判 Failed，实际 failed={}", s.failed);
+    assert!(
+        s.failed >= 1,
+        "全零音频应判 Failed，实际 failed={}",
+        s.failed
+    );
 
     let _ = std::fs::remove_dir_all(&base);
 }
@@ -735,15 +838,26 @@ fn yan2_g3_expanded_inputs_mirror_source_tree() {
         (src.join("顶层").join("b.ncm"), Some(src.clone())),
         (sub.join("c.ncm"), Some(src.clone())),
     ];
-    let s = musicforge_cli::run_with_progress_expanded(expanded, cfg(vec![], &out, "{title}"), |_| {});
+    let s =
+        musicforge_cli::run_with_progress_expanded(expanded, cfg(vec![], &out, "{title}"), |_| {});
     assert_eq!(s.results.len(), 3);
-    assert_eq!(s.failed, 0, "不应有失败：{:?}", s.results.iter().map(|r| &r.reason).collect::<Vec<_>>());
+    assert_eq!(
+        s.failed,
+        0,
+        "不应有失败：{:?}",
+        s.results.iter().map(|r| &r.reason).collect::<Vec<_>>()
+    );
 
     let mut got: Vec<String> = s
         .results
         .iter()
         .filter_map(|r| r.output.as_ref())
-        .map(|p| p.strip_prefix(&out).unwrap().to_string_lossy().replace('\\', "/"))
+        .map(|p| {
+            p.strip_prefix(&out)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
         .collect();
     got.sort();
 
@@ -766,8 +880,18 @@ fn yan2_g3_expanded_inputs_mirror_source_tree() {
             let rel_out = r.output.as_ref().unwrap().strip_prefix(&out).unwrap();
             format!(
                 "{} -> {}",
-                rel_src.parent().unwrap().display().to_string().replace('\\', "/"),
-                rel_out.parent().unwrap().display().to_string().replace('\\', "/")
+                rel_src
+                    .parent()
+                    .unwrap()
+                    .display()
+                    .to_string()
+                    .replace('\\', "/"),
+                rel_out
+                    .parent()
+                    .unwrap()
+                    .display()
+                    .to_string()
+                    .replace('\\', "/")
             )
         })
         .collect();

@@ -7,7 +7,9 @@
 use std::path::Path;
 use std::process::Command;
 
-use musicforge_cli::{run, run_with_progress, run_with_progress_expanded, BatchConfig, CancelToken};
+use musicforge_cli::{
+    run, run_with_progress, run_with_progress_expanded, BatchConfig, CancelToken,
+};
 use musicforge_core::Decoder;
 
 // ---------- 自建 NCM 编码器（与 musicforge-core/tests/qa_adversarial.rs 同源） ----------
@@ -61,8 +63,10 @@ mod ncm {
             "format": fmt,
         })
         .to_string();
-        let inner =
-            aes_ecb_encrypt(&musicforge_core::META_KEY, format!("music:{meta_json}").as_bytes());
+        let inner = aes_ecb_encrypt(
+            &musicforge_core::META_KEY,
+            format!("music:{meta_json}").as_bytes(),
+        );
         let full = format!(
             "163 key(Don't modify):{}",
             base64::engine::general_purpose::STANDARD.encode(inner)
@@ -140,6 +144,8 @@ fn cfg(inputs: Vec<std::path::PathBuf>, out: &Path, template: &str) -> BatchConf
         skip_existing: false,
         jobs: 2,
         template: template.to_string(),
+        dry_run: false,
+        manifest: None,
         cancel: None,
     }
 }
@@ -167,12 +173,8 @@ fn expanded_inputs_mirror_source_tree() {
     )
     .unwrap();
 
-    let pairs = vec![
-        (a, Some(root.to_path_buf())),
-        (b, Some(root.to_path_buf())),
-    ];
-    let summary =
-        run_with_progress_expanded(pairs, cfg(vec![], out.path(), "{title}"), |_| {});
+    let pairs = vec![(a, Some(root.to_path_buf())), (b, Some(root.to_path_buf()))];
+    let summary = run_with_progress_expanded(pairs, cfg(vec![], out.path(), "{title}"), |_| {});
     assert_eq!(
         summary.ok,
         2,
@@ -217,12 +219,12 @@ fn metadata_path_escape_is_contained() {
         std::fs::write(src.path().join(format!("s{i}.ncm")), &blob).unwrap();
     }
 
-    let summary = run(cfg(
-        vec![src.path().to_path_buf()],
-        out.path(),
-        "{title}",
-    ));
-    assert_eq!(summary.ok, 7, "全部应成功（逃逸被清洗，不是失败）: {:?}", summary.results);
+    let summary = run(cfg(vec![src.path().to_path_buf()], out.path(), "{title}"));
+    assert_eq!(
+        summary.ok, 7,
+        "全部应成功（逃逸被清洗，不是失败）: {:?}",
+        summary.results
+    );
     for r in &summary.results {
         let o = r.output.as_ref().unwrap().canonicalize().unwrap();
         assert!(
@@ -248,15 +250,25 @@ fn template_itself_with_dotdot_segments_is_contained() {
     let blob = ncm::standard_ncm(&ncm::minimal_flac(), "测试曲目", "专辑", "flac", b"");
     std::fs::write(src.path().join("a.ncm"), &blob).unwrap();
 
-    for template in ["../{title}", "{title}/../x", "..\\{title}", "{artist}/{title}/.."] {
-        let summary = run(cfg(
-            vec![src.path().to_path_buf()],
-            out.path(),
-            template,
-        ));
+    for template in [
+        "../{title}",
+        "{title}/../x",
+        "..\\{title}",
+        "{artist}/{title}/..",
+    ] {
+        let summary = run(cfg(vec![src.path().to_path_buf()], out.path(), template));
         assert_eq!(summary.ok, 1, "模板 {template:?} 应成功");
-        let o = summary.results[0].output.as_ref().unwrap().canonicalize().unwrap();
-        assert!(o.starts_with(&out_root), "模板 {template:?} 导致逃逸: {:?}", summary.results[0].output);
+        let o = summary.results[0]
+            .output
+            .as_ref()
+            .unwrap()
+            .canonicalize()
+            .unwrap();
+        assert!(
+            o.starts_with(&out_root),
+            "模板 {template:?} 导致逃逸: {:?}",
+            summary.results[0].output
+        );
     }
     // 清理本轮产物，避免影响断言计数
     for e in std::fs::read_dir(out.path()).unwrap().flatten() {
@@ -278,7 +290,10 @@ fn empty_audio_cli_fails_with_error_code() {
     assert_eq!(summary.ok, 0);
     let r = &summary.results[0];
     assert!(
-        r.reason.as_deref().unwrap_or("").contains("NCM-EMPTY-AUDIO"),
+        r.reason
+            .as_deref()
+            .unwrap_or("")
+            .contains("NCM-EMPTY-AUDIO"),
         "失败原因应含错误码 NCM-EMPTY-AUDIO: {:?}",
         r.reason
     );
@@ -306,6 +321,8 @@ fn cancel_accounting_is_complete() {
         skip_existing: false,
         jobs: 1,
         template: "{title}".to_string(),
+        dry_run: false,
+        manifest: None,
         cancel: Some(token.clone()),
     };
     let seen = std::sync::atomic::AtomicUsize::new(0);
@@ -352,16 +369,39 @@ fn concurrent_same_target_dedup_and_integrity() {
     let summary = run(cfg4);
     assert_eq!(summary.ok, 4, "4 个都成功: {:?}", summary.results);
 
-    let mut outputs: Vec<_> = summary.results.iter().filter_map(|r| r.output.clone()).collect();
+    let mut outputs: Vec<_> = summary
+        .results
+        .iter()
+        .filter_map(|r| r.output.clone())
+        .collect();
     outputs.sort();
     assert_eq!(outputs.len(), 4, "4 个互不相同的目标");
-    let names: Vec<_> = outputs.iter().map(|p| p.file_name().unwrap().to_string_lossy().to_string()).collect();
-    assert!(names.contains(&"并发目标.flac".to_string()), "渲染名: {names:?}");
-    assert!(names.contains(&"并发目标 (2).flac".to_string()), "去重后缀: {names:?}");
-    assert!(names.contains(&"并发目标 (3).flac".to_string()), "去重后缀: {names:?}");
-    assert!(names.contains(&"并发目标 (4).flac".to_string()), "去重后缀: {names:?}");
+    let names: Vec<_> = outputs
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+    assert!(
+        names.contains(&"并发目标.flac".to_string()),
+        "渲染名: {names:?}"
+    );
+    assert!(
+        names.contains(&"并发目标 (2).flac".to_string()),
+        "去重后缀: {names:?}"
+    );
+    assert!(
+        names.contains(&"并发目标 (3).flac".to_string()),
+        "去重后缀: {names:?}"
+    );
+    assert!(
+        names.contains(&"并发目标 (4).flac".to_string()),
+        "去重后缀: {names:?}"
+    );
     for p in &outputs {
-        assert_eq!(sha256_hex(p), ref_sha, "并发输出必须与单线程逐字节一致: {p:?}");
+        assert_eq!(
+            sha256_hex(p),
+            ref_sha,
+            "并发输出必须与单线程逐字节一致: {p:?}"
+        );
     }
 }
 
@@ -442,7 +482,11 @@ fn real_sample_end_to_end() {
 
     // 2) CLI 端到端
     let out = tempfile::tempdir().unwrap();
-    let summary = run(cfg(vec![src.to_path_buf()], out.path(), "{artist} - {title}"));
+    let summary = run(cfg(
+        vec![src.to_path_buf()],
+        out.path(),
+        "{artist} - {title}",
+    ));
     assert_eq!(summary.ok, 1, "CLI 处理真实样本: {:?}", summary.results);
     let target = summary.results[0].output.as_ref().unwrap().clone();
     assert_eq!(target.extension().and_then(|e| e.to_str()), Some("flac"));
@@ -453,10 +497,22 @@ fn real_sample_end_to_end() {
     // 3) 标签读回验证（lofty）
     use lofty::prelude::*;
     let tagged = lofty::read_from_path(&target).unwrap();
-    let tag = tagged.primary_tag().or(tagged.first_tag()).expect("应存在标签");
-    assert_eq!(tag.get_string(lofty::tag::ItemKey::TrackTitle), Some("贝贝"));
-    assert_eq!(tag.get_string(lofty::tag::ItemKey::TrackArtist), Some("李荣浩"));
-    assert_eq!(tag.get_string(lofty::tag::ItemKey::AlbumTitle), Some("耳朵"));
+    let tag = tagged
+        .primary_tag()
+        .or(tagged.first_tag())
+        .expect("应存在标签");
+    assert_eq!(
+        tag.get_string(lofty::tag::ItemKey::TrackTitle),
+        Some("贝贝")
+    );
+    assert_eq!(
+        tag.get_string(lofty::tag::ItemKey::TrackArtist),
+        Some("李荣浩")
+    );
+    assert_eq!(
+        tag.get_string(lofty::tag::ItemKey::AlbumTitle),
+        Some("耳朵")
+    );
 }
 
 // ============ 附：CLI 二进制冒烟（退出码语义）============
@@ -508,7 +564,11 @@ fn case_only_collision_no_silent_overwrite() {
     std::fs::create_dir_all(&src_dir).expect("创建源目录");
 
     // 1) 构造两个仅大小写不同的 ncm（音频负载不同，便于检测覆盖）
-    let status = std::process::Command::new(py).arg(script).arg(&src_dir).status().expect("venv python 可执行");
+    let status = std::process::Command::new(py)
+        .arg(script)
+        .arg(&src_dir)
+        .status()
+        .expect("venv python 可执行");
     assert!(status.success(), "fixture 构造失败");
 
     let inputs: Vec<std::path::PathBuf> = std::fs::read_dir(&src_dir)
@@ -530,6 +590,8 @@ fn case_only_collision_no_silent_overwrite() {
         skip_existing: false,
         jobs: 2,
         template: "{title}".to_string(),
+        dry_run: false,
+        manifest: None,
         cancel: None,
     };
     let summary = run_with_progress(cfg, |_r| {});
@@ -605,7 +667,10 @@ fn tag_read_failure_degrades_to_ok_not_failed() {
     );
     // 断言 2：产物必须可见
     let out_path = r.output.as_ref().expect("必须如实带出输出路径");
-    assert!(out_path.exists(), "报出的输出路径必须真实存在：{out_path:?}");
+    assert!(
+        out_path.exists(),
+        "报出的输出路径必须真实存在：{out_path:?}"
+    );
     // 断言 3：产物必须与源音频**逐字节一致**（解密本身是对的）
     assert_eq!(
         std::fs::read(out_path).unwrap(),
@@ -614,12 +679,18 @@ fn tag_read_failure_degrades_to_ok_not_failed() {
     );
     // 断言 4：reason 必须带稳定错误码与「音频已完整导出」语义
     let reason = r.reason.as_deref().unwrap_or("");
-    assert!(reason.contains("NCM-TAG-READ"), "reason 必须带错误码：{reason}");
+    assert!(
+        reason.contains("NCM-TAG-READ"),
+        "reason 必须带错误码：{reason}"
+    );
     assert!(
         reason.contains("音频已完整导出"),
         "reason 必须说明音频已导出：{reason}"
     );
-    assert!(reason.contains("建议"), "reason 必须给出可操作建议：{reason}");
+    assert!(
+        reason.contains("建议"),
+        "reason 必须给出可操作建议：{reason}"
+    );
     // 断言 5：降级后不计入 failed，退出码不受影响
     assert_eq!(summary.failed, 0, "TagRead 降级后不得计入 failed");
     assert_eq!(summary.ok, 1);
@@ -707,7 +778,10 @@ fn absurd_jobs_value_is_bounded_not_fatal() {
     );
     c.jobs = 200_000; // 荒谬值：必须被钳制而不是去创建 20 万个线程
     let summary = run(c);
-    assert_eq!(summary.ok, 3, "荒谬并发值不得影响正确性（应被钳制后正常完成）");
+    assert_eq!(
+        summary.ok, 3,
+        "荒谬并发值不得影响正确性（应被钳制后正常完成）"
+    );
 
     let _ = std::fs::remove_dir_all(&base);
 }
@@ -721,7 +795,8 @@ fn absurd_jobs_value_is_bounded_not_fatal() {
 #[test]
 fn nonexistent_input_is_surfaced_not_silently_noop() {
     let exe = env!("CARGO_BIN_EXE_musicforge");
-    let missing = std::env::temp_dir().join(format!("musicforge-does-not-exist-{}", std::process::id()));
+    let missing =
+        std::env::temp_dir().join(format!("musicforge-does-not-exist-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&missing);
 
     let out = std::process::Command::new(exe)

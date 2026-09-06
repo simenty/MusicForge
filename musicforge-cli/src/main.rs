@@ -10,7 +10,12 @@ use musicforge_cli::{run, BatchConfig};
 ///
 /// 仅处理你已合法获得的文件的个人本地格式转换。零网络、不上传、不收集数据。
 #[derive(Parser, Debug)]
-#[command(name = "musicforge", version, about, after_help = "法律须知：本项目仅支持处理你已合法获得的文件的个人本地格式转换/备份。")]
+#[command(
+    name = "musicforge",
+    version,
+    about,
+    after_help = "法律须知：本项目仅支持处理你已合法获得的文件的个人本地格式转换/备份。"
+)]
 struct Args {
     /// .ncm 文件（可多个）
     files: Vec<String>,
@@ -42,6 +47,14 @@ struct Args {
     /// 命名模板（占位符 {title}/{artist}/{album}/{track}/{track:02d}/{format}；/ 产生子目录）
     #[arg(long, default_value = "{artist} - {title}")]
     template: String,
+
+    /// 只规划不落盘：产出 manifest 计划条目，不写任何音频与侧车文件（v0.2.0）
+    #[arg(long)]
+    dry_run: bool,
+
+    /// manifest 路径；不指定则不写留痕文件（dry-run 建议指定以便查看计划）
+    #[arg(long)]
+    manifest: Option<String>,
 }
 
 fn main() {
@@ -81,6 +94,10 @@ fn main() {
         jobs: args.jobs,
         template: args.template,
         cancel: None,
+        dry_run: args.dry_run,
+        // 默认不写 manifest：避免在任何工作目录产生 .musicforge 杂散目录；
+        // 需要审计留痕时显式 --manifest <path>
+        manifest: args.manifest.as_ref().map(PathBuf::from),
     };
 
     let summary = run(cfg);
@@ -100,7 +117,14 @@ fn main() {
     for r in &summary.results {
         match r.status {
             musicforge_cli::Status::Ok => {
-                println!("✓ {} → {}", r.source.display(), r.output.as_ref().map(|p| p.display().to_string()).unwrap_or_default());
+                println!(
+                    "✓ {} → {}",
+                    r.source.display(),
+                    r.output
+                        .as_ref()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default()
+                );
                 if let Some(reason) = &r.reason {
                     degraded += 1;
                     eprintln!("⚠ {} —— {}", r.source.display(), reason);
@@ -120,7 +144,11 @@ fn main() {
         }
     }
 
-    let cancel_note = if summary.is_cancelled() { "（已取消）" } else { "" };
+    let cancel_note = if summary.is_cancelled() {
+        "（已取消）"
+    } else {
+        ""
+    };
     let degraded_note = if degraded > 0 {
         format!("（其中 {degraded} 个音频已完整导出但元数据未写入，下次运行将自动重转）")
     } else {
@@ -128,7 +156,12 @@ fn main() {
     };
     println!(
         "\n汇总：成功 {} / 跳过 {} / 失败 {} · 耗时 {} ms{}{}",
-        summary.ok, summary.skipped, summary.failed, summary.duration_ms, cancel_note, degraded_note
+        summary.ok,
+        summary.skipped,
+        summary.failed,
+        summary.duration_ms,
+        cancel_note,
+        degraded_note
     );
 
     if let Some(csv) = &args.export_failures {

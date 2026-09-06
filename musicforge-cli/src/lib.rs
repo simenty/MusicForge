@@ -9,6 +9,7 @@
 //!   失败在此直接记为 Failed（错误码 + 建议）。
 //! - **执行阶段（并行）**：按分配好的目标落盘 + 写标签 + 写完整性标记。
 
+pub mod manifest;
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -47,6 +48,10 @@ pub struct BatchConfig {
     pub jobs: usize,
     /// 命名模板（占位符 {title}/{artist}/{album}/{track}/{track:0Nd}/{format}；`/` 产生子目录；逐段清洗）
     pub template: String,
+    /// 只规划不落盘（v0.2.0）：产出 manifest 计划条目，不写任何音频/侧车文件
+    pub dry_run: bool,
+    /// manifest 路径；None = 不写 manifest（v0.2.0 默认会由 CLI 指定）
+    pub manifest: Option<PathBuf>,
     /// 取消令牌（None = 不可取消）
     pub cancel: Option<CancelToken>,
 }
@@ -61,6 +66,8 @@ impl Default for BatchConfig {
             jobs: 4,
             template: "{artist} - {title}".to_string(),
             cancel: None,
+            dry_run: false,
+            manifest: None,
         }
     }
 }
@@ -105,6 +112,8 @@ pub struct FileResult {
 #[derive(Debug)]
 pub struct BatchSummary {
     pub results: Vec<FileResult>,
+    /// 仅规划未执行的条目数（dry-run 模式）
+    pub planned: usize,
     pub ok: usize,
     pub skipped: usize,
     pub cancelled: usize,
@@ -228,7 +237,10 @@ pub fn collect_inputs(inputs: &[PathBuf], recursive: bool) -> Vec<(PathBuf, Opti
                             let e = match e {
                                 Ok(e) => e,
                                 Err(err) => {
-                                    eprintln!("警告：跳过 {} 下无法访问的目录项：{err}", p.display());
+                                    eprintln!(
+                                        "警告：跳过 {} 下无法访问的目录项：{err}",
+                                        p.display()
+                                    );
                                     continue;
                                 }
                             };
@@ -406,7 +418,11 @@ fn execute_one(plan: &Plan, cfg: &BatchConfig) -> FileResult {
     // 落盘成功但后续阶段失败时，产物是完整可用的：
     // 必须如实带出输出路径，否则「文件已在磁盘上、result.output 却是 None」，
     // 用户既看不到也删不掉，重跑又因无 sidecar 反复重转（QA 第二轮）。
-    let produced = if dumped_ok { Some(plan.target.clone()) } else { None };
+    let produced = if dumped_ok {
+        Some(plan.target.clone())
+    } else {
+        None
+    };
 
     match outcome {
         Ok((tags, _)) => {
@@ -506,17 +522,20 @@ fn integrity_marker_ok(target: &Path, sidecar: &Path) -> bool {
         Some(v) => v,
         None => return false,
     };
-    let (Some(recorded_size), Some(recorded_sha)) =
-        (v["size"].as_u64(), v["sha256"].as_str())
+    let (Some(recorded_size), Some(recorded_sha)) = (v["size"].as_u64(), v["sha256"].as_str())
     else {
         return false;
     };
-    let Ok(md) = std::fs::metadata(target) else { return false };
+    let Ok(md) = std::fs::metadata(target) else {
+        return false;
+    };
     if md.len() != recorded_size {
         return false;
     }
     use sha2::{Digest, Sha256};
-    let Ok(mut f) = std::fs::File::open(target) else { return false };
+    let Ok(mut f) = std::fs::File::open(target) else {
+        return false;
+    };
     let mut h = Sha256::new();
     if std::io::copy(&mut f, &mut h).is_err() {
         return false;
@@ -526,10 +545,7 @@ fn integrity_marker_ok(target: &Path, sidecar: &Path) -> bool {
 
 /// 两阶段批处理：串行规划（渲染+去重）→ 有界并行执行（硬约束 10；单文件失败不中断）。
 /// `on_result` 在每个文件完成后回调（GUI 进度事件 / 测试断言用）。
-pub fn run_with_progress(
-    cfg: BatchConfig,
-    on_result: impl Fn(&FileResult) + Sync,
-) -> BatchSummary {
+pub fn run_with_progress(cfg: BatchConfig, on_result: impl Fn(&FileResult) + Sync) -> BatchSummary {
     let sources = collect_inputs(&cfg.inputs, cfg.recursive);
     run_inner(sources, cfg, &on_result)
 }
@@ -574,7 +590,60 @@ fn run_inner(
         }
     }
 
+    // ---- dry-run：只留痕计划，绝不落盘（v0.2.0 安全任务层）----
+    if cfg.dry_run {
+        let planned = plans.len();
+        if let Some(path) = cfg.manifest.as_deref() {
+            let task_id = manifest::new_task_id();
+            match manifest::Manifest::open(path, &task_id, "dry-run") {
+                Ok(mf) => {
+                    for p in &plans {
+                        if let Err(e) = mf.append(&manifest::ManifestItem {
+                            task_id: task_id.clone(),
+                            source: p.source.display().to_string(),
+                            target: Some(p.target.display().to_string()),
+                            actions: vec!["unpack", "write_tags"],
+                            source_sha256: None,
+                            target_sha256: None,
+                            result: "planned",
+                            code: None,
+                            rollback_available: false,
+                            adapter: Some(p.adapter),
+                        }) {
+                            eprintln!("⚠ manifest 写入失败（dry-run）: {e}");
+                        }
+                    }
+                }
+                Err(e) => eprintln!("⚠ manifest 创建失败，跳过留痕: {e}"),
+            }
+        }
+        return BatchSummary {
+            results: Vec::new(),
+            planned,
+            ok: 0,
+            skipped: 0,
+            cancelled: 0,
+            failed: results
+                .iter()
+                .filter(|r| r.status == Status::Failed)
+                .count(),
+            duration_ms: start.elapsed().as_millis(),
+        };
+    }
+
     // ---- 执行阶段（有界并行；取消令牌在每个文件开始前检查）----
+    let task_id = manifest::new_task_id();
+    let mf = match cfg.manifest.as_deref() {
+        Some(path) => match manifest::Manifest::open(path, &task_id, "convert") {
+            Ok(m) => Some(m),
+            Err(e) => {
+                eprintln!("⚠ manifest 创建失败，本次转换无留痕: {e}");
+                None
+            }
+        },
+        None => None,
+    };
+    let mf_ref = mf.as_ref();
     let queue: Mutex<VecDeque<Plan>> = Mutex::new(plans.into());
     let more: Mutex<Vec<FileResult>> = Mutex::new(Vec::new());
     // 硬约束 10：并发数两端都要有界（上界见 MAX_JOBS）
@@ -590,6 +659,32 @@ fn run_inner(
                 };
                 let r = execute_one(&plan, &cfg);
                 on_result(&r);
+                if let Some(mf) = mf_ref {
+                    let (result, code) = match r.status {
+                        Status::Ok => ("success", None),
+                        Status::Skipped => ("skipped", None),
+                        Status::Cancelled => ("cancelled", None),
+                        Status::Failed => (
+                            "failed",
+                            r.reason
+                                .as_deref()
+                                .and_then(|s| s.split(": ").next())
+                                .map(|c| c.trim().to_string()),
+                        ),
+                    };
+                    let _ = mf.append(&manifest::ManifestItem {
+                        task_id: mf.task_id().to_string(),
+                        source: plan.source.display().to_string(),
+                        target: Some(plan.target.display().to_string()),
+                        actions: vec!["unpack", "write_tags"],
+                        source_sha256: None,
+                        target_sha256: sha256_of_sidecar(&plan.target),
+                        result,
+                        code,
+                        rollback_available: false,
+                        adapter: Some(plan.adapter),
+                    });
+                }
                 lock_recover(&more).push(r);
             });
         }
@@ -598,17 +693,35 @@ fn run_inner(
 
     results.sort_by(|a, b| a.source.cmp(&b.source));
     let ok = results.iter().filter(|r| r.status == Status::Ok).count();
-    let skipped = results.iter().filter(|r| r.status == Status::Skipped).count();
-    let cancelled = results.iter().filter(|r| r.status == Status::Cancelled).count();
-    let failed = results.iter().filter(|r| r.status == Status::Failed).count();
+    let skipped = results
+        .iter()
+        .filter(|r| r.status == Status::Skipped)
+        .count();
+    let cancelled = results
+        .iter()
+        .filter(|r| r.status == Status::Cancelled)
+        .count();
+    let failed = results
+        .iter()
+        .filter(|r| r.status == Status::Failed)
+        .count();
     BatchSummary {
         results,
+        planned: 0,
         ok,
         skipped,
         cancelled,
         failed,
         duration_ms: start.elapsed().as_millis(),
     }
+}
+
+/// 从完整性侧车读取产物 sha256（best effort：缺失/损坏返回 None）。
+fn sha256_of_sidecar(target: &Path) -> Option<String> {
+    let sidecar = PathBuf::from(format!("{}.musicforge.json", target.display()));
+    let text = std::fs::read_to_string(&sidecar).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    v["sha256"].as_str().map(|s| s.to_string())
 }
 
 /// 兼容入口：无进度回调

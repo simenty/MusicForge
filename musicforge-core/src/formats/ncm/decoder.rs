@@ -8,9 +8,9 @@ use crate::error::NcmError;
 // P1b/D9：`format.rs` 迁至 `formats/probe.rs`。这里用 `as format` 保持原局部绑定名，
 // 使函数体内的 `format::resolve(...)` 调用零改动（`{self, Format}` 会把绑定改名为
 // `probe`，反而要动函数体——违背「纯移动」原则）。
+use super::header::{self, Header};
 use crate::formats::probe as format;
 use crate::formats::probe::Format;
-use super::header::{self, Header};
 use crate::metadata::Metadata;
 
 /// 打开 `.ncm` 并完成头部解析 + CRC 校验。此后即可 `Read` 得到**明文**音频流。
@@ -40,7 +40,14 @@ impl Decoder {
             .and_then(|s| s.to_str())
             .map(|s| s.to_string());
         let source_parent = path.parent().map(|p| p.to_path_buf());
-        Ok(Self { file, header, stream_offset, format: None, source_stem, source_parent })
+        Ok(Self {
+            file,
+            header,
+            stream_offset,
+            format: None,
+            source_stem,
+            source_parent,
+        })
     }
 
     /// 元数据（可能为 `None`——硬约束 11）
@@ -82,7 +89,10 @@ impl Decoder {
     /// 解密并落盘到**源目录**（硬约束 5：写后完整性校验；写失败清理半成品——修上游 B-3 谎报成功）
     pub fn dump(&mut self, out_dir: Option<&Path>) -> Result<PathBuf, NcmError> {
         let fmt = self.detect_format()?;
-        let stem = self.source_stem.clone().unwrap_or_else(|| "musicforge-output".to_string());
+        let stem = self
+            .source_stem
+            .clone()
+            .unwrap_or_else(|| "musicforge-output".to_string());
 
         let target = match out_dir {
             Some(dir) => {
@@ -90,7 +100,10 @@ impl Decoder {
                 dir.join(format!("{stem}.{}", fmt.extension()))
             }
             None => {
-                let parent = self.source_parent.clone().unwrap_or_else(|| PathBuf::from("."));
+                let parent = self
+                    .source_parent
+                    .clone()
+                    .unwrap_or_else(|| PathBuf::from("."));
                 parent.join(format!("{stem}.{}", fmt.extension()))
             }
         };
@@ -122,7 +135,10 @@ impl Decoder {
 
             // 硬约束 5：落盘字节数校验（修上游 B-3 谎报成功）
             if written != self.header.audio_len {
-                return Err(NcmError::OutputIntegrity { written, expected: self.header.audio_len });
+                return Err(NcmError::OutputIntegrity {
+                    written,
+                    expected: self.header.audio_len,
+                });
             }
             Ok(())
         })();

@@ -56,7 +56,7 @@ fn minimal_flac() -> Vec<u8> {
     info.extend_from_slice(&4096u16.to_be_bytes()); // max blocksize
     info.extend_from_slice(&[0u8; 3]); // min framesize
     info.extend_from_slice(&[0u8; 3]); // max framesize
-    // 20bit sample_rate | 3bit(channels-1) | 5bit(bps-1) | 36bit total_samples
+                                       // 20bit sample_rate | 3bit(channels-1) | 5bit(bps-1) | 36bit total_samples
     let packed: u64 = (44100u64 << 44) | (1u64 << 41) | (15u64 << 36);
     info.extend_from_slice(&packed.to_be_bytes());
     info.extend_from_slice(&[0u8; 16]); // md5 of unencoded audio
@@ -155,7 +155,15 @@ fn minimal_mp4() -> Vec<u8> {
 
     // ---- minf ----
     let smhd = box32(b"smhd", &[be32(0), be16(0), be16(0)].concat());
-    let dref = box32(b"dref", &[be32(0), be32(1), box32(b"url ", &be32(1)).to_vec().as_slice().to_vec()].concat());
+    let dref = box32(
+        b"dref",
+        &[
+            be32(0),
+            be32(1),
+            box32(b"url ", &be32(1)).to_vec().as_slice().to_vec(),
+        ]
+        .concat(),
+    );
     let mut minf_p = smhd;
     minf_p.extend(box32(b"dinf", &dref));
     minf_p.extend(stbl);
@@ -177,7 +185,14 @@ fn minimal_mp4() -> Vec<u8> {
     );
     let hdlr = box32(
         b"hdlr",
-        &[be32(0), be32(0), b"soun".to_vec(), std::iter::repeat_n(0u8, 12).collect::<Vec<u8>>(), vec![0u8]].concat(),
+        &[
+            be32(0),
+            be32(0),
+            b"soun".to_vec(),
+            std::iter::repeat_n(0u8, 12).collect::<Vec<u8>>(),
+            vec![0u8],
+        ]
+        .concat(),
     );
     let mut mdia_p = mdhd;
     mdia_p.extend(hdlr);
@@ -195,8 +210,8 @@ fn minimal_mp4() -> Vec<u8> {
             be32(0), // reserved
             be32(1000),
             std::iter::repeat_n(0u8, 8).collect::<Vec<u8>>(),
-            be16(0), // layer
-            be16(0), // alternate_group
+            be16(0),      // layer
+            be16(0),      // alternate_group
             be16(0x0100), // volume
             be16(0),
             unity_matrix(),
@@ -230,7 +245,9 @@ fn meta(title: &str, artist: &str, album: &str) -> Metadata {
 }
 
 /// 一个最小 8 字节 PNG 签名 + 载荷（够 lofty 判定 MimeType::Png）
-const PNG_COVER: &[u8] = &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0xAA, 0xBB, 0xCC];
+const PNG_COVER: &[u8] = &[
+    0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0xAA, 0xBB, 0xCC,
+];
 
 fn tmp_file(name: &str, blob: &[u8]) -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
@@ -240,12 +257,28 @@ fn tmp_file(name: &str, blob: &[u8]) -> (tempfile::TempDir, PathBuf) {
 }
 
 /// 回读并统计「真实落盘」的字段数：三个文本字段 + 封面（各计 1）。
-fn disk_truth(p: &Path) -> (TagType, usize, usize, Option<String>, Option<String>, Option<String>) {
+fn disk_truth(
+    p: &Path,
+) -> (
+    TagType,
+    usize,
+    usize,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
     let tagged = lofty::read_from_path(p).expect("产物必须可被 lofty 回读");
     let primary = tagged.primary_tag().expect("必须存在主标签");
     let mut fields = 0usize;
-    for key in [ItemKey::TrackTitle, ItemKey::TrackArtist, ItemKey::AlbumTitle] {
-        if primary.get_string(key).is_some_and(|s| !s.trim().is_empty()) {
+    for key in [
+        ItemKey::TrackTitle,
+        ItemKey::TrackArtist,
+        ItemKey::AlbumTitle,
+    ] {
+        if primary
+            .get_string(key)
+            .is_some_and(|s| !s.trim().is_empty())
+        {
             fields += 1;
         }
     }
@@ -257,9 +290,15 @@ fn disk_truth(p: &Path) -> (TagType, usize, usize, Option<String>, Option<String
         primary.tag_type(),
         fields,
         pics,
-        primary.get_string(ItemKey::TrackTitle).map(|s| s.to_string()),
-        primary.get_string(ItemKey::TrackArtist).map(|s| s.to_string()),
-        primary.get_string(ItemKey::AlbumTitle).map(|s| s.to_string()),
+        primary
+            .get_string(ItemKey::TrackTitle)
+            .map(|s| s.to_string()),
+        primary
+            .get_string(ItemKey::TrackArtist)
+            .map(|s| s.to_string()),
+        primary
+            .get_string(ItemKey::AlbumTitle)
+            .map(|s| s.to_string()),
     )
 }
 
@@ -275,19 +314,30 @@ fn yan_b7_id3v1_three_fields_nonempty() {
     payload.extend(id3v1("Old Title", "Old Artist", "Old Album"));
     let (_d, p) = tmp_file("id3v1_nonempty.mp3", &payload);
 
-    let (written, embedded) =
-        tagger::write_tags(&p, Format::Mp3, &meta("新标题", "新歌手", "新专辑"), PNG_COVER)
-            .expect("写入应成功");
+    let (written, embedded) = tagger::write_tags(
+        &p,
+        Format::Mp3,
+        &meta("新标题", "新歌手", "新专辑"),
+        PNG_COVER,
+    )
+    .expect("写入应成功");
 
     let (ptype, disk_fields, pics, title, artist, album) = disk_truth(&p);
 
     // 断言 1：embedded == true ⇒ 磁盘上真的有图片
     assert!(embedded, "无已有封面且传入封面 → 应报告 embedded=true");
-    assert!(pics > 0, "报 embedded=true，磁盘回读 pictures 却为 0（谎报）");
+    assert!(
+        pics > 0,
+        "报 embedded=true，磁盘回读 pictures 却为 0（谎报）"
+    );
     assert_eq!(pics, 1, "封面数应为 1，实际 {pics}");
 
     // 断言 2：主标签类型必须是 ID3v2（容器主标签），不是能力受限的 ID3v1
-    assert_eq!(ptype, TagType::Id3v2, "写入目标必须是 ID3v2，实际 {ptype:?}");
+    assert_eq!(
+        ptype,
+        TagType::Id3v2,
+        "写入目标必须是 ID3v2，实际 {ptype:?}"
+    );
 
     // 断言 3：三字段回读值与写入值**精确相等**
     assert_eq!(title.as_deref(), Some("新标题"), "title 回读不符");
@@ -296,7 +346,10 @@ fn yan_b7_id3v1_three_fields_nonempty() {
 
     // 断言 4：written 与实际落盘字段数一致（3 文本 + 1 封面 = 4）
     assert_eq!(written, 4, "written 应为 4，实际 {written}");
-    assert_eq!(written, disk_fields, "written={written} 与磁盘真值 {disk_fields} 不一致（谎报）");
+    assert_eq!(
+        written, disk_fields,
+        "written={written} 与磁盘真值 {disk_fields} 不一致（谎报）"
+    );
 
     // 断言 5：封面字节内容必须与传入的完全一致（不是被重新编码/丢弃）
     let tagged = lofty::read_from_path(&p).unwrap();
@@ -306,7 +359,11 @@ fn yan_b7_id3v1_three_fields_nonempty() {
         PNG_COVER,
         "封面字节必须与传入值逐字节一致"
     );
-    assert_eq!(primary.pictures()[0].mime_type(), Some(&MimeType::Png), "PNG 魔数应识别为 Png");
+    assert_eq!(
+        primary.pictures()[0].mime_type(),
+        Some(&MimeType::Png),
+        "PNG 魔数应识别为 Png"
+    );
 }
 
 /// 子情形 ②：ID3v1 三个字段全空（定长标签极常见：字段存在但内容全空格）。
@@ -319,13 +376,20 @@ fn yan_b7_id3v1_all_fields_empty() {
     payload.extend(id3v1("", "", ""));
     let (_d, p) = tmp_file("id3v1_blank.mp3", &payload);
 
-    let (written, embedded) =
-        tagger::write_tags(&p, Format::Mp3, &meta("新标题", "新歌手", "新专辑"), PNG_COVER)
-            .expect("写入应成功");
+    let (written, embedded) = tagger::write_tags(
+        &p,
+        Format::Mp3,
+        &meta("新标题", "新歌手", "新专辑"),
+        PNG_COVER,
+    )
+    .expect("写入应成功");
 
     let (ptype, disk_fields, pics, title, artist, album) = disk_truth(&p);
 
-    assert!(written >= 3, "三字段全空 → 都应写入，实际 written={written}");
+    assert!(
+        written >= 3,
+        "三字段全空 → 都应写入，实际 written={written}"
+    );
     assert_eq!(ptype, TagType::Id3v2);
     assert_eq!(title.as_deref(), Some("新标题"));
     assert_eq!(artist.as_deref(), Some("新歌手"));
@@ -333,7 +397,10 @@ fn yan_b7_id3v1_all_fields_empty() {
     if embedded {
         assert!(pics > 0, "报 embedded=true 却无图片落盘");
     }
-    assert_eq!(written, disk_fields, "written={written} vs 磁盘真值 {disk_fields}");
+    assert_eq!(
+        written, disk_fields,
+        "written={written} vs 磁盘真值 {disk_fields}"
+    );
 }
 
 /// 子情形 ②b：ID3v1 字段为**纯空白**（"   "，非全空）——同样必须按缺失处理。
@@ -366,9 +433,20 @@ fn yan_b7_id3v1_with_valid_cover_bytes() {
 
     let tagged = lofty::read_from_path(&p).unwrap();
     let primary = tagged.primary_tag().unwrap();
-    assert!(embedded && !primary.pictures().is_empty(), "embedded=true 但主标签无图片");
-    assert_eq!(primary.pictures()[0].data(), jpeg.as_slice(), "JPEG 封面字节必须保真");
-    assert_eq!(primary.pictures()[0].mime_type(), Some(&MimeType::Jpeg), "JPEG 魔数应识别为 Jpeg");
+    assert!(
+        embedded && !primary.pictures().is_empty(),
+        "embedded=true 但主标签无图片"
+    );
+    assert_eq!(
+        primary.pictures()[0].data(),
+        jpeg.as_slice(),
+        "JPEG 封面字节必须保真"
+    );
+    assert_eq!(
+        primary.pictures()[0].mime_type(),
+        Some(&MimeType::Jpeg),
+        "JPEG 魔数应识别为 Jpeg"
+    );
     assert!(written >= 1);
 }
 
@@ -383,8 +461,13 @@ fn yan_b7_long_title_not_silently_truncated() {
     let long_title = "这是一个远超三十字符上限的超长标题内容用于验证静默截断是否已消除".to_string();
     assert!(long_title.chars().count() > 30);
 
-    tagger::write_tags(&p, Format::Mp3, &meta(&long_title, "歌手", "专辑"), PNG_COVER)
-        .expect("写入应成功");
+    tagger::write_tags(
+        &p,
+        Format::Mp3,
+        &meta(&long_title, "歌手", "专辑"),
+        PNG_COVER,
+    )
+    .expect("写入应成功");
 
     let (ptype, _, _, title, _, _) = disk_truth(&p);
     assert_eq!(ptype, TagType::Id3v2);
@@ -408,7 +491,10 @@ fn yan_b7_does_not_overwrite_existing_cover() {
         let mut tf = lofty::read_from_path(&p).unwrap();
         let mut t = Tag::new(TagType::Id3v2);
         t.push_picture(
-            Picture::unchecked(existing.clone()).mime_type(MimeType::Jpeg).pic_type(PictureType::CoverFront).build(),
+            Picture::unchecked(existing.clone())
+                .mime_type(MimeType::Jpeg)
+                .pic_type(PictureType::CoverFront)
+                .build(),
         );
         tf.insert_tag(t);
         tf.save_to_path(&p, WriteOptions::default()).unwrap();
@@ -420,7 +506,11 @@ fn yan_b7_does_not_overwrite_existing_cover() {
     assert!(!embedded, "已有封面时不得报告 embedded=true");
     let tagged = lofty::read_from_path(&p).unwrap();
     let primary = tagged.primary_tag().unwrap();
-    assert_eq!(primary.pictures()[0].data(), existing.as_slice(), "既有封面不得被覆盖");
+    assert_eq!(
+        primary.pictures()[0].data(),
+        existing.as_slice(),
+        "既有封面不得被覆盖"
+    );
     assert_eq!(primary.pictures().len(), 1, "不得追加第二张封面");
 }
 
@@ -451,14 +541,21 @@ fn yan_b7_reverse_flac() {
         tagger::write_tags(&p, Format::Flac, &meta("FT", "FA", "FAL"), PNG_COVER).expect("成功");
 
     let (ptype, disk_fields, pics, title, artist, album) = disk_truth(&p);
-    assert_eq!(ptype, TagType::VorbisComments, "FLAC 主标签应为 Vorbis Comments");
+    assert_eq!(
+        ptype,
+        TagType::VorbisComments,
+        "FLAC 主标签应为 Vorbis Comments"
+    );
     assert_eq!(title.as_deref(), Some("FT"));
     assert_eq!(artist.as_deref(), Some("FA"));
     assert_eq!(album.as_deref(), Some("FAL"));
     if embedded {
         assert!(pics > 0, "报 embedded=true 但 FLAC 回读无图片");
     }
-    assert_eq!(written, disk_fields, "written={written} vs 磁盘 {disk_fields}");
+    assert_eq!(
+        written, disk_fields,
+        "written={written} vs 磁盘 {disk_fields}"
+    );
 }
 
 #[test]
@@ -480,7 +577,10 @@ fn yan_b7_reverse_mp4() {
     if embedded {
         assert!(pics > 0, "报 embedded=true 但 MP4 回读无图片");
     }
-    assert_eq!(written, disk_fields, "written={written} vs 磁盘 {disk_fields}");
+    assert_eq!(
+        written, disk_fields,
+        "written={written} vs 磁盘 {disk_fields}"
+    );
 }
 
 // ==================== T3：模板回退绕过段长上界 ====================
@@ -541,6 +641,14 @@ fn yan_lofty_writes_id3v2_4_without_extended_header() {
     let bytes = std::fs::read(&p).unwrap();
     assert_eq!(&bytes[0..3], b"ID3", "产物必须以 ID3v2 开头");
     assert_eq!(bytes[3], 4, "lofty 应写 ID3v2.4");
-    assert_eq!(bytes[5] & 0x40, 0, "lofty 写出扩展头会让扫描脚本误报，需同步修脚本");
-    assert_eq!(bytes[5] & 0x80, 0, "lofty 开启 unsynchronisation 需同步复核扫描脚本");
+    assert_eq!(
+        bytes[5] & 0x40,
+        0,
+        "lofty 写出扩展头会让扫描脚本误报，需同步修脚本"
+    );
+    assert_eq!(
+        bytes[5] & 0x80,
+        0,
+        "lofty 开启 unsynchronisation 需同步复核扫描脚本"
+    );
 }

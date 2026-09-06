@@ -7,5 +7,5 @@
 
 pub mod engine;
 
-pub use engine::Fallbacks;
 pub use engine::render_filename;
+pub use engine::Fallbacks;

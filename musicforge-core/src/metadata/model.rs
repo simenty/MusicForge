@@ -21,7 +21,9 @@ pub struct Metadata {
 pub fn parse(json_text: &[u8]) -> Result<Metadata, crate::error::NcmError> {
     let text = std::str::from_utf8(json_text).map_err(|e| {
         crate::error::NcmError::MetadataJson(serde_json::Error::io(std::io::Error::new(
-            std::io::ErrorKind::InvalidData, e)))
+            std::io::ErrorKind::InvalidData,
+            e,
+        )))
     })?;
     let v: Value = serde_json::from_str(text)?;
     let s = |k: &str| v.get(k).and_then(|x| x.as_str()).map(|s| s.to_string());
@@ -54,7 +56,10 @@ mod tests {
         // 非法 UTF-8（截断的多字节序列）
         assert!(parse(&[0xff, 0xfe, 0x00]).is_err(), "非法 UTF-8 应 Err");
         // 合法 UTF-8 但非法 JSON
-        assert!(parse(b"not valid json \x00\x01").is_err(), "非法 JSON 应 Err");
+        assert!(
+            parse(b"not valid json \x00\x01").is_err(),
+            "非法 JSON 应 Err"
+        );
     }
 
     #[test]

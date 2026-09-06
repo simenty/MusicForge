@@ -36,7 +36,11 @@ pub fn parse_blob(blob: &[u8]) -> Result<Header, NcmError> {
     let file_len = blob.len() as u64;
     let need = |pos: u64, n: u64, what: &'static str| -> Result<(), NcmError> {
         if pos + n > file_len {
-            return Err(NcmError::Truncated { at: what, need: n, got: file_len.saturating_sub(pos) });
+            return Err(NcmError::Truncated {
+                at: what,
+                need: n,
+                got: file_len.saturating_sub(pos),
+            });
         }
         Ok(())
     };
@@ -57,13 +61,21 @@ pub fn parse_blob(blob: &[u8]) -> Result<Header, NcmError> {
     let key_len = u32le(&blob[o as usize..o as usize + 4]) as u64;
     o += 4;
     if key_len == 0 || o + key_len > file_len {
-        return Err(NcmError::LengthOutOfRange { at: "keyLen", value: key_len, max: file_len - o });
+        return Err(NcmError::LengthOutOfRange {
+            at: "keyLen",
+            value: key_len,
+            max: file_len - o,
+        });
     }
-    let key_data: Vec<u8> = blob[o as usize..(o + key_len) as usize].iter().map(|b| b ^ 0x64).collect();
+    let key_data: Vec<u8> = blob[o as usize..(o + key_len) as usize]
+        .iter()
+        .map(|b| b ^ 0x64)
+        .collect();
     o += key_len;
 
     let key_plain = aes128_ecb_decrypt_strict(&CORE_KEY, &key_data)?;
-    if key_plain.len() < NETEASE_PREFIX.len() || key_plain[..NETEASE_PREFIX.len()] != NETEASE_PREFIX {
+    if key_plain.len() < NETEASE_PREFIX.len() || key_plain[..NETEASE_PREFIX.len()] != NETEASE_PREFIX
+    {
         return Err(NcmError::BadKeyPrefix);
     }
     let rc4_key = &key_plain[NETEASE_PREFIX.len()..];
@@ -74,22 +86,31 @@ pub fn parse_blob(blob: &[u8]) -> Result<Header, NcmError> {
     let meta_len = u32le(&blob[o as usize..o as usize + 4]) as u64;
     o += 4;
     if o + meta_len > file_len {
-        return Err(NcmError::LengthOutOfRange { at: "metaLen", value: meta_len, max: file_len - o });
+        return Err(NcmError::LengthOutOfRange {
+            at: "metaLen",
+            value: meta_len,
+            max: file_len - o,
+        });
     }
 
     let metadata = if meta_len == 0 {
         None // 3.x 及部分文件无元数据（硬约束 11：None 而非失败）
     } else {
         need(o, meta_len, "metaData")?;
-        let meta_xor: Vec<u8> = blob[o as usize..(o + meta_len) as usize].iter().map(|b| b ^ 0x63).collect();
+        let meta_xor: Vec<u8> = blob[o as usize..(o + meta_len) as usize]
+            .iter()
+            .map(|b| b ^ 0x63)
+            .collect();
         o += meta_len;
         if meta_xor.len() < META_PREFIX.len() || meta_xor[..META_PREFIX.len()] != META_PREFIX {
             return Err(NcmError::BadMetaPrefix);
         }
         use base64::Engine as _;
-        let meta_inner = base64::engine::general_purpose::STANDARD.decode(&meta_xor[META_PREFIX.len()..])?;
+        let meta_inner =
+            base64::engine::general_purpose::STANDARD.decode(&meta_xor[META_PREFIX.len()..])?;
         let meta_plain = aes128_ecb_decrypt_strict(&META_KEY, &meta_inner)?;
-        if meta_plain.len() < MUSIC_PREFIX.len() || meta_plain[..MUSIC_PREFIX.len()] != MUSIC_PREFIX {
+        if meta_plain.len() < MUSIC_PREFIX.len() || meta_plain[..MUSIC_PREFIX.len()] != MUSIC_PREFIX
+        {
             return Err(NcmError::BadMusicPrefix);
         }
         metadata::parse(&meta_plain[MUSIC_PREFIX.len()..]).ok()
@@ -102,7 +123,10 @@ pub fn parse_blob(blob: &[u8]) -> Result<Header, NcmError> {
     o += 4;
     let crc_computed = crc32fast::hash(&blob[..crc_pos as usize]);
     if crc_stored != crc_computed {
-        return Err(NcmError::CrcMismatch { expected: crc_stored, computed: crc_computed });
+        return Err(NcmError::CrcMismatch {
+            expected: crc_stored,
+            computed: crc_computed,
+        });
     }
 
     // ---- 封面帧 ----
@@ -119,11 +143,19 @@ pub fn parse_blob(blob: &[u8]) -> Result<Header, NcmError> {
         // （Go 版多出的 Seek(L1-L2) 在 L1<L2 时求负偏移会被本库上界校验拦截——修 F5）
     }
     if o + cover_len2 > file_len {
-        return Err(NcmError::LengthOutOfRange { at: "coverLen2", value: cover_len2, max: file_len - o });
+        return Err(NcmError::LengthOutOfRange {
+            at: "coverLen2",
+            value: cover_len2,
+            max: file_len - o,
+        });
     }
     // 硬约束 4：coverLen1 同样受上界校验（QA 补漏：此前仅 coverLen2 受检）
     if o + cover_len1 > file_len {
-        return Err(NcmError::LengthOutOfRange { at: "coverLen1", value: cover_len1, max: file_len - o });
+        return Err(NcmError::LengthOutOfRange {
+            at: "coverLen1",
+            value: cover_len1,
+            max: file_len - o,
+        });
     }
     let cover = blob[o as usize..(o + cover_len2) as usize].to_vec();
     o += cover_len1; // 图片 + padding（Go 版 Seek(L1-L2) 的等价物，且返回值必检）
@@ -132,7 +164,13 @@ pub fn parse_blob(blob: &[u8]) -> Result<Header, NcmError> {
     if o >= file_len {
         return Err(NcmError::EmptyAudio);
     }
-    Ok(Header { key_box, metadata, cover, audio_offset: o, audio_len: file_len - o })
+    Ok(Header {
+        key_box,
+        metadata,
+        cover,
+        audio_offset: o,
+        audio_len: file_len - o,
+    })
 }
 
 /// 从任意 Reader 流式解析头部（`Decoder::open` 用；不整读文件）。
@@ -140,7 +178,7 @@ pub fn parse_blob(blob: &[u8]) -> Result<Header, NcmError> {
 pub fn parse_stream<R: Read + Seek>(reader: &mut R) -> Result<Header, NcmError> {
     let file_len = reader.seek(SeekFrom::End(0))?;
     reader.rewind()?;
-    
+
     let mut magic = [0u8; 8];
     reader.read_exact(&mut magic)?;
     if magic != MAGIC {
@@ -153,7 +191,11 @@ pub fn parse_stream<R: Read + Seek>(reader: &mut R) -> Result<Header, NcmError> 
     reader.read_exact(&mut len4)?;
     let key_len = u32::from_le_bytes(len4) as usize;
     if key_len == 0 || key_len > 1 << 20 {
-        return Err(NcmError::LengthOutOfRange { at: "keyLen", value: key_len as u64, max: 1 << 20 });
+        return Err(NcmError::LengthOutOfRange {
+            at: "keyLen",
+            value: key_len as u64,
+            max: 1 << 20,
+        });
     }
     let mut key_data = vec![0u8; key_len];
     reader.read_exact(&mut key_data)?;
@@ -161,7 +203,11 @@ pub fn parse_stream<R: Read + Seek>(reader: &mut R) -> Result<Header, NcmError> 
     reader.read_exact(&mut len4)?;
     let meta_len = u32::from_le_bytes(len4) as usize;
     if meta_len > 1 << 24 {
-        return Err(NcmError::LengthOutOfRange { at: "metaLen", value: meta_len as u64, max: 1 << 24 });
+        return Err(NcmError::LengthOutOfRange {
+            at: "metaLen",
+            value: meta_len as u64,
+            max: 1 << 24,
+        });
     }
     let mut meta_raw = vec![0u8; meta_len];
     if meta_len > 0 {
@@ -179,7 +225,11 @@ pub fn parse_stream<R: Read + Seek>(reader: &mut R) -> Result<Header, NcmError> 
     reader.read_exact(&mut len4)?;
     let cover_len2 = u32::from_le_bytes(len4) as usize;
     if cover_len2 > 1 << 26 {
-        return Err(NcmError::LengthOutOfRange { at: "coverLen2", value: cover_len2 as u64, max: 1 << 26 });
+        return Err(NcmError::LengthOutOfRange {
+            at: "coverLen2",
+            value: cover_len2 as u64,
+            max: 1 << 26,
+        });
     }
     let mut cover = vec![0u8; cover_len2];
     if cover_len2 > 0 {
@@ -207,7 +257,10 @@ pub fn parse_stream<R: Read + Seek>(reader: &mut R) -> Result<Header, NcmError> 
     reader.read_exact(&mut head_bytes)?;
     let crc_computed = crc32fast::hash(&head_bytes);
     if crc_stored != crc_computed {
-        return Err(NcmError::CrcMismatch { expected: crc_stored, computed: crc_computed });
+        return Err(NcmError::CrcMismatch {
+            expected: crc_stored,
+            computed: crc_computed,
+        });
     }
     reader.seek(SeekFrom::Start(audio_offset))?;
 
@@ -219,9 +272,11 @@ pub fn parse_stream<R: Read + Seek>(reader: &mut R) -> Result<Header, NcmError> 
             return Err(NcmError::BadMetaPrefix);
         }
         use base64::Engine as _;
-        let meta_inner = base64::engine::general_purpose::STANDARD.decode(&meta_xor[META_PREFIX.len()..])?;
+        let meta_inner =
+            base64::engine::general_purpose::STANDARD.decode(&meta_xor[META_PREFIX.len()..])?;
         let meta_plain = aes128_ecb_decrypt_strict(&META_KEY, &meta_inner)?;
-        if meta_plain.len() < MUSIC_PREFIX.len() || meta_plain[..MUSIC_PREFIX.len()] != MUSIC_PREFIX {
+        if meta_plain.len() < MUSIC_PREFIX.len() || meta_plain[..MUSIC_PREFIX.len()] != MUSIC_PREFIX
+        {
             return Err(NcmError::BadMusicPrefix);
         }
         metadata::parse(&meta_plain[MUSIC_PREFIX.len()..]).ok()
@@ -229,11 +284,18 @@ pub fn parse_stream<R: Read + Seek>(reader: &mut R) -> Result<Header, NcmError> 
 
     let key_data_x: Vec<u8> = key_data.iter().map(|b| b ^ 0x64).collect();
     let key_plain = aes128_ecb_decrypt_strict(&CORE_KEY, &key_data_x)?;
-    if key_plain.len() < NETEASE_PREFIX.len() || key_plain[..NETEASE_PREFIX.len()] != NETEASE_PREFIX {
+    if key_plain.len() < NETEASE_PREFIX.len() || key_plain[..NETEASE_PREFIX.len()] != NETEASE_PREFIX
+    {
         return Err(NcmError::BadKeyPrefix);
     }
     let key_box = build_key_box(&key_plain[NETEASE_PREFIX.len()..])?;
 
     let audio_len = file_len.saturating_sub(audio_offset);
-    Ok(Header { key_box, metadata, cover, audio_offset, audio_len })
+    Ok(Header {
+        key_box,
+        metadata,
+        cover,
+        audio_offset,
+        audio_len,
+    })
 }

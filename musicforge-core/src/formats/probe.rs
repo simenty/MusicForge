@@ -55,7 +55,9 @@ pub fn sniff_magic(head: &[u8]) -> Option<Format> {
 /// 2. 否则魔数嗅探（第二级）
 /// 3. 都失败 → `None`（应用层按未知格式处理；解析终检为 P1 后续项，见模块注释）
 pub fn resolve(meta_format: Option<&str>, decrypted_head: &[u8]) -> Option<Format> {
-    meta_format.and_then(Format::from_metadata).or_else(|| sniff_magic(decrypted_head))
+    meta_format
+        .and_then(Format::from_metadata)
+        .or_else(|| sniff_magic(decrypted_head))
 }
 
 #[cfg(test)]
@@ -75,7 +77,10 @@ mod tests {
     fn magic_fallback() {
         assert_eq!(resolve(None, b"fLaCxxxx"), Some(Format::Flac));
         assert_eq!(resolve(None, b"ID3\x03xx"), Some(Format::Mp3));
-        assert_eq!(resolve(None, b"\x00\x00\x00\x18ftypM4A "), Some(Format::M4a));
+        assert_eq!(
+            resolve(None, b"\x00\x00\x00\x18ftypM4A "),
+            Some(Format::M4a)
+        );
         assert_eq!(resolve(None, b"\x00\x00\x00\x00"), None);
     }
 }

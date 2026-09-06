@@ -5,8 +5,7 @@ use std::path::{Path, PathBuf};
 use musicforge_cli::{run, BatchConfig, Status};
 
 fn fixtures() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../musicforge-core/tests/fixtures")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../musicforge-core/tests/fixtures")
 }
 
 fn cfg(inputs: Vec<PathBuf>, out: &Path) -> BatchConfig {
@@ -18,6 +17,8 @@ fn cfg(inputs: Vec<PathBuf>, out: &Path) -> BatchConfig {
         jobs: 2,
         template: "{title}".to_string(),
         cancel: None,
+        dry_run: false,
+        manifest: None,
     }
 }
 
@@ -31,7 +32,11 @@ fn batch_all_ok() {
     assert_eq!(summary.exit_code(), 0);
     // 每个成功项的输出文件确实存在
     for r in &summary.results {
-        assert!(r.output.as_ref().unwrap().exists(), "输出应存在: {:?}", r.output);
+        assert!(
+            r.output.as_ref().unwrap().exists(),
+            "输出应存在: {:?}",
+            r.output
+        );
     }
 }
 
@@ -70,10 +75,20 @@ fn batch_failure_isolation() {
     assert_eq!(summary.failed, 1, "1 个坏文件失败");
     assert_eq!(summary.exit_code(), 1);
 
-    let failed = summary.results.iter().find(|r| r.status == Status::Failed).unwrap();
+    let failed = summary
+        .results
+        .iter()
+        .find(|r| r.status == Status::Failed)
+        .unwrap();
     let reason = failed.reason.as_ref().unwrap();
-    assert!(reason.contains("NCM-CRC-MISMATCH"), "失败原因应含错误码: {reason}");
-    assert!(reason.contains("建议"), "失败原因应含可操作建议（repair receipt）");
+    assert!(
+        reason.contains("NCM-CRC-MISMATCH"),
+        "失败原因应含错误码: {reason}"
+    );
+    assert!(
+        reason.contains("建议"),
+        "失败原因应含可操作建议（repair receipt）"
+    );
     // 其余 3 个输出不受影响
     for r in &summary.results {
         if r.status == Status::Ok {
@@ -91,7 +106,11 @@ fn batch_recursive_preserves_structure() {
     let sub = src.path().join("2024/专辑A");
     std::fs::create_dir_all(&sub).unwrap();
     std::fs::copy(fixtures().join("flac_with_cover.ncm"), sub.join("song.ncm")).unwrap();
-    std::fs::copy(fixtures().join("flac_with_cover.ncm"), src.path().join("dup_name.ncm")).unwrap();
+    std::fs::copy(
+        fixtures().join("flac_with_cover.ncm"),
+        src.path().join("dup_name.ncm"),
+    )
+    .unwrap();
 
     let cfg = BatchConfig {
         inputs: vec![src.path().to_path_buf()],
@@ -101,6 +120,8 @@ fn batch_recursive_preserves_structure() {
         jobs: 2,
         template: "{title}".to_string(),
         cancel: None,
+        dry_run: false,
+        manifest: None,
     };
     let summary = run(cfg);
     assert_eq!(summary.ok, 2, "2 个文件（嵌套 + 根）都成功");
@@ -110,7 +131,10 @@ fn batch_recursive_preserves_structure() {
         "子目录结构应保留（文件名由模板渲染）"
     );
     // 根目录文件渲染名与嵌套文件同前缀但不同目录 → 各自独立落盘（不覆盖）
-    assert!(out.path().join("测试曲目.flac").exists(), "根文件按模板渲染落盘");
+    assert!(
+        out.path().join("测试曲目.flac").exists(),
+        "根文件按模板渲染落盘"
+    );
 }
 
 /// 有界并发：大量文件（100 个）全部成功且失败不传染（压力小样）
@@ -133,12 +157,13 @@ fn batch_bulk_files() {
         jobs: 4,
         template: "{title}".to_string(),
         cancel: None,
+        dry_run: false,
+        manifest: None,
     };
     let summary = run(cfg);
     assert_eq!(summary.ok, 100);
     assert_eq!(summary.failed, 0);
 }
-
 
 /// 命名模板：目录段 + track 零填充 + 清洗（全生态空白功能）
 #[test]
@@ -151,13 +176,17 @@ fn batch_template_dirs_and_padding() {
         skip_existing: false,
         jobs: 2,
         template: "{artist}/{album}/{track:02d} {title}".to_string(),
+        dry_run: false,
+        manifest: None,
         cancel: None,
     };
     let summary = run(cfg);
     assert_eq!(summary.ok, 7);
     // flac_with_cover：测试歌手/测试专辑/00 测试曲目.flac（fixture 无 track → 00）
     assert!(
-        tmp.path().join("测试歌手/测试专辑/00 测试曲目.flac").exists(),
+        tmp.path()
+            .join("测试歌手/测试专辑/00 测试曲目.flac")
+            .exists(),
         "模板目录结构 + 零填充 track 应生效"
     );
 }
@@ -173,6 +202,8 @@ fn batch_template_sanitizes_illegal_chars_end_to_end() {
         skip_existing: false,
         jobs: 2,
         template: "{title}.flac".to_string(),
+        dry_run: false,
+        manifest: None,
         cancel: None,
     };
     let summary = run(cfg);
@@ -190,14 +221,21 @@ fn batch_template_sanitizes_illegal_chars_end_to_end() {
     assert!(!has_illegal, "输出文件名不得含非法字符");
 }
 
-
 /// 目标名去重（专测）：同目录同元数据两文件 → 渲染名碰撞 → " (2)" 后缀，不覆盖
 #[test]
 fn batch_dedup_same_dir_collision() {
     let out = tempfile::tempdir().unwrap();
     let src = tempfile::tempdir().unwrap();
-    std::fs::copy(fixtures().join("flac_with_cover.ncm"), src.path().join("a.ncm")).unwrap();
-    std::fs::copy(fixtures().join("flac_with_cover.ncm"), src.path().join("b.ncm")).unwrap();
+    std::fs::copy(
+        fixtures().join("flac_with_cover.ncm"),
+        src.path().join("a.ncm"),
+    )
+    .unwrap();
+    std::fs::copy(
+        fixtures().join("flac_with_cover.ncm"),
+        src.path().join("b.ncm"),
+    )
+    .unwrap();
 
     let cfg = BatchConfig {
         inputs: vec![src.path().to_path_buf()],
@@ -207,14 +245,26 @@ fn batch_dedup_same_dir_collision() {
         jobs: 2,
         template: "{title}".to_string(),
         cancel: None,
+        dry_run: false,
+        manifest: None,
     };
     let summary = run(cfg);
     assert_eq!(summary.ok, 2, "两个文件都成功");
-    assert!(out.path().join("测试曲目.flac").exists(), "第一个占用渲染名");
-    assert!(out.path().join("测试曲目 (2).flac").exists(), "第二个自动去重");
+    assert!(
+        out.path().join("测试曲目.flac").exists(),
+        "第一个占用渲染名"
+    );
+    assert!(
+        out.path().join("测试曲目 (2).flac").exists(),
+        "第二个自动去重"
+    );
     // 两个输出内容都完整（各自对应的源解密结果一致）
-    let s1 = std::fs::read(out.path().join("测试曲目.flac")).unwrap().len();
-    let s2 = std::fs::read(out.path().join("测试曲目 (2).flac")).unwrap().len();
+    let s1 = std::fs::read(out.path().join("测试曲目.flac"))
+        .unwrap()
+        .len();
+    let s2 = std::fs::read(out.path().join("测试曲目 (2).flac"))
+        .unwrap()
+        .len();
     assert_eq!(s1, s2, "去重文件内容长度一致");
 }
 
@@ -225,7 +275,11 @@ fn batch_cancel_token() {
     let out = tempfile::tempdir().unwrap();
     let src = tempfile::tempdir().unwrap();
     for i in 0..100 {
-        std::fs::copy(fixtures().join("mp3_with_id3.ncm"), src.path().join(format!("t{i:03}.ncm"))).unwrap();
+        std::fs::copy(
+            fixtures().join("mp3_with_id3.ncm"),
+            src.path().join(format!("t{i:03}.ncm")),
+        )
+        .unwrap();
     }
     let token = CancelToken::new();
     let cfg = BatchConfig {
@@ -235,6 +289,8 @@ fn batch_cancel_token() {
         skip_existing: false,
         jobs: 1,
         template: "{title}".to_string(),
+        dry_run: false,
+        manifest: None,
         cancel: Some(token.clone()),
     };
     let seen = std::sync::atomic::AtomicUsize::new(0);
@@ -272,6 +328,8 @@ fn plan_does_not_leave_residual_output_dir() {
         jobs: 2,
         template: "{title}".to_string(),
         cancel: Some(token),
+        dry_run: false,
+        manifest: None,
     };
     let summary = run(cfg);
     assert!(summary.cancelled > 0, "全部文件应被取消（一个都未开工）");
@@ -459,6 +517,10 @@ fn sidecar_records_adapter_id() {
         .expect("应生成完整性侧车");
     let v: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&sidecar).unwrap()).unwrap();
-    assert_eq!(v["adapter"].as_str(), Some("ncm"), "侧车应记录适配器 id=ncm");
+    assert_eq!(
+        v["adapter"].as_str(),
+        Some("ncm"),
+        "侧车应记录适配器 id=ncm"
+    );
     assert!(v["sha256"].as_str().is_some(), "侧车仍需记录 sha256");
 }
