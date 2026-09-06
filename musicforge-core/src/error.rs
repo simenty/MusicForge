@@ -62,6 +62,9 @@ pub enum NcmError {
 
     #[error("标签写入失败: {0}")]
     TagWrite(String),
+
+    #[error("状态库错误: {0}")]
+    Db(String),
 }
 
 impl NcmError {
@@ -83,6 +86,7 @@ impl NcmError {
             NcmError::Io(_) => "IO-ERROR",
             NcmError::TagRead(_) => "TAG-READ",
             NcmError::TagWrite(_) => "TAG-WRITE",
+            NcmError::Db(_) => "MF-DB-FAILED",
         }
     }
 
@@ -108,6 +112,7 @@ impl NcmError {
             NcmError::Io(_) => "MF-IO-FAILED",
             NcmError::TagRead(_) => "MF-TAG-READ-FAILED",
             NcmError::TagWrite(_) => "MF-TAG-WRITE-FAILED",
+            NcmError::Db(_) => "MF-DB-FAILED",
         }
     }
 
@@ -128,6 +133,9 @@ impl NcmError {
             }
             NcmError::TagRead(_) => "输出文件标签读取失败，文件可能已损坏或不完整。建议删除后重试转换。",
             NcmError::TagWrite(_) => "标签写入失败，请检查输出文件是否被其他程序占用。",
+            NcmError::Db(_) => {
+                "状态库异常：它只是可再生缓存，删除后会自动重建；但请勿将其放在网络挂载目录上。"
+            }
             _ => "请检查文件与目录权限后重试，或使用失败清单导出功能记录该文件。",
         }
     }

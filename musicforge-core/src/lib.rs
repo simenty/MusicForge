@@ -20,6 +20,7 @@
 //! `crate::{crypto,decoder,header,format,tagger}` 与 crate 根的类型别名全部保持可编译，
 //! 全部既有测试与 CLI/GUI 无需任何改动。
 
+pub mod db;
 pub mod error;
 pub mod formats;
 pub mod metadata;
