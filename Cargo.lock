@@ -2081,6 +2081,7 @@ dependencies = [
  "crc32fast",
  "lofty",
  "musicforge-core",
+ "rusqlite",
  "serde_json",
  "sha2",
  "tempfile",

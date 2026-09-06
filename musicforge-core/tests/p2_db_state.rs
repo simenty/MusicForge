@@ -82,6 +82,37 @@ fn newer_schema_is_refused() {
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
 }
 
+/// D17 哈希缓存：size+mtime 一致才命中，任一变化即 miss。
+#[test]
+fn cached_hash_hit_and_miss() {
+    let db = Db::open_in_memory().unwrap();
+    db.upsert_file(
+        "C:/music/a.flac",
+        100,
+        Some(5),
+        Some("flac"),
+        Some("abc123"),
+    )
+    .unwrap();
+
+    // 命中：path+size+mtime 全一致
+    assert_eq!(
+        db.cached_hash("C:/music/a.flac", 100, 5)
+            .unwrap()
+            .as_deref(),
+        Some("abc123")
+    );
+    // size 变化 → miss（内容可能变了）
+    assert!(db.cached_hash("C:/music/a.flac", 101, 5).unwrap().is_none());
+    // mtime 变化 → miss
+    assert!(db.cached_hash("C:/music/a.flac", 100, 6).unwrap().is_none());
+    // 未知路径 → miss
+    assert!(db
+        .cached_hash("C:/music/none.flac", 100, 5)
+        .unwrap()
+        .is_none());
+}
+
 /// X16 位置铁律：网络挂载（UNC）直接拒绝。
 #[test]
 fn network_db_path_is_rejected() {
