@@ -136,6 +136,27 @@ enum Sub {
         #[arg(long)]
         json: bool,
     },
+    /// 整理：按命名模板把音频文件归位到规范目录结构（默认 dry-run，--apply 才移动）
+    Organize {
+        /// 要整理的曲库目录
+        #[arg(value_name = "DIR")]
+        dir: String,
+        /// 目标根目录（缺省=原地整理）
+        #[arg(long)]
+        to: Option<String>,
+        /// 命名模板（与 convert 同源渲染语义）
+        #[arg(long, default_value = "{artist} - {title}")]
+        template: String,
+        /// 冲突策略（目标已存在时）：skip=报告跳过 / suffix=追加 (2) / overwrite-never=计失败
+        #[arg(long, default_value = "skip")]
+        conflict: String,
+        /// 真正执行（缺省=只规划；移动可经回滚清单整体还原）
+        #[arg(long)]
+        apply: bool,
+        /// JSON 输出（机器可读）
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn run_scan_sub(dir: &str, recursive: bool, as_json: bool, state_db: Option<&str>) -> i32 {
@@ -619,6 +640,164 @@ fn run_dedupe_sub(dir: &str, a: &DedupeArgs) -> i32 {
     }
 }
 
+/// organize 子命令参数包（与 DedupeArgs 同理由：避免 too_many_arguments）。
+struct OrganizeArgs {
+    to: Option<String>,
+    template: String,
+    conflict: String,
+    apply: bool,
+    json: bool,
+}
+
+/// 整理子命令：按命名模板归位音频文件（默认 dry-run；移动可整体还原）。
+fn run_organize_sub(dir: &str, a: &OrganizeArgs) -> i32 {
+    use musicforge_cli::safety::{resolve, ExecMode, OpClass, OpFlags};
+
+    let Some(strategy) = musicforge_core::organize::ConflictStrategy::parse(&a.conflict) else {
+        eprintln!(
+            "✗ MF-OP-CONFLICT: 未知冲突策略 {}（可选 skip|suffix|overwrite-never）",
+            a.conflict
+        );
+        return 2;
+    };
+
+    let class = OpClass::Destructive { high_risk: false };
+    let flags = OpFlags {
+        dry_run: !a.apply,
+        apply: a.apply,
+        yes: true, // 非高危：绝不覆盖目标 + 回滚清单可整体还原
+    };
+    let mode = match resolve(class, &flags) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("✗ {e}");
+            return 2;
+        }
+    };
+
+    let target_root = match a.to.as_deref() {
+        Some(t) if !t.trim().is_empty() => std::path::PathBuf::from(t),
+        _ => std::path::PathBuf::from(dir),
+    };
+    let options = musicforge_core::organize::OrganizeOptions {
+        template: &a.template,
+        target_root: &target_root,
+        conflict: strategy,
+    };
+    let plan = match musicforge_core::organize::plan_organize(Path::new(dir), &options) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("✗ 整理规划失败: {e}");
+            return 1;
+        }
+    };
+    let counts = plan.counts();
+
+    // 执行先行于报告（与 dedupe 同一教训：报告必须反映真实发生的事）
+    let mut outcome: Option<musicforge_core::organize::OrganizeOutcome> = None;
+    if matches!(mode, ExecMode::Apply) {
+        let task_id = musicforge_cli::manifest::new_task_id();
+        match musicforge_core::organize::apply_organize_plan(&plan, &task_id) {
+            Ok(o) => outcome = Some(o),
+            Err(e) => {
+                eprintln!("✗ 整理执行失败: {e}");
+                return 1;
+            }
+        }
+    }
+
+    if a.json {
+        let items: Vec<serde_json::Value> = plan
+            .items
+            .iter()
+            .map(|i| {
+                serde_json::json!({
+                    "source": i.source.display().to_string(),
+                    "target": i.target.display().to_string(),
+                    "status": match i.status {
+                        musicforge_core::organize::OrganizeStatus::Planned => "planned",
+                        musicforge_core::organize::OrganizeStatus::AlreadyInPlace => "in-place",
+                        musicforge_core::organize::OrganizeStatus::SkippedConflict => "skipped-conflict",
+                        musicforge_core::organize::OrganizeStatus::ConflictNever => "conflict-never",
+                    },
+                    "note": i.note,
+                })
+            })
+            .collect();
+        let out = serde_json::json!({
+            "dir": dir,
+            "target_root": plan.target_root.display().to_string(),
+            "template": plan.template,
+            "conflict": plan.strategy.as_str(),
+            "mode": if matches!(mode, ExecMode::Apply) { "apply" } else { "dry-run" },
+            "counts": {
+                "planned": counts.planned,
+                "in_place": counts.in_place,
+                "skipped_conflict": counts.skipped_conflict,
+                "conflict_never": counts.conflict_never,
+            },
+            "outcome": outcome.as_ref().map(|o| serde_json::json!({
+                "moved": o.moved,
+                "skipped": o.skipped,
+                "failed": o.failed,
+                "rollback_manifest": o.rollback_manifest.as_ref().map(|p| p.display().to_string()),
+            })),
+            "items": items,
+        });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+        return 0;
+    }
+
+    println!(
+        "整理: {} → {}（模板 {} · 冲突 {}）",
+        dir,
+        plan.target_root.display(),
+        plan.template,
+        plan.strategy.as_str()
+    );
+    println!(
+        "将移动 {} · 已在位 {} · 冲突跳过 {} · 冲突失败 {}",
+        counts.planned, counts.in_place, counts.skipped_conflict, counts.conflict_never
+    );
+    for i in plan
+        .items
+        .iter()
+        .filter(|i| i.status == musicforge_core::organize::OrganizeStatus::Planned)
+    {
+        println!("  {} → {}", i.source.display(), i.target.display());
+    }
+    for i in &plan.items {
+        if let Some(note) = &i.note {
+            println!("  [{:?}] {} — {}", i.status, i.source.display(), note);
+        }
+    }
+
+    match mode {
+        ExecMode::DryRun => {
+            println!(
+                "仅规划：{} 项将移动（未改动任何文件）。加 --apply 执行。",
+                counts.planned
+            );
+            0
+        }
+        ExecMode::Apply => {
+            let o = outcome.as_ref().expect("apply 模式必有 outcome");
+            println!(
+                "已移动 {} 项 · 跳过 {} · 失败 {}（失败项绝不覆盖、绝不删源）",
+                o.moved, o.skipped, o.failed
+            );
+            println!(
+                "回滚清单: {}",
+                o.rollback_manifest
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default()
+            );
+            0
+        }
+    }
+}
+
 /// 流式计算文件 sha256（大文件友好）；失败返回 None（调用方跳过缓存回写）。
 fn sha256_file_stream(path: &Path) -> Option<String> {
     use sha2::{Digest, Sha256};
@@ -749,6 +928,23 @@ fn main() {
                     no_same_name,
                     include_same_name,
                     suggest,
+                    json,
+                },
+            ),
+            Sub::Organize {
+                dir,
+                to,
+                template,
+                conflict,
+                apply,
+                json,
+            } => run_organize_sub(
+                &dir,
+                &OrganizeArgs {
+                    to,
+                    template,
+                    conflict,
+                    apply,
                     json,
                 },
             ),
