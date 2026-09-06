@@ -513,6 +513,119 @@ fn hash_of(it: &ScanItem, db: Option<&crate::db::Db>, rep: &mut DedupeReport) ->
     Some(sha)
 }
 
+// ------------------------------------------------------ similar_cover --
+
+/// 相似封面判定阈值：8×8 aHash 的汉明距离 ≤ 8/64 位（经验值；v0.7.0 AI 复核）。
+pub const COVER_HAMMING_THRESHOLD: u32 = 8;
+
+/// 相似封面组（**仅报告**——v2.4 §P4「分组报告」，换封面动作在 v0.7.0）。
+#[derive(Debug, Clone)]
+pub struct CoverGroup {
+    /// 组代表（封面哈希的字典序最小成员路径）
+    pub rep_path: PathBuf,
+    pub rep_hash: u64,
+    /// 成员：(路径, aHash, 与 rep 的汉明距离)；含 rep 自身（距离 0）
+    pub members: Vec<(PathBuf, u64, u32)>,
+}
+
+/// 提取内嵌封面并计算 8×8 灰度 aHash（只用已嵌入封面字节，绝不联网）。
+///
+/// 无封面/封面解码失败 → None（进 skipped 计数，不报错——单个坏图
+/// 不应让整库封面扫描失败）。
+pub fn cover_ahash(path: &Path) -> Option<u64> {
+    use lofty::prelude::*;
+    let tagged = lofty::read_from_path(path).ok()?;
+    let tag = tagged.primary_tag().or_else(|| tagged.first_tag())?;
+    let pic = tag.pictures().first()?;
+    let img = image::load_from_memory(pic.data()).ok()?;
+    Some(grayscale_ahash(&img))
+}
+
+/// 8×8 灰度均值 aHash（手写，无第三方哈希依赖）。
+fn grayscale_ahash(img: &image::DynamicImage) -> u64 {
+    let gray = img.to_luma8();
+    let small = image::imageops::resize(&gray, 8, 8, image::imageops::FilterType::Lanczos3);
+    let mean = small.pixels().map(|p| p.0[0] as u64).sum::<u64>() / 64;
+    small.pixels().enumerate().fold(0u64, |acc, (i, p)| {
+        if p.0[0] as u64 > mean {
+            acc | (1u64 << i)
+        } else {
+            acc
+        }
+    })
+}
+
+fn hamming(a: u64, b: u64) -> u32 {
+    (a ^ b).count_ones()
+}
+
+/// 相似封面扫描：内嵌封面 aHash 聚类（汉明 ≤ [`COVER_HAMMING_THRESHOLD`]）。
+///
+/// **只读、只报告**——产出的组绝不适配进清洗计划（换封面属 L2 能力）。
+pub fn similar_cover_scan(root: &Path) -> Result<Vec<CoverGroup>, NcmError> {
+    let scan = crate::scan::scan_library(root, &crate::scan::ScanOptions::default())?;
+    let mut items: Vec<(PathBuf, u64)> = Vec::new();
+    for item in scan.items.iter().filter(|i| i.category == Category::Audio) {
+        if let Some(h) = cover_ahash(&item.path) {
+            items.push((item.path.clone(), h));
+        }
+    }
+    // 字典序稳定：聚类结果不依赖遍历顺序
+    items.sort_by(|a, b| a.0.cmp(&b.0));
+
+    // 并查集聚类
+    let n = items.len();
+    let mut parent: Vec<usize> = (0..n).collect();
+    fn find(p: &mut [usize], x: usize) -> usize {
+        let mut x = x;
+        while p[x] != x {
+            p[x] = p[p[x]];
+            x = p[x];
+        }
+        x
+    }
+    for i in 0..n {
+        for j in (i + 1)..n {
+            if hamming(items[i].1, items[j].1) <= COVER_HAMMING_THRESHOLD {
+                let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+                if ri != rj {
+                    // 小根合并：代表 = 下标更小者（= 路径更小者，已排序）
+                    let (lo, hi) = if ri < rj { (ri, rj) } else { (rj, ri) };
+                    parent[hi] = lo;
+                }
+            }
+        }
+    }
+
+    let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for i in 0..n {
+        groups.entry(find(&mut parent, i)).or_default().push(i);
+    }
+    let mut out = Vec::new();
+    for (_, members) in groups {
+        if members.len() < 2 {
+            continue;
+        }
+        let (rep_idx, rep_hash) = (members[0], items[members[0]].1);
+        let ms = members
+            .iter()
+            .map(|&i| {
+                (
+                    items[i].0.clone(),
+                    items[i].1,
+                    hamming(items[i].1, rep_hash),
+                )
+            })
+            .collect();
+        out.push(CoverGroup {
+            rep_path: items[rep_idx].0.clone(),
+            rep_hash,
+            members: ms,
+        });
+    }
+    Ok(out)
+}
+
 // ---------------------------------------------------------------- 计划 --
 
 /// 把 exact 组牺牲项（可选：同名候选）构建为清洗计划——复用 P3 回收站机制。
