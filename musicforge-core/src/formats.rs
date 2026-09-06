@@ -8,3 +8,4 @@
 
 pub mod ncm;
 pub mod probe;
+pub mod registry;
