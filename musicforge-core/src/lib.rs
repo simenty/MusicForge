@@ -21,6 +21,7 @@
 //! 全部既有测试与 CLI/GUI 无需任何改动。
 
 pub mod db;
+pub mod dedupe;
 pub mod error;
 pub mod formats;
 pub mod metadata;
