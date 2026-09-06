@@ -74,6 +74,31 @@ impl NcmError {
         }
     }
 
+    /// 新命名空间稳定错误码（`MF-*`：跨格式/插件统一，P1e 起）。
+    ///
+    /// 与 [`NcmError::code`] 并存：旧 `NCM-*` 码**永久保留**以兼容既有脚本与
+    /// 失败清单 CSV；新代码（GUI/报告/插件）一律用 `MF-*`。两者映射见
+    /// `docs/result-codes.md`。
+    pub fn mf_code(&self) -> &'static str {
+        match self {
+            NcmError::BadMagic => "MF-FORMAT-UNSUPPORTED",
+            NcmError::Truncated { .. }
+            | NcmError::LengthOutOfRange { .. }
+            | NcmError::BadKeyPrefix
+            | NcmError::BadMetaPrefix
+            | NcmError::BadMusicPrefix
+            | NcmError::EmptyKey
+            | NcmError::CrcMismatch { .. } => "MF-FORMAT-CORRUPT",
+            NcmError::Base64(_) | NcmError::MetadataJson(_) => "MF-METADATA-INVALID",
+            NcmError::EmptyAudio => "MF-FORMAT-EMPTY-AUDIO",
+            NcmError::UnknownFormat => "MF-FORMAT-UNKNOWN",
+            NcmError::OutputIntegrity { .. } => "MF-OUTPUT-VERIFY-FAILED",
+            NcmError::Io(_) => "MF-IO-FAILED",
+            NcmError::TagRead(_) => "MF-TAG-READ-FAILED",
+            NcmError::TagWrite(_) => "MF-TAG-WRITE-FAILED",
+        }
+    }
+
     /// 用户可操作建议（repair receipt：发生了什么 → 你可以怎么做）
     pub fn suggestion(&self) -> &'static str {
         match self {
