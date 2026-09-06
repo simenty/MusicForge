@@ -3,10 +3,14 @@
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use crate::crypto::xor_stream;
+use super::crypto::xor_stream;
 use crate::error::NcmError;
-use crate::format::{self, Format};
-use crate::header::{self, Header};
+// P1b/D9：`format.rs` 迁至 `formats/probe.rs`。这里用 `as format` 保持原局部绑定名，
+// 使函数体内的 `format::resolve(...)` 调用零改动（`{self, Format}` 会把绑定改名为
+// `probe`，反而要动函数体——违背「纯移动」原则）。
+use crate::formats::probe as format;
+use crate::formats::probe::Format;
+use super::header::{self, Header};
 use crate::metadata::Metadata;
 
 /// 打开 `.ncm` 并完成头部解析 + CRC 校验。此后即可 `Read` 得到**明文**音频流。

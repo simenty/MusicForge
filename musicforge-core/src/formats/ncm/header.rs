@@ -14,7 +14,7 @@
 
 use std::io::{Read, Seek, SeekFrom};
 
-use crate::crypto::{aes128_ecb_decrypt_strict, build_key_box};
+use super::crypto::{aes128_ecb_decrypt_strict, build_key_box};
 use crate::error::NcmError;
 use crate::metadata::{self, Metadata};
 use crate::{CORE_KEY, MAGIC, META_KEY, META_PREFIX, MUSIC_PREFIX, NETEASE_PREFIX};

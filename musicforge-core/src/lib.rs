@@ -10,19 +10,30 @@
 //! 5. 所有 Read/Seek 返回值检查；`dump` 校验落盘字节数（修谎报成功）
 //! 6. 本 crate **零网络依赖**（CI 双层扫描：use 语句 + 产物符号）
 //! 7. FLAC/元数据解析走 lofty（应用层），本库不做标签写入
-//! 8. 格式三级融合：metadata.format 优先 → 魔数兜底 → 解析终检（`format.rs`）
+//! 8. 格式三级融合：metadata.format 优先 → 魔数兜底 → 解析终检（`formats/probe.rs`）
 //! 9. **CRC32 头校验**：头损坏明确报错，绝不静默产出损坏音频
 //! 10. 并发策略在应用层（有界 worker pool + 文件 UUID 事件）
 //! 11. Metadata 缺失 → `None`，调用方跳过打标签，绝不崩
+//!
+//! 布局（P1b/D9 绞杀者重构）：实现体已按「格式族」归位到 `formats/`、
+//! `metadata/`、`template/`；下方重导出构成**兼容 facade**，旧公开路径
+//! `crate::{crypto,decoder,header,format,tagger}` 与 crate 根的类型别名全部保持可编译，
+//! 全部既有测试与 CLI/GUI 无需任何改动。
 
-pub mod crypto;
-pub mod decoder;
 pub mod error;
-pub mod format;
-pub mod header;
+pub mod formats;
 pub mod metadata;
-pub mod tagger;
 pub mod template;
+
+// ── 兼容 facade（P1b/D9）：旧路径保持可编译；P1c 起新代码走 formats/registry ──
+//
+// 注意：这里重导出的是**模块本身**，因此 `crate::crypto::xor_stream`、
+// `crate::header::parse_blob`、`crate::format::sniff_magic` 这类模块内路径
+// 原样可用——不需要也不应再为 crypto/header/decoder 另建同名 facade 文件
+// （`pub mod crypto` 与本行重导出会构成 E0255 重名冲突）。
+pub use formats::ncm::{crypto, decoder, header};
+pub use formats::probe as format;
+pub use metadata::tagger;
 
 pub use decoder::Decoder;
 pub use error::NcmError;
