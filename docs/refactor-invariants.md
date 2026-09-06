@@ -16,7 +16,7 @@
 | B4 | 封面策略不变：有封面数据则嵌入**主标签**；仅 ID3v1 的 MP3 不得把封面写进 ID3v1 后谎报成功（ID3v1 不支持图片、字段上限 30 字符） | `id3v1_only_mp3_must_not_claim_embedded_cover`、`cover_padding_regression`（golden.rs） |
 | B5 | 命名模板输出不变：`{artist}/{album}/{track:02d} {title}` 渲染为 `艺术家/专辑/零填充track 标题`；值中的 `/` 被清洗，不得伪造目录 | `full_template_with_dirs`、`value_slash_does_not_create_dirs`（musicforge-core/src/template.rs tests）、`chinese_template_snapshot`（本轮新增） |
 | B6 | 同名冲突策略不变：同渲染名追加 ` (n)` 后缀，**不覆盖**；Windows 大小写不敏感（小写键判碰撞） | `batch_dedup_same_dir_collision`（musicforge-cli/tests/batch.rs） |
-| B7 | 非法字符清洗结果不变：`<>:"/\|?*` 与控制字符 → `_`；尾部 `. ` 去除；Windows 保留设备名（CON/PRN/AUX/NUL/COM1-9/LPT1-9，大小写不敏感）加 `_` 前缀；段长上限 100 字符（UTF-8 按字符截断，回退分支同样受限） | `sanitizes_illegal_chars`、`sanitizes_control_chars_and_trailing_dots`、`reserved_device_names_prefixed`、`long_name_truncated_by_chars`、`fallback_stem_is_truncated_too` |
+| B7 | 非法字符清洗结果不变：`<>:"/\|?*` 与控制字符 → `_`；尾部 `. ` 去除；Windows 保留设备名（CON/PRN/AUX/NUL/COM1-9/LPT1-9，大小写不敏感）加 `_` 前缀；**段长上限 = min(100 字符, 200 字节)**（2026-09-06 `dbdf8c5` 起：原「100 字符」在 Linux/macOS 上因组件 255 **字节**上限会 ENAMETOOLONG，故加字节预算；回退分支同样受限） | `sanitizes_illegal_chars`、`sanitizes_control_chars_and_trailing_dots`、`reserved_device_names_prefixed`、`long_name_truncated_by_bytes`、`fallback_stem_is_truncated_too`、`qa_yan_round2::t3_fallback_stem_is_truncated` |
 | B8 | 有界并发行为不变：`jobs` 钳制到 `1..=64`；荒谬值不影响正确性 | `absurd_jobs_value_is_bounded_not_fatal`、`batch_bulk_files` |
 | B9 | 单文件失败**不中断**批处理：坏文件只影响自己，其余正常完成 | `batch_failure_isolation`、`batch_bulk_files` |
 | B10 | 失败清单 CSV 字段兼容：表头恒为 `source,code,reason`，字段顺序与含义不变 | `failures_csv_header_is_stable`（本轮新增）、`sidecar_must_not_contain_absolute_source` |
