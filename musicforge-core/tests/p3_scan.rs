@@ -3,10 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use musicforge_core::scan::{
-    apply_clean_plan, build_clean_plan, scan_library, CleanPlan, ScanOptions, ScanReport,
-};
-use musicforge_core::scan::{build_clean_plan as _build, scan_library as _scan};
+use musicforge_core::scan::{build_clean_plan, scan_library, CleanPlan, ScanOptions, ScanReport};
 
 fn fixtures() -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
@@ -154,7 +151,7 @@ fn clean_never_touches_audio_or_unenabled_rules() {
     let report = scan_library(&root, &ScanOptions::default()).unwrap();
     let trash = root.join(".musicforge").join("trash");
     // 只启用 001（系统垃圾）——002/003 等不启用
-    let plan = _build(
+    let plan = build_clean_plan(
         &report,
         &["MF-CLEAN-001"].iter().copied().collect(),
         &trash,
@@ -169,6 +166,6 @@ fn clean_never_touches_audio_or_unenabled_rules() {
     assert_eq!(outcome.moved, plan.actions.len());
     // 音频文件全部还在
     let still = scan_library(&root, &ScanOptions::default()).unwrap();
-    assert!(still.audio >= audio_count - 0, "音频不应被清洗动作触碰");
+    assert!(still.audio >= audio_count, "音频不应被清洗动作触碰");
     let _ = fs::remove_dir_all(&root);
 }

@@ -90,9 +90,9 @@ enum Sub {
     },
     /// 清洗：把命中的垃圾/异常项移入回收站（默认 dry-run，--apply 才执行）
     Clean {
-        /// 要清洗的目录（--restore 模式下不需要）
+        /// 要清洗的目录
         #[arg(value_name = "DIR")]
-        dir: Option<String>,
+        dir: String,
         /// 只启用指定规则（逗号分隔，如 MF-CLEAN-001,MF-CLEAN-003）；缺省=全部
         #[arg(long)]
         rules: Option<String>,
@@ -111,7 +111,12 @@ enum Sub {
     },
 }
 
-fn run_scan_sub(dir: &str, recursive: bool, as_json: bool, state_db: Option<&str>) -> i32 {
+fn run_scan_sub(
+    dir: &str,
+    recursive: bool,
+    as_json: bool,
+    state_db: Option<&str>,
+) -> i32 {
     use musicforge_core::scan::{scan_library, ScanOptions};
     let report = match scan_library(
         Path::new(dir),
@@ -242,12 +247,11 @@ fn run_clean_sub(
     };
 
     // 规则启用集（默认全部）
-    let mut enabled: std::collections::HashSet<&'static str> = musicforge_core::scan::RULE_CARDS
-        .iter()
-        .map(|c| c.id)
-        .collect();
+    let mut enabled: std::collections::HashSet<&'static str> =
+        musicforge_core::scan::RULE_CARDS.iter().map(|c| c.id).collect();
     if let Some(list) = rules {
-        let wanted: std::collections::HashSet<&str> = list.split(',').map(|s| s.trim()).collect();
+        let wanted: std::collections::HashSet<&str> =
+            list.split(',').map(|s| s.trim()).collect();
         enabled.retain(|id| wanted.contains(id));
     }
 
@@ -256,8 +260,12 @@ fn run_clean_sub(
         None => Path::new(dir).join(".musicforge/trash"),
     };
     let task_id = musicforge_cli::manifest::new_task_id();
-    let plan =
-        musicforge_core::scan::build_clean_plan(&report, &enabled, &trash_root, Path::new(dir));
+    let plan = musicforge_core::scan::build_clean_plan(
+        &report,
+        &enabled,
+        &trash_root,
+        Path::new(dir),
+    );
 
     match mode {
         ExecMode::DryRun => {
@@ -266,34 +274,31 @@ fn run_clean_sub(
                 plan.actions.len()
             );
             for a in &plan.actions {
-                println!("  [{}] {}", a.rule_id, a.path.display());
+                println!(
+                    "  [{}] {}",
+                    a.rule_id,
+                    a.path.display()
+                );
             }
             0
         }
         ExecMode::Apply => {
-            let outcome = match musicforge_core::scan::apply_clean_plan(&plan, &task_id) {
-                Ok(o) => o,
-                Err(e) => {
-                    eprintln!("✗ 清洗执行失败: {e}");
-                    return 1;
-                }
-            };
+            let outcome =
+                match musicforge_core::scan::apply_clean_plan(&plan, &task_id) {
+                    Ok(o) => o,
+                    Err(e) => {
+                        eprintln!("✗ 清洗执行失败: {e}");
+                        return 1;
+                    }
+                };
             println!(
                 "已移入回收站 {} 项 · 空目录移除 {} 个",
                 outcome.moved, outcome.dirs_removed
             );
-            println!(
-                "回滚清单: {}",
-                outcome
-                    .rollback_manifest
-                    .as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_default()
-            );
+            println!("回滚清单: {}", outcome.rollback_manifest.as_ref().map(|p| p.display().to_string()).unwrap_or_default());
             if let Some(dbp) = state_db {
                 if let Ok(db) = musicforge_core::db::Db::open(Path::new(dbp)) {
-                    let _ =
-                        db.start_task(&task_id, "clean", &musicforge_cli::manifest::new_task_id());
+                    let _ = db.start_task(&task_id, "clean", &musicforge_cli::manifest::new_task_id());
                     let _ = db.finish_task(
                         &task_id,
                         &musicforge_cli::manifest::new_task_id(),
@@ -412,7 +417,7 @@ fn main() {
                 state_db,
                 restore,
             } => run_clean_sub(
-                dir.as_deref(),
+                &dir,
                 rules.as_deref(),
                 apply,
                 trash.as_deref(),
