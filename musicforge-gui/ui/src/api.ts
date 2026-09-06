@@ -82,6 +82,19 @@ export async function saveFailures(
   return invoke<string | null>("save_failures", { rows });
 }
 
+/** 计划预览条目（dry-run 的数据形态；target=null 表示规划失败） */
+export interface PlannedItem {
+  source: string;
+  target: string | null;
+  format: string | null;
+  error: string | null;
+}
+
+/** 只规划不执行（dry-run 的前端形态） */
+export async function planBatch(args: BatchArgs): Promise<PlannedItem[]> {
+  return invoke<PlannedItem[]>("plan_batch", { args });
+}
+
 export async function startBatch(args: BatchArgs): Promise<void> {
   await invoke("start_batch", { args });
 }

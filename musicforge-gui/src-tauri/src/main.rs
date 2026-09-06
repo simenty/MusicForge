@@ -116,6 +116,29 @@ fn collect_files(inputs: Vec<String>, recursive: bool) -> Vec<InputPair> {
         .collect()
 }
 
+/// 计划预览（dry-run 的前端形态）：只规划不执行，返回 [源 → 目标] 列表。
+/// 与 run_inner 共用 plan_one——预览与执行不可能分叉。
+#[tauri::command]
+fn plan_batch(args: BatchArgs) -> Result<Vec<serde_json::Value>, String> {
+    let inputs: Vec<PathBuf> = args.inputs.iter().map(|p| PathBuf::from(&p.path)).collect();
+    Ok(musicforge_cli::plan_only(
+        &inputs,
+        args.recursive,
+        &args.template,
+        args.out_dir.as_deref().map(Path::new),
+    )
+    .into_iter()
+    .map(|i| {
+        serde_json::json!({
+            "source": i.source,
+            "target": i.target,
+            "format": i.format,
+            "error": i.error,
+        })
+    })
+    .collect())
+}
+
 /// 启动批处理：立即返回；进度经 `batch-file`（逐文件）与 `batch-done`（汇总）事件推送。
 /// 已有任务运行时返回 Err。
 #[tauri::command]
@@ -356,6 +379,7 @@ fn main() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             collect_files,
+            plan_batch,
             start_batch,
             cancel_batch,
             preview_template,
