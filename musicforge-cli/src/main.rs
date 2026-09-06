@@ -1,10 +1,11 @@
 //! musicforge CLI 入口（薄壳：参数解析 + 汇总输出 + 退出码；批处理逻辑在 lib.rs）
 
+use std::path::Path;
 use std::path::PathBuf;
 use std::time::Instant;
 
 use clap::Parser;
-use musicforge_cli::{run, BatchConfig};
+use musicforge_cli::{run, run_resume, BatchConfig};
 
 /// MusicForge — 默认离线、可靠、可观测的本地 ncm 转换器
 ///
@@ -55,6 +56,10 @@ struct Args {
     /// manifest 路径；不指定则不写留痕文件（dry-run 建议指定以便查看计划）
     #[arg(long)]
     manifest: Option<String>,
+
+    /// 断点续跑：跳过该 manifest 中已成功完成的文件（配合 --manifest 使用）
+    #[arg(long)]
+    resume: Option<String>,
 }
 
 fn main() {
@@ -100,7 +105,10 @@ fn main() {
         manifest: args.manifest.as_ref().map(PathBuf::from),
     };
 
-    let summary = run(cfg);
+    let summary = match args.resume.as_ref() {
+        Some(manifest) => run_resume(cfg, Path::new(manifest), |_| {}),
+        None => run(cfg),
+    };
 
     // 同上：零结果 + 非零输入 = 输入没匹配到任何 .ncm。
     // 不报错就会被当成「成功转换 0 个」，是典型的静默失败。
