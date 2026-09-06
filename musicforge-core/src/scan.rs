@@ -122,6 +122,8 @@ pub struct ScanOptions {
     pub max_path_chars: usize,
     /// 递归深度上限（防符号链接环与异常深树）
     pub max_depth: usize,
+    /// 是否递归子目录（false = 只扫根目录一层）
+    pub recursive: bool,
 }
 
 impl Default for ScanOptions {
@@ -129,6 +131,7 @@ impl Default for ScanOptions {
         Self {
             max_path_chars: 260,
             max_depth: 64,
+            recursive: true,
         }
     }
 }
@@ -344,7 +347,7 @@ pub fn scan_library(root: &Path, options: &ScanOptions) -> Result<ScanReport, Nc
             report.empty_dirs.push(dir.clone());
         }
 
-        if depth < options.max_depth {
+        if depth < options.max_depth && options.recursive {
             for d in child_dirs {
                 stack.push((d, depth + 1));
             }
