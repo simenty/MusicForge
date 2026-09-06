@@ -66,19 +66,19 @@ jobs:
         env:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          New-Item -ItemType Directory -Force -Path "dist\musicforge-$env:VERSION-windows-x64" | Out-Null
-          Copy-Item target\release\musicforge.exe      "dist\musicforge-$env:VERSION-windows-x64\"
-          Copy-Item target\release\musicforge-gui.exe  "dist\musicforge-$env:VERSION-windows-x64\"
-          Copy-Item README.md, LICENSE                 "dist\musicforge-$env:VERSION-windows-x64\"
-          Copy-Item installer\assets\使用说明.txt       "dist\musicforge-$env:VERSION-windows-x64\"
+          New-Item -ItemType Directory -Force -Path "dist\musicforge-v$env:VERSION-windows-x64" | Out-Null
+          Copy-Item target\release\musicforge.exe      "dist\musicforge-v$env:VERSION-windows-x64\"
+          Copy-Item target\release\musicforge-gui.exe  "dist\musicforge-v$env:VERSION-windows-x64\"
+          Copy-Item README.md, LICENSE                 "dist\musicforge-v$env:VERSION-windows-x64\"
+          Copy-Item installer\assets\使用说明.txt       "dist\musicforge-v$env:VERSION-windows-x64\"
 
       - name: Build zip
         shell: pwsh
         env:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          Compress-Archive -Path "dist\musicforge-$env:VERSION-windows-x64" `
-            -DestinationPath "dist\musicforge-$env:VERSION-windows-x64.zip" -CompressionLevel Optimal
+          Compress-Archive -Path "dist\musicforge-v$env:VERSION-windows-x64" `
+            -DestinationPath "dist\musicforge-v$env:VERSION-windows-x64.zip" -CompressionLevel Optimal
 
       - name: Install NSIS
         run: choco install nsis --no-progress -y
@@ -116,7 +116,7 @@ jobs:
         run: |
           $files = @(
             "installer\MusicForge-$env:VERSION-setup.exe",
-            "dist\musicforge-$env:VERSION-windows-x64.zip"
+            "dist\musicforge-v$env:VERSION-windows-x64.zip"
           )
           $lines = foreach ($f in $files) {
             $h = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
@@ -134,7 +134,7 @@ jobs:
           generate_release_notes: true
           files: |
             installer/MusicForge-${{ steps.ver.outputs.version }}-setup.exe
-            dist/musicforge-${{ steps.ver.outputs.version }}-windows-x64.zip
+            dist/musicforge-v${{ steps.ver.outputs.version }}-windows-x64.zip
             SHA256SUMS.txt
 
       - name: Upload artifacts（发布之外的工作区留档）
@@ -143,5 +143,5 @@ jobs:
           name: musicforge-windows-${{ steps.ver.outputs.version }}
           path: |
             installer/MusicForge-${{ steps.ver.outputs.version }}-setup.exe
-            dist/musicforge-${{ steps.ver.outputs.version }}-windows-x64.zip
+            dist/musicforge-v${{ steps.ver.outputs.version }}-windows-x64.zip
             SHA256SUMS.txt
