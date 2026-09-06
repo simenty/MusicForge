@@ -401,7 +401,11 @@ fn execute_one(plan: &Plan, cfg: &BatchConfig) -> FileResult {
             std::fs::create_dir_all(parent)?;
         }
         let mut dec = Decoder::open(&plan.source)?;
-        dec.dump_to(&plan.target)?;
+        // §4.7 崩溃安全：先写同目录临时文件，成功后 rename 原子就位。
+        // 中断时目标路径要么不存在、要么是上一次的完整产物，绝不会是半成品。
+        let tmp = temp_path_for(&plan.target);
+        dec.dump_to(&tmp)?;
+        atomic_rename(&tmp, &plan.target)?;
         Ok((dec.metadata().cloned(), dec.cover().to_vec()))
     })();
     let dumped_ok = dumped.is_ok();
@@ -441,7 +445,9 @@ fn execute_one(plan: &Plan, cfg: &BatchConfig) -> FileResult {
                 }))
             })()
             .and_then(|v| {
-                std::fs::write(&sidecar, serde_json::to_string_pretty(&v)?).map_err(NcmError::from)
+                let tmp = temp_path_for(&sidecar);
+                std::fs::write(&tmp, serde_json::to_string_pretty(&v)?).map_err(NcmError::from)?;
+                atomic_rename(&tmp, &sidecar)
             });
             if let Err(e) = marker {
                 return FileResult {
@@ -547,7 +553,7 @@ fn integrity_marker_ok(target: &Path, sidecar: &Path) -> bool {
 /// `on_result` 在每个文件完成后回调（GUI 进度事件 / 测试断言用）。
 pub fn run_with_progress(cfg: BatchConfig, on_result: impl Fn(&FileResult) + Sync) -> BatchSummary {
     let sources = collect_inputs(&cfg.inputs, cfg.recursive);
-    run_inner(sources, cfg, &on_result)
+    run_inner(sources, cfg, &on_result, HashSet::new())
 }
 
 /// 已展开输入入口（G3 修复）：调用方直接传入 `(文件路径, 目录根)` 对。
@@ -559,18 +565,24 @@ pub fn run_with_progress_expanded(
     cfg: BatchConfig,
     on_result: impl Fn(&FileResult) + Sync,
 ) -> BatchSummary {
-    run_inner(expanded, cfg, &on_result)
+    run_inner(expanded, cfg, &on_result, HashSet::new())
 }
 
 fn run_inner(
     sources: Vec<(PathBuf, Option<PathBuf>)>,
     cfg: BatchConfig,
     on_result: &(impl Fn(&FileResult) + Sync),
+    reserved: HashSet<String>,
 ) -> BatchSummary {
     let start = Instant::now();
 
+    // §4.7：清理上次中断留下的临时文件，避免半成品常驻输出目录
+    cleanup_stale_temps(cfg.out_dir.as_deref());
+
     // ---- 规划阶段（串行，天然无竞态；目标名去重）----
-    let mut used: HashSet<String> = HashSet::new();
+    // 续跑时先占住 manifest 中已记录的目标名，避免新一轮因输入变少而
+    // 把「测试曲目.flac」这类名字让给别人 → 覆盖上一次的产物。
+    let mut used: HashSet<String> = reserved;
     let mut plans: Vec<Plan> = Vec::new();
     let mut results: Vec<FileResult> = Vec::new();
     for item in sources {
@@ -714,6 +726,117 @@ fn run_inner(
         failed,
         duration_ms: start.elapsed().as_millis(),
     }
+}
+
+/// 同目录临时文件名（rename 才能保持原子性；前缀固定便于清理残留）。
+fn temp_path_for(target: &Path) -> PathBuf {
+    let name = target
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output");
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    target.with_file_name(format!(
+        ".musicforge-tmp-{}-{nanos}-{name}",
+        std::process::id()
+    ))
+}
+
+/// 原子就位：Windows 的 rename 不能覆盖已存在目标，先删再 rename；失败清理临时文件。
+fn atomic_rename(tmp: &Path, target: &Path) -> Result<(), NcmError> {
+    if target.exists() {
+        std::fs::remove_file(target)?;
+    }
+    match std::fs::rename(tmp, target) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = std::fs::remove_file(tmp);
+            Err(NcmError::from(e))
+        }
+    }
+}
+
+/// 清理上次运行残留的临时文件（§4.7）；返回清理数量。
+pub fn cleanup_stale_temps(out_dir: Option<&Path>) -> usize {
+    let Some(dir) = out_dir else { return 0 };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut n = 0;
+    for entry in rd.flatten() {
+        let p = entry.path();
+        let is_tmp = p
+            .file_name()
+            .and_then(|s| s.to_str())
+            .map(|s| s.starts_with(".musicforge-tmp-"))
+            .unwrap_or(false);
+        if is_tmp && std::fs::remove_file(&p).is_ok() {
+            n += 1;
+        }
+    }
+    n
+}
+
+/// 从 manifest 读出「已成功完成」的源文件集合（断点续跑用）。
+///
+/// 只认 `result == "success"` 且**产物与完整性标记都还在**的条目：
+/// 标记缺失 = 产物可疑，必须重转（与 skip-existing 的完整性语义一致）。
+pub fn completed_sources(manifest: &Path) -> HashSet<PathBuf> {
+    let mut set: HashSet<PathBuf> = HashSet::new();
+    let Ok(text) = std::fs::read_to_string(manifest) else {
+        return set;
+    };
+    for line in text.lines() {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if v.get("result").and_then(|r| r.as_str()) != Some("success") {
+            continue;
+        }
+        let Some(source) = v.get("source").and_then(|s| s.as_str()) else {
+            continue;
+        };
+        let target = v
+            .get("target")
+            .and_then(|t| t.as_str())
+            .map(PathBuf::from)
+            .unwrap_or_default();
+        let sidecar = PathBuf::from(format!("{}.musicforge.json", target.display()));
+        if integrity_marker_ok(&target, &sidecar) {
+            set.insert(PathBuf::from(source));
+        }
+    }
+    set
+}
+
+/// 断点续跑：跳过 manifest 中已完成的文件，只处理剩余部分。
+pub fn run_resume(
+    cfg: BatchConfig,
+    manifest: &Path,
+    on_result: impl Fn(&FileResult) + Sync,
+) -> BatchSummary {
+    let completed = completed_sources(manifest);
+    // 保留集：manifest 记录过的所有目标名（含 planned），防止新一轮抢占
+    let reserved: HashSet<String> = std::fs::read_to_string(manifest)
+        .map(|text| {
+            text.lines()
+                .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+                .filter_map(|v| {
+                    v.get("target")
+                        .and_then(|t| t.as_str())
+                        .map(|t| dedup_key(Path::new(t)))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let sources = collect_inputs(&cfg.inputs, cfg.recursive);
+    let remaining: Vec<(PathBuf, Option<PathBuf>)> = sources
+        .into_iter()
+        .filter(|(p, _)| !completed.contains(p))
+        .collect();
+    run_inner(remaining, cfg, &on_result, reserved)
 }
 
 /// 从完整性侧车读取产物 sha256（best effort：缺失/损坏返回 None）。
