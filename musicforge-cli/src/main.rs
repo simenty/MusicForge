@@ -127,25 +127,18 @@ fn run_scan_sub(dir: &str, recursive: bool, as_json: bool, state_db: Option<&str
         }
     };
 
-    // D17：音频文件索引写入状态库（可再生缓存）
+    // D17：音频文件索引 + 哈希缓存写入状态库（可再生缓存；失败降级为告警，
+    // 绝不因缓存问题让扫描失败——G5 教训：失败必须显式可见而非静默）
+    let mut hash_stats: Option<musicforge_core::scan::HashRefreshStats> = None;
     if let Some(dbp) = state_db {
-        if let Ok(db) = musicforge_core::db::Db::open(Path::new(dbp)) {
-            for item in &report.items {
-                if item.category == musicforge_core::scan::Category::Audio {
-                    let ext = item
-                        .path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("mp3");
-                    let _ = db.upsert_file(
-                        &item.path.to_string_lossy(),
-                        item.size as i64,
-                        None,
-                        Some(ext),
-                        None,
-                    );
-                }
+        match musicforge_core::db::Db::open(Path::new(dbp)) {
+            Ok(db) => {
+                hash_stats = Some(musicforge_core::scan::refresh_hash_cache(
+                    &db,
+                    &report.items,
+                ));
             }
+            Err(e) => eprintln!("⚠ 状态库打开失败（不影响扫描结果）: {e}"),
         }
     }
 
@@ -167,6 +160,12 @@ fn run_scan_sub(dir: &str, recursive: bool, as_json: bool, state_db: Option<&str
             "scanned_files": report.scanned_files,
             "summary": report.summary(),
             "rule_hits": report.rule_hits,
+            "hash_cache": hash_stats.as_ref().map(|s| serde_json::json!({
+                "considered": s.considered,
+                "cache_hits": s.cache_hits,
+                "hashed": s.hashed,
+                "skipped": s.skipped,
+            })),
             "items": items,
         });
         println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
@@ -188,6 +187,12 @@ fn run_scan_sub(dir: &str, recursive: bool, as_json: bool, state_db: Option<&str
                 .map(|c| c.description)
                 .unwrap_or("");
             println!("  {id} ×{n}: {desc}");
+        }
+        if let Some(st) = &hash_stats {
+            println!(
+                "哈希缓存: 命中 {} · 重算 {} · 跳过 {}",
+                st.cache_hits, st.hashed, st.skipped
+            );
         }
     }
     0

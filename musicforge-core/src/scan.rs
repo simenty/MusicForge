@@ -7,8 +7,9 @@
 //!   与 GUI/文档共用一份定义（规则即数据）；
 //! - **清洗计划**：[`build_clean_plan`] 依据启用的规则生成动作清单；
 //!   执行动作 = **移入回收站目录**（保留相对结构），可整体还原——绝不直接删除；
-//! - **P4 增量指纹**：[`FileFingerprint`] + [`fingerprint`] 提供
-//!   size+mtime（L1）→ 内容哈希（L2）的两级原语，供 dedupe 与 db 缓存复用。
+//! - **D17 增量哈希缓存**：[`refresh_hash_cache`] 以 size+mtime（L1）判定
+//!   缓存命中（零文件读取），未命中才流式重算 sha256（L2）并回写 db
+//!   （复用 [`crate::db::Db::cached_hash`] 原语）——二次扫描不重算。
 //!
 //! 刻意不做的事：不引入 walkdir/ignore/rayon（依赖面最小）；walker 为
 //! 有界深度的迭代实现，符号链接一律不跟随（防环）。
@@ -154,6 +155,8 @@ pub struct ScanItem {
     /// 命中的清洗规则 ID（仅 Junk/异常项有）
     pub rule_id: Option<&'static str>,
     pub size: u64,
+    /// 修改时间（UNIX 秒；不可得为 `None`——D17 缓存对 `None` 永远 miss）
+    pub mtime: Option<i64>,
 }
 
 /// 扫描报告：分类明细 + 计数汇总。
@@ -277,6 +280,11 @@ pub fn scan_library(root: &Path, options: &ScanOptions) -> Result<ScanReport, Nc
 
             let name = entry.file_name().to_string_lossy().into_owned();
             let size = md.len();
+            let mtime = md
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64);
             let ext = Path::new(&name)
                 .extension()
                 .and_then(|e| e.to_str())
@@ -339,6 +347,7 @@ pub fn scan_library(root: &Path, options: &ScanOptions) -> Result<ScanReport, Nc
                 category,
                 rule_id: rule_final,
                 size,
+                mtime,
             });
         }
 
@@ -371,6 +380,7 @@ pub fn scan_library(root: &Path, options: &ScanOptions) -> Result<ScanReport, Nc
                 category: Category::Junk,
                 rule_id: Some("MF-CLEAN-005"),
                 size: item.size,
+                mtime: item.mtime,
             });
         }
     }
@@ -394,6 +404,7 @@ pub fn scan_library(root: &Path, options: &ScanOptions) -> Result<ScanReport, Nc
                 category: Category::Junk,
                 rule_id: Some("MF-CLEAN-006"),
                 size: item.size,
+                mtime: item.mtime,
             });
         }
     }
@@ -412,6 +423,72 @@ pub fn scan_library(root: &Path, options: &ScanOptions) -> Result<ScanReport, Nc
     }
 
     Ok(report)
+}
+
+// ------------------------------------------------------- D17 增量哈希缓存 --
+
+/// [`refresh_hash_cache`] 的统计结果。
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct HashRefreshStats {
+    /// 参与判定的音频文件数
+    pub considered: usize,
+    /// size+mtime 命中缓存，复用已有 sha256（零文件读取）
+    pub cache_hits: usize,
+    /// 未命中，流式重算 sha256 并回写缓存
+    pub hashed: usize,
+    /// 无法缓存（mtime 不可得 / 文件读取失败）
+    pub skipped: usize,
+}
+
+/// D17 增量指纹接线：把音频文件的 sha256 哈希缓存刷新进状态库。
+///
+/// - **命中**（size+mtime 与缓存行一致，见 [`crate::db::Db::cached_hash`]）
+///   → 直接复用，零文件读取——二次扫描的成本只剩元数据遍历；
+/// - **未命中** → 流式读取一次计算 sha256 并回写 `files` 表；
+/// - mtime 不可得的文件退化为占位索引行（与旧行为一致），永远 miss。
+///
+/// 只读音乐文件、只写可再生缓存（db）；db 读写失败**不 panic 不传播**
+/// （命中判定失败按未命中处理、回写失败忽略）——缓存失败绝不影响扫描结论。
+pub fn refresh_hash_cache(db: &crate::db::Db, items: &[ScanItem]) -> HashRefreshStats {
+    let mut st = HashRefreshStats::default();
+    for item in items {
+        if item.category != Category::Audio {
+            continue;
+        }
+        st.considered += 1;
+        let key = item.path.to_string_lossy().into_owned();
+        let ext = item.path.extension().and_then(|e| e.to_str());
+        let Some(mtime) = item.mtime else {
+            // 退化：占位索引（mtime None 的行永远不可作缓存依据）
+            let _ = db.upsert_file(&key, item.size as i64, None, ext, None);
+            st.skipped += 1;
+            continue;
+        };
+        let hit = matches!(db.cached_hash(&key, item.size as i64, mtime), Ok(Some(_)));
+        if hit {
+            st.cache_hits += 1;
+            continue;
+        }
+        match sha256_file_stream(&item.path) {
+            Some(sha) => {
+                st.hashed += 1;
+                let _ = db.upsert_file(&key, item.size as i64, Some(mtime), ext, Some(&sha));
+            }
+            None => st.skipped += 1,
+        }
+    }
+    st
+}
+
+/// 流式计算文件 sha256（大文件友好）；读取失败返回 `None`。
+pub fn sha256_file_stream(path: &Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return None;
+    };
+    let mut h = Sha256::new();
+    std::io::copy(&mut f, &mut h).ok()?;
+    Some(format!("{:x}", h.finalize()))
 }
 
 // ---------------------------------------------------------------- 清洗计划 --
