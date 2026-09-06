@@ -17,6 +17,7 @@ import {
   type UnlistenFn,
 } from "./api";
 import { loadSettings, saveSettings, type Settings } from "./settings";
+import ScanPanel from "./ScanPanel";
 
 /**
  * 行状态。
@@ -792,6 +793,9 @@ export default function App() {
           导出失败清单
         </button>
       </div>
+
+      {/* ---------- 曲库扫描（只读，独立面板） ---------- */}
+      <ScanPanel />
 
       <div className="legal">
         MusicForge 仅用于处理你已合法获得的文件的个人本地格式转换 · 不联网 · 不上传 · 不收集任何数据 ·

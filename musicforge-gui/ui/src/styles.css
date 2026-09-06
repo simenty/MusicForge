@@ -1044,3 +1044,171 @@ body {
   flex: 0 0 auto;
   opacity: 0.6;
 }
+
+/* ---------- 曲库扫描面板（P3 只读扫描） ---------- */
+.scan-toggle {
+  margin: 10px 14px;
+  padding: 8px 12px;
+  width: calc(100% - 28px);
+  text-align: left;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  color: var(--muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: 140ms ease-out;
+}
+.scan-toggle:hover {
+  color: var(--txt);
+  border-color: var(--line-strong);
+}
+.scan-panel {
+  margin: 10px 14px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+}
+.scan-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.scan-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.scan-bar .val {
+  flex: 1 1 auto;
+}
+.scan-error {
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: var(--fail-bg);
+  border: 1px solid var(--fail-bd);
+  border-radius: var(--r-sm);
+  color: var(--fail);
+  font-size: 12.5px;
+  word-break: break-all;
+}
+.scan-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  color: var(--txt);
+}
+.sc-audio { color: var(--ok); font-weight: 600; }
+.sc-lyrics { color: var(--accent); }
+.sc-cover { color: var(--accent); }
+.sc-junk { color: var(--fail); font-weight: 600; }
+.sc-other { color: var(--muted); }
+.scan-rules {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.scan-rule {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  padding: 3px 8px;
+  background: var(--fail-bg);
+  border: 1px solid var(--fail-bd);
+  border-radius: var(--r-sm);
+}
+.scan-rule code {
+  color: var(--fail);
+  font-weight: 600;
+}
+.scan-rule-n {
+  color: var(--fail);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.scan-rule-desc {
+  color: var(--txt);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scan-table-wrap {
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.scan-thead,
+.scan-row {
+  display: grid;
+  grid-template-columns: 56px 110px 1fr 72px;
+  gap: 8px;
+  align-items: center;
+  padding: 0 10px;
+}
+.scan-thead {
+  height: 30px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.scan-table {
+  max-height: 260px;
+  overflow: auto;
+}
+.scan-row {
+  height: var(--row-h);
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12.5px;
+}
+.scan-row:last-child {
+  border-bottom: none;
+}
+.sc-cat {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.sc-rule-id {
+  color: var(--fail);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sc-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sc-size {
+  color: var(--muted);
+  font-size: 12px;
+}
+.scan-note {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.scan-note code {
+  background: var(--panel-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
+}
+.scan-clean {
+  color: var(--ok);
+}

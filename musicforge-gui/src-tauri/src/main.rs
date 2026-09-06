@@ -2,6 +2,7 @@
 //!
 //! 命令面：`collect_files`（拖拽路径 → 过滤 .ncm）、`start_batch`（启动批处理，进度经
 //! `batch-file`/`batch-done` 事件推送）、`cancel_batch`（协作式取消）、
+//! `plan_batch`（dry-run 计划预览）、`scan_library`（只读曲库扫描）、
 //! `select_ncm_files` / `select_output_dir`（原生选择对话框）、`save_failures`（失败清单导出）。
 //! 架构：GUI 与 musicforge-core 同语言同进程（方案书 §6：零 FFI）。
 //!
@@ -137,6 +138,57 @@ fn plan_batch(args: BatchArgs) -> Result<Vec<serde_json::Value>, String> {
         })
     })
     .collect())
+}
+
+/// 曲库扫描（P3 切片四）：只读扫描目录并分类，返回垃圾/孤立/命名异常清单。
+///
+/// - 与 core `scan_library` 同一实现（GUI/CLI 不可能分叉）；
+/// - **只读**：不改动任何文件，也不写状态库（清洗执行与哈希缓存走 CLI，
+///   破坏性操作必须有显式分级闸门，不藏在查看器里）；
+/// - 目录不存在/不可读 → Err（显式失败，前端可见）。
+#[tauri::command]
+fn scan_library(dir: String, recursive: bool) -> Result<serde_json::Value, String> {
+    let report = musicforge_core::scan::scan_library(
+        Path::new(&dir),
+        &musicforge_core::scan::ScanOptions {
+            recursive,
+            ..Default::default()
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "dir": dir,
+        "scannedFiles": report.scanned_files,
+        "scannedDirs": report.scanned_dirs,
+        "summary": {
+            "audio": report.audio,
+            "lyrics": report.lyrics,
+            "covers": report.covers,
+            "junk": report.junk,
+            "other": report.other,
+            "emptyDirs": report.empty_dirs.len(),
+        },
+        "ruleHits": report.rule_hits.iter().map(|(id, n)| serde_json::json!({
+            "id": id,
+            "count": n,
+            "description": musicforge_core::scan::rule_card(id)
+                .map(|c| c.description)
+                .unwrap_or(""),
+            "risk": format!(
+                "{:?}",
+                musicforge_core::scan::rule_card(id).map(|c| c.risk).unwrap_or(
+                    musicforge_core::scan::Risk::Medium
+                )
+            )
+            .to_lowercase(),
+        })).collect::<Vec<_>>(),
+        "items": report.items.iter().map(|i| serde_json::json!({
+            "path": i.path.display().to_string(),
+            "category": format!("{:?}", i.category).to_lowercase(),
+            "rule": i.rule_id,
+            "size": i.size,
+        })).collect::<Vec<_>>(),
+    }))
 }
 
 /// 启动批处理：立即返回；进度经 `batch-file`（逐文件）与 `batch-done`（汇总）事件推送。
@@ -380,6 +432,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             collect_files,
             plan_batch,
+            scan_library,
             start_batch,
             cancel_batch,
             preview_template,
@@ -452,6 +505,45 @@ mod tests {
         );
         assert_eq!(single.len(), 1);
         assert!(single[0].root.is_none(), "散文件输入 root 必须为 None");
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// scan_library：返回形状与 CLI `scan --json` 同源（summary/ruleHits/items）。
+    /// 前端 ScanPanel 按这些键渲染——键名一旦漂移即面板空白（静默断裂）。
+    #[test]
+    fn scan_library_command_returns_shared_shape() {
+        let base = std::env::temp_dir().join(format!("mf-gui-scan-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(base.join("a.flac"), b"fLaC").unwrap();
+        std::fs::write(base.join("Thumbs.db"), b"x").unwrap();
+
+        let v = scan_library(base.to_string_lossy().into_owned(), true).unwrap();
+        assert_eq!(v["dir"], base.to_string_lossy().as_ref());
+        assert_eq!(v["scannedFiles"], 2);
+        assert_eq!(v["summary"]["audio"], 1);
+        assert_eq!(v["summary"]["junk"], 1);
+        assert_eq!(v["summary"]["emptyDirs"], 0);
+
+        let hits = v["ruleHits"].as_array().unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0]["id"], "MF-CLEAN-001");
+        assert_eq!(hits[0]["count"], 1);
+        assert!(!hits[0]["description"].as_str().unwrap().is_empty());
+        assert_eq!(hits[0]["risk"], "low");
+
+        let items = v["items"].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        let junk = items
+            .iter()
+            .find(|i| i["rule"] == "MF-CLEAN-001")
+            .expect("垃圾项必须带规则 ID");
+        assert_eq!(junk["category"], "junk");
+
+        // 错误路径：目录不存在必须显式 Err（前端可见），绝不返回空报告伪装成功
+        let err = scan_library("Z:/definitely/missing/dir".to_string(), true);
+        assert!(err.is_err(), "不存在的目录必须报错");
 
         let _ = std::fs::remove_dir_all(&base);
     }
