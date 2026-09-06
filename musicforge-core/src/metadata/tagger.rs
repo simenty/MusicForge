@@ -15,8 +15,8 @@ use lofty::tag::{ItemKey, Tag};
 use lofty::config::WriteOptions;
 
 use crate::error::NcmError;
-use crate::format::Format;
-use crate::metadata::Metadata;
+use crate::formats::probe::Format;
+use crate::metadata::model::Metadata;
 
 /// 字段是否算「已有值」。
 ///
