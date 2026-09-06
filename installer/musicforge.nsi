@@ -28,7 +28,7 @@ Unicode true
 !define EXE_CLI    "musicforge.exe"
 !define UNINSTKEY  "Software\Microsoft\Windows\CurrentVersion\Uninstall\MusicForge"
 !define REGKEY     "Software\MusicForge"
-!define DISTDIR    "..\dist\musicforge-v0.1.0-windows-x64"
+!define DISTDIR    "..\dist\musicforge-v${VERSION}-windows-x64"
 
 Name                "${APPNAME} ${VERSION}"
 OutFile             "MusicForge-${VERSION}-setup.exe"
