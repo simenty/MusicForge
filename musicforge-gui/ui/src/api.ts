@@ -95,6 +95,44 @@ export async function planBatch(args: BatchArgs): Promise<PlannedItem[]> {
   return invoke<PlannedItem[]>("plan_batch", { args });
 }
 
+/** P3 扫描：单条发现（与 CLI `scan --json` 的 items 同形状） */
+export interface ScanItem {
+  path: string;
+  category: "audio" | "lyrics" | "cover" | "junk" | "other";
+  rule: string | null;
+  size: number;
+}
+
+/** P3 扫描：规则命中行（规则卡随行带描述与风险，前端免查表） */
+export interface ScanRuleHit {
+  id: string;
+  count: number;
+  description: string;
+  risk: string;
+}
+
+/** P3 扫描：只读扫描报告 */
+export interface ScanReport {
+  dir: string;
+  scannedFiles: number;
+  scannedDirs: number;
+  summary: {
+    audio: number;
+    lyrics: number;
+    covers: number;
+    junk: number;
+    other: number;
+    emptyDirs: number;
+  };
+  ruleHits: ScanRuleHit[];
+  items: ScanItem[];
+}
+
+/** 只读扫描曲库目录（不改动任何文件；错误经 Result 显式返回，不静默） */
+export async function scanLibrary(dir: string, recursive: boolean): Promise<ScanReport> {
+  return invoke<ScanReport>("scan_library", { dir, recursive });
+}
+
 export async function startBatch(args: BatchArgs): Promise<void> {
   await invoke("start_batch", { args });
 }
