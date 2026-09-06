@@ -105,6 +105,33 @@ fn main() {
         manifest: args.manifest.as_ref().map(PathBuf::from),
     };
 
+    // v0.2.0 安全分级：convert 属「只产出新文件」的非破坏类，默认执行；
+    // 破坏类命令（P3 的 clean / P4 的 dedupe）届时默认只规划，须 --apply。
+    let mode = musicforge_cli::safety::resolve(
+        musicforge_cli::safety::OpClass::NonDestructive,
+        &musicforge_cli::safety::OpFlags {
+            dry_run: args.dry_run,
+            apply: false,
+            yes: false,
+        },
+    );
+    let mode = match mode {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("✗ {e}");
+            std::process::exit(2);
+        }
+    };
+    if mode == musicforge_cli::safety::ExecMode::DryRun {
+        println!(
+            "{}",
+            musicforge_cli::safety::mode_note(
+                musicforge_cli::safety::OpClass::NonDestructive,
+                mode
+            )
+        );
+    }
+
     let summary = match args.resume.as_ref() {
         Some(manifest) => run_resume(cfg, Path::new(manifest), |_| {}),
         None => run(cfg),

@@ -38,6 +38,7 @@ MusicForge 的每个失败都携带一个**稳定错误码**：UI、日志、失
 | `MF-FFMPEG-*` | `MF-FFMPEG-MISSING` | P5b（sidecar 探测） |
 | `MF-PLUGIN-*` | `MF-PLUGIN-NOT-FOUND` / `MF-PLUGIN-DISABLED` / `MF-PLUGIN-ACK-REQUIRED` / `MF-PLUGIN-PERMISSION-DENIED` / `MF-PLUGIN-TIMEOUT` / `MF-PLUGIN-CRASHED` / `MF-PLUGIN-API-INCOMPATIBLE` | P6a/P6b |
 | `MF-FORMAT-*` | `MF-FORMAT-DRM-UNSUPPORTED` | P6b（平台 DRM 只识别不处理，D10-D 级） |
+| `MF-OP-*` | `MF-OP-CONFLICT`（`--dry-run` 与 `--apply` 同时给出）／`MF-OP-NEEDS-YES`（高危操作缺 `--yes`） | P2（安全分级 `safety::resolve`） |
 | `MF-TASK-*` | — | P2（任务/报告） |
 
 ## 约定
