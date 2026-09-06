@@ -119,6 +119,99 @@ fn dedupe_apply_moves_sacrifices_keeps_best_and_restores() {
 }
 
 #[test]
+fn organize_dry_run_never_moves() {
+    let root = tree();
+    let (code, out) = run_cli(&["organize", root.to_str().unwrap(), "--json"]);
+    assert_eq!(code, 0, "{out}");
+    let v: serde_json::Value = serde_json::from_str(&out).expect("JSON 可解析");
+    assert_eq!(v["mode"], "dry-run");
+    assert!(v["counts"]["planned"].as_u64().unwrap() >= 3, "{out}");
+    // dry-run 零改动
+    assert!(root.join("a/same1.flac").exists());
+    assert!(root.join("u.flac").exists());
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn organize_apply_moves_and_rollback_restores() {
+    let root = tree();
+    let target = root.join("sorted");
+    let (code, out) = run_cli(&[
+        "organize",
+        root.to_str().unwrap(),
+        "--to",
+        target.to_str().unwrap(),
+        "--apply",
+        "--json",
+    ]);
+    assert_eq!(code, 0, "{out}");
+    let v: serde_json::Value = serde_json::from_str(&out).expect("JSON 可解析");
+    assert_eq!(v["mode"], "apply");
+    let moved = v["outcome"]["moved"].as_u64().unwrap();
+    assert!(moved >= 3, "至少 3 个音频应被移动: {out}");
+
+    // 源位置已空、目标存在
+    assert!(!root.join("a/same1.flac").exists());
+    let rb = PathBuf::from(v["outcome"]["rollback_manifest"].as_str().unwrap());
+    assert!(rb.exists(), "回滚清单应存在");
+
+    // 还原（复用 clean --restore）
+    let (code2, out2) = run_cli(&["clean", "--restore", rb.to_str().unwrap()]);
+    assert_eq!(code2, 0, "{out2}");
+    assert!(root.join("a/same1.flac").exists(), "还原后文件回原位");
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn organize_conflict_skip_reported_and_never_overwrites() {
+    let root = tree();
+    let target = root.join("sorted");
+    std::fs::create_dir_all(&target).unwrap();
+    // 预创建冲突目标：模板 "{title}" 下 same1.flac → sorted/same1.flac
+    std::fs::write(target.join("same1.flac"), b"PRE-EXISTING").unwrap();
+
+    let (code, out) = run_cli(&[
+        "organize",
+        root.to_str().unwrap(),
+        "--to",
+        target.to_str().unwrap(),
+        "--template",
+        "{title}",
+        "--apply",
+        "--json",
+    ]);
+    assert_eq!(code, 0, "{out}");
+    let v: serde_json::Value = serde_json::from_str(&out).expect("JSON 可解析");
+    assert_eq!(
+        v["counts"]["skipped_conflict"].as_u64(),
+        Some(1),
+        "冲突应按 skip 报告: {out}"
+    );
+    // 冲突目标原封不动，源文件原位保留
+    assert_eq!(
+        std::fs::read(target.join("same1.flac")).unwrap(),
+        b"PRE-EXISTING"
+    );
+    assert!(root.join("a/same1.flac").exists());
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn organize_rejects_unknown_conflict_strategy() {
+    let root = tree();
+    let (code, out) = run_cli(&[
+        "organize",
+        root.to_str().unwrap(),
+        "--conflict",
+        "bogus",
+        "--apply",
+    ]);
+    assert_eq!(code, 2, "未知策略必须退出码 2: {out}");
+    assert!(out.contains("未知冲突策略"), "{out}");
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
 fn dedupe_include_same_name_requires_apply() {
     let root = tree();
     // clap 闸：--include-same-name 不带 --apply 直接被拒（exit 2）

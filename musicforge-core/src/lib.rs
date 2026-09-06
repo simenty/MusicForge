@@ -25,6 +25,7 @@ pub mod dedupe;
 pub mod error;
 pub mod formats;
 pub mod metadata;
+pub mod organize;
 pub mod scan;
 pub mod template;
 
