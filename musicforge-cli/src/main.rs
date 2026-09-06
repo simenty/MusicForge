@@ -66,6 +66,15 @@ struct Args {
     state_db: Option<String>,
 }
 
+/// 流式计算文件 sha256（大文件友好）；失败返回 None（调用方跳过缓存回写）。
+fn sha256_file_stream(path: &Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let mut f = std::fs::File::open(path).ok()?;
+    let mut h = Sha256::new();
+    std::io::copy(&mut f, &mut h).ok()?;
+    Some(format!("{:x}", h.finalize()))
+}
+
 /// 把本次任务写入状态库（缓存/历史；失败降级为告警）。
 fn record_state(path: &Path, summary: &musicforge_cli::BatchSummary) {
     use musicforge_core::db::Db;
@@ -90,6 +99,34 @@ fn record_state(path: &Path, summary: &musicforge_cli::BatchSummary) {
                         target.extension().and_then(|e| e.to_str()),
                         sha.as_deref(),
                     );
+                }
+                // D17：源文件行——sha256 命中缓存则跳过重算（L1+L2）；
+                // 未命中才对流式读取源文件计算一次并回写缓存。
+                if let Ok(md) = std::fs::metadata(&r.source) {
+                    let size = md.len() as i64;
+                    let mtime = md
+                        .modified()
+                        .ok()
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs() as i64);
+                    if let Some(mtime) = mtime {
+                        let key = r.source.to_string_lossy().into_owned();
+                        let hit = db
+                            .cached_hash(&key, size, mtime)
+                            .map(|h| h.is_some())
+                            .unwrap_or(false);
+                        if !hit {
+                            if let Some(sha) = sha256_file_stream(&r.source) {
+                                let _ = db.upsert_file(
+                                    &key,
+                                    size,
+                                    Some(mtime),
+                                    Some("ncm"),
+                                    Some(&sha),
+                                );
+                            }
+                        }
+                    }
                 }
             }
             if let Err(e) = db.finish_task(

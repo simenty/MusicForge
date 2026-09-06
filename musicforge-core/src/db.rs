@@ -13,7 +13,7 @@
 
 use std::path::{Path, PathBuf};
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::error::NcmError;
 
@@ -148,6 +148,30 @@ impl Db {
             Some(row) => Ok(Some(row.map_err(|e| NcmError::Db(e.to_string()))?)),
             None => Ok(None),
         }
+    }
+
+    /// D17 哈希缓存查询（L1+L2 语义）：
+    ///
+    /// 仅当缓存行的 `size` 与 `mtime` 都与当前一致时才返回哈希——
+    /// 任一不一致（或行内无哈希）都返回 `None`，调用方需重算并回写。
+    /// `mtime` 不可得的文件永远 miss（宁可重算，不返回过期哈希）。
+    pub fn cached_hash(
+        &self,
+        path: &str,
+        size: i64,
+        mtime: i64,
+    ) -> Result<Option<String>, NcmError> {
+        let h: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT sha256 FROM files
+                 WHERE path = ?1 AND size = ?2 AND mtime = ?3 AND sha256 IS NOT NULL",
+                params![path, size, mtime],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(h)
     }
 
     /// 登记一次任务开始。

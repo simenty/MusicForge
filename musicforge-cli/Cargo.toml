@@ -10,6 +10,7 @@ name = "musicforge"
 path = "src/main.rs"
 
 [dev-dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
 tempfile = "3"
 # QA 对抗性测试：自建 NCM 编码器 + 标签读回
 aes = "0.8"
