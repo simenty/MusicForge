@@ -28,6 +28,7 @@ pub mod metadata;
 pub mod organize;
 pub mod playlist;
 pub mod scan;
+pub mod stylecode;
 pub mod template;
 
 // ── 兼容 facade（P1b/D9）：旧路径保持可编译；P1c 起新代码走 formats/registry ──

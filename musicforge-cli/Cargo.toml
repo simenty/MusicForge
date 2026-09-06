@@ -10,6 +10,8 @@ name = "musicforge"
 path = "src/main.rs"
 
 [dev-dependencies]
+# p4_cli 集成测试构造内嵌封面 fixture（生产代码不经此依赖）
+image = { version = "0.25", default-features = false, features = ["png"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 tempfile = "3"
 # QA 对抗性测试：自建 NCM 编码器 + 标签读回

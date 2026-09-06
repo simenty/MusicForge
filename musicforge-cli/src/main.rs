@@ -132,6 +132,9 @@ enum Sub {
         /// AI 保留建议（v0.7.0 起提供；当前离线版显式报 MF-PLUGIN-NOT-FOUND）
         #[arg(long, conflicts_with = "apply")]
         suggest: bool,
+        /// 附带相似封面分组报告（aHash，仅报告不执行——换封面属 v0.7.0 能力）
+        #[arg(long)]
+        covers: bool,
         /// JSON 输出（机器可读）
         #[arg(long)]
         json: bool,
@@ -161,6 +164,24 @@ enum Sub {
     Playlist {
         #[command(subcommand)]
         cmd: PlaylistCmd,
+    },
+    /// genre 写入：文件名风格码 `[Y23-S01-...]` → genre 标签（默认 dry-run）
+    Genre {
+        /// 曲库目录
+        #[arg(value_name = "DIR")]
+        dir: String,
+        /// codebook JSON（{"S01":"流行",...}；缺省 → genre 用原始码）
+        #[arg(long)]
+        map: Option<String>,
+        /// 覆盖已有 genre（缺省 FillMissingOnly：已有 genre 的文件跳过）
+        #[arg(long)]
+        replace_all: bool,
+        /// 真正写入（缺省=只报告将写什么）
+        #[arg(long)]
+        apply: bool,
+        /// JSON 输出（机器可读）
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -405,6 +426,7 @@ struct DedupeArgs {
     no_same_name: bool,
     include_same_name: bool,
     suggest: bool,
+    covers: bool,
     json: bool,
 }
 
@@ -417,6 +439,7 @@ fn run_dedupe_sub(dir: &str, a: &DedupeArgs) -> i32 {
         no_same_name,
         include_same_name,
         suggest,
+        covers,
         json: as_json,
     } = *a;
     let state_db = state_db.as_deref();
@@ -495,6 +518,19 @@ fn run_dedupe_sub(dir: &str, a: &DedupeArgs) -> i32 {
             }
         }
     }
+
+    // 相似封面分组（--covers；仅报告，绝不进计划——换封面属 v0.7.0 能力）
+    let cover_groups = if covers {
+        match musicforge_core::dedupe::similar_cover_scan(Path::new(dir)) {
+            Ok(g) => Some(g),
+            Err(e) => {
+                eprintln!("⚠ 相似封面扫描失败（跳过该报告）: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     // 执行先行于报告（测试抓出的 bug：原实现 JSON 分支在执行前提前 return，
     // 导致 --apply --json 只打印不执行）。报告反映真实发生的事。
@@ -594,6 +630,15 @@ fn run_dedupe_sub(dir: &str, a: &DedupeArgs) -> i32 {
                 "moved": o.moved,
                 "rollback_manifest": o.rollback_manifest.as_ref().map(|p| p.display().to_string()),
             })),
+            "similar_covers": cover_groups.as_ref().map(|gs| gs.iter().map(|g| serde_json::json!({
+                "rep": g.rep_path.display().to_string(),
+                "rep_hash": format!("{:016x}", g.rep_hash),
+                "members": g.members.iter().map(|(p, h, d)| serde_json::json!({
+                    "path": p.display().to_string(),
+                    "hash": format!("{:016x}", h),
+                    "hamming": d,
+                })).collect::<Vec<_>>(),
+            })).collect::<Vec<_>>()),
         });
         println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
         return 0;
@@ -652,6 +697,20 @@ fn run_dedupe_sub(dir: &str, a: &DedupeArgs) -> i32 {
         }
     }
 
+    if let Some(gs) = &cover_groups {
+        println!("相似封面 {} 组（仅报告；换封面 v0.7.0）", gs.len());
+        for g in gs {
+            println!(
+                "封面组 代表 {}（hash {:016x}）",
+                g.rep_path.display(),
+                g.rep_hash
+            );
+            for (p, _h, d) in &g.members {
+                println!("  [d={d}] {}", p.display());
+            }
+        }
+    }
+
     match mode {
         ExecMode::DryRun => {
             println!(
@@ -681,6 +740,14 @@ struct OrganizeArgs {
     to: Option<String>,
     template: String,
     conflict: String,
+    apply: bool,
+    json: bool,
+}
+
+/// genre 子命令参数包。
+struct GenreArgs {
+    map: Option<String>,
+    replace_all: bool,
     apply: bool,
     json: bool,
 }
@@ -924,6 +991,112 @@ fn run_playlist_sub(cmd: PlaylistCmd) -> i32 {
     }
 }
 
+/// genre 写入子命令：文件名风格码 → genre 标签（默认 dry-run；绝不覆盖已有值除非 --replace-all --yes）。
+fn run_genre_sub(dir: &str, a: &GenreArgs) -> i32 {
+    use musicforge_cli::safety::{resolve, ExecMode, OpClass, OpFlags};
+
+    let map = match &a.map {
+        Some(p) => match musicforge_core::stylecode::load_genre_map(Path::new(p)) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("✗ {e}");
+                return 2;
+            }
+        },
+        None => Default::default(),
+    };
+
+    // 写标签 = 原地修改用户文件 → Destructive；--replace-all 会覆盖已有
+    // genre（不可经回收站还原）→ 升级为高危，需 --yes（复用安全分级表）
+    let class = OpClass::Destructive {
+        high_risk: a.replace_all,
+    };
+    let flags = OpFlags {
+        dry_run: !a.apply,
+        apply: a.apply,
+        yes: !a.replace_all,
+    };
+    let mode = match resolve(class, &flags) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("✗ {e}");
+            return 2;
+        }
+    };
+
+    let plan =
+        match musicforge_core::stylecode::plan_genre_writes(Path::new(dir), &map, a.replace_all) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("✗ genre 规划失败: {e}");
+                return 1;
+            }
+        };
+    let (will, has_genre, no_code, no_label) = plan.counts();
+
+    // 执行先行于报告（与前两切片同一纪律）
+    let mut outcome: Option<(usize, usize)> = None;
+    if matches!(mode, ExecMode::Apply) {
+        outcome = Some(musicforge_core::stylecode::apply_genre_writes(&plan));
+    }
+
+    if a.json {
+        let items: Vec<serde_json::Value> = plan
+            .items
+            .iter()
+            .map(|(p, d)| {
+                serde_json::json!({
+                    "path": p.display().to_string(),
+                    "decision": match d {
+                        musicforge_core::stylecode::GenreDecision::WillWrite { genre } => {
+                            serde_json::json!({"status": "will-write", "genre": genre})
+                        }
+                        musicforge_core::stylecode::GenreDecision::HasGenre => {
+                            serde_json::json!({"status": "has-genre"})
+                        }
+                        musicforge_core::stylecode::GenreDecision::NoCode => {
+                            serde_json::json!({"status": "no-code"})
+                        }
+                        musicforge_core::stylecode::GenreDecision::NoLabel => {
+                            serde_json::json!({"status": "no-label"})
+                        }
+                    },
+                })
+            })
+            .collect();
+        let out = serde_json::json!({
+            "dir": dir,
+            "mode": if matches!(mode, ExecMode::Apply) { "apply" } else { "dry-run" },
+            "counts": { "will_write": will, "has_genre": has_genre, "no_code": no_code, "no_label": no_label },
+            "outcome": outcome.map(|(w, f)| serde_json::json!({ "written": w, "failed": f })),
+            "items": items,
+        });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+        return 0;
+    }
+
+    println!(
+        "将写入 {} · 已有 genre 跳过 {} · 无风格码 {} · 无可写标签 {}",
+        will, has_genre, no_code, no_label
+    );
+    for (p, d) in &plan.items {
+        if let musicforge_core::stylecode::GenreDecision::WillWrite { genre } = d {
+            println!("  {} → genre=\"{}\"", p.display(), genre);
+        }
+    }
+    match mode {
+        ExecMode::DryRun => {
+            println!("仅规划：未改动任何文件。加 --apply 执行。");
+            0
+        }
+        ExecMode::Apply => {
+            let (w, f) = outcome.expect("apply 必有 outcome");
+            println!("已写入 {w} 个文件的 genre 标签 · 失败 {f}");
+            0
+        }
+    }
+}
+
 /// 流式计算文件 sha256（大文件友好）；失败返回 None（调用方跳过缓存回写）。
 fn sha256_file_stream(path: &Path) -> Option<String> {
     use sha2::{Digest, Sha256};
@@ -1044,6 +1217,7 @@ fn main() {
                 no_same_name,
                 include_same_name,
                 suggest,
+                covers,
                 json,
             } => run_dedupe_sub(
                 &dir,
@@ -1054,6 +1228,7 @@ fn main() {
                     no_same_name,
                     include_same_name,
                     suggest,
+                    covers,
                     json,
                 },
             ),
@@ -1075,6 +1250,21 @@ fn main() {
                 },
             ),
             Sub::Playlist { cmd } => run_playlist_sub(cmd),
+            Sub::Genre {
+                dir,
+                map,
+                replace_all,
+                apply,
+                json,
+            } => run_genre_sub(
+                &dir,
+                &GenreArgs {
+                    map,
+                    replace_all,
+                    apply,
+                    json,
+                },
+            ),
         };
         std::process::exit(code);
     }
