@@ -122,8 +122,11 @@ fn track_value(meta: Option<&Metadata>, spec: Option<&str>) -> String {
     }
 }
 
-/// 段清洗：非法字符/控制字符 → `_`；尾部 `. ` 去除；Windows 保留设备名加 `_` 前缀；空段 → `_`
-fn sanitize(seg: &str) -> String {
+/// 段清洗：非法字符/控制字符 → `_`；尾部 `. ` 去除；Windows 保留设备名加 `_` 前缀；空段 → `_`。
+///
+/// P4 起公开（playlist 按分类导出的文件名复用同一套清洗规则——
+/// 凡是写盘的「用户数据变成文件名」场景都必须走这里，不得各写各的）。
+pub fn sanitize(seg: &str) -> String {
     let mapped: String = seg
         .chars()
         .map(|c| {

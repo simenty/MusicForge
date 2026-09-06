@@ -157,6 +157,42 @@ enum Sub {
         #[arg(long)]
         json: bool,
     },
+    /// 播放清单：M3U8 按分类导出 / 导入失效路径修复（只写清单文件，不动音乐）
+    Playlist {
+        #[command(subcommand)]
+        cmd: PlaylistCmd,
+    },
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum PlaylistCmd {
+    /// 按分类导出曲库为 .m3u8 集合（每组一个文件，UTF-8 + EXTINF）
+    Export {
+        /// 曲库目录
+        #[arg(value_name = "DIR")]
+        dir: String,
+        /// 输出目录（清单写到这里，必填——避免静默写进任何隐式位置）
+        #[arg(long)]
+        out: String,
+        /// 分类键：artist（默认）/ album / none
+        #[arg(long, default_value = "artist")]
+        by: String,
+    },
+    /// 导入播放清单并修复失效路径（同名匹配 + 时长 ±1s 消歧）
+    Import {
+        /// 播放清单文件（.m3u / .m3u8）
+        #[arg(value_name = "FILE")]
+        file: String,
+        /// 修复搜索根（在此目录内按文件名定位失效条目的新位置）
+        #[arg(long)]
+        search: String,
+        /// 修复后清单写出路径（缺省 = <原名>.fixed.m3u8）
+        #[arg(long)]
+        out: Option<String>,
+        /// JSON 输出（机器可读）
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn run_scan_sub(dir: &str, recursive: bool, as_json: bool, state_db: Option<&str>) -> i32 {
@@ -798,6 +834,96 @@ fn run_organize_sub(dir: &str, a: &OrganizeArgs) -> i32 {
     }
 }
 
+/// 播放清单子命令（只写清单文件，不动音乐文件）。
+fn run_playlist_sub(cmd: PlaylistCmd) -> i32 {
+    match cmd {
+        PlaylistCmd::Export { dir, out, by } => {
+            let Some(group_by) = musicforge_core::playlist::GroupBy::parse(&by) else {
+                eprintln!("✗ 未知分类键 {by}（可选 artist|album|none）");
+                return 2;
+            };
+            match musicforge_core::playlist::export_playlists(
+                Path::new(&dir),
+                Path::new(&out),
+                group_by,
+            ) {
+                Ok(rep) => {
+                    println!(
+                        "导出 {} 个清单（曲库 {} 文件）→ {}",
+                        rep.playlists.len(),
+                        rep.files_seen,
+                        out
+                    );
+                    for (p, n) in &rep.playlists {
+                        println!("  {}（{} 条）", p.display(), n);
+                    }
+                    0
+                }
+                Err(e) => {
+                    eprintln!("✗ 导出失败: {e}");
+                    1
+                }
+            }
+        }
+        PlaylistCmd::Import {
+            file,
+            search,
+            out,
+            json,
+        } => {
+            match musicforge_core::playlist::import_and_repair(
+                Path::new(&file),
+                Path::new(&search),
+                out.as_deref().map(Path::new),
+            ) {
+                Ok(rep) => {
+                    if json {
+                        let o = serde_json::json!({
+                            "total": rep.total_entries,
+                            "ok": rep.ok,
+                            "repaired": rep.repaired.iter().map(|(a, b)| serde_json::json!({
+                                "from": a.display().to_string(),
+                                "to": b.display().to_string(),
+                            })).collect::<Vec<_>>(),
+                            "unresolved": rep.unresolved.iter().map(|(l, r)| serde_json::json!({
+                                "line": l, "reason": r,
+                            })).collect::<Vec<_>>(),
+                            "written": rep.written.as_ref().map(|p| p.display().to_string()),
+                        });
+                        println!("{}", serde_json::to_string_pretty(&o).unwrap_or_default());
+                    } else {
+                        println!(
+                            "共 {} 条 · 直接命中 {} · 修复 {} · 未修复 {}",
+                            rep.total_entries,
+                            rep.ok,
+                            rep.repaired.len(),
+                            rep.unresolved.len()
+                        );
+                        for (a, b) in &rep.repaired {
+                            println!("  修复: {} → {}", a.display(), b.display());
+                        }
+                        for (l, r) in &rep.unresolved {
+                            println!("  未修复: {l} — {r}");
+                        }
+                        println!(
+                            "修复后清单: {}",
+                            rep.written
+                                .as_ref()
+                                .map(|p| p.display().to_string())
+                                .unwrap_or_default()
+                        );
+                    }
+                    0
+                }
+                Err(e) => {
+                    eprintln!("✗ 导入失败: {e}");
+                    1
+                }
+            }
+        }
+    }
+}
+
 /// 流式计算文件 sha256（大文件友好）；失败返回 None（调用方跳过缓存回写）。
 fn sha256_file_stream(path: &Path) -> Option<String> {
     use sha2::{Digest, Sha256};
@@ -948,6 +1074,7 @@ fn main() {
                     json,
                 },
             ),
+            Sub::Playlist { cmd } => run_playlist_sub(cmd),
         };
         std::process::exit(code);
     }

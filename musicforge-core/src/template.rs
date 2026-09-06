@@ -8,4 +8,5 @@
 pub mod engine;
 
 pub use engine::render_filename;
+pub use engine::sanitize;
 pub use engine::Fallbacks;
