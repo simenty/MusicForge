@@ -60,6 +60,58 @@ struct Args {
     /// 断点续跑：跳过该 manifest 中已成功完成的文件（配合 --manifest 使用）
     #[arg(long)]
     resume: Option<String>,
+
+    /// 状态库路径（可再生缓存：文件索引/哈希缓存/任务历史）；必须是本地目录
+    #[arg(long)]
+    state_db: Option<String>,
+}
+
+/// 把本次任务写入状态库（缓存/历史；失败降级为告警）。
+fn record_state(path: &Path, summary: &musicforge_cli::BatchSummary) {
+    use musicforge_core::db::Db;
+    let task_id = musicforge_cli::manifest::new_task_id();
+    match Db::open(path) {
+        Ok(db) => {
+            if let Err(e) = db.start_task(&task_id, "convert", &chrono_like_now()) {
+                eprintln!("⚠ 状态库写入失败（不影响转换结果）: {e}");
+                return;
+            }
+            for r in &summary.results {
+                if r.status != musicforge_cli::Status::Ok {
+                    continue;
+                }
+                if let Some(target) = r.output.as_ref() {
+                    let sha = musicforge_cli::sha256_of_sidecar(target);
+                    let size = std::fs::metadata(target).map(|m| m.len()).unwrap_or(0);
+                    let _ = db.upsert_file(
+                        &target.to_string_lossy(),
+                        size as i64,
+                        None,
+                        target.extension().and_then(|e| e.to_str()),
+                        sha.as_deref(),
+                    );
+                }
+            }
+            if let Err(e) = db.finish_task(
+                &task_id,
+                &chrono_like_now(),
+                summary.ok as i64,
+                summary.failed as i64,
+            ) {
+                eprintln!("⚠ 状态库收尾失败（不影响转换结果）: {e}");
+            }
+        }
+        Err(e) => eprintln!("⚠ 状态库打开失败（不影响转换结果）: {e}"),
+    }
+}
+
+/// 简易 UTC 时间戳（避免引入 chrono）。
+fn chrono_like_now() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format!("{secs}")
 }
 
 fn main() {
@@ -217,5 +269,10 @@ fn main() {
     }
 
     let _ = start; // duration 已在 summary 内
+                   // 状态库留痕（可再生缓存：失败只告警，绝不因此让转换失败）
+    if let Some(path) = args.state_db.as_ref() {
+        record_state(Path::new(path), &summary);
+    }
+
     std::process::exit(summary.exit_code());
 }

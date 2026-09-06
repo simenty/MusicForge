@@ -841,7 +841,7 @@ pub fn run_resume(
 }
 
 /// 从完整性侧车读取产物 sha256（best effort：缺失/损坏返回 None）。
-fn sha256_of_sidecar(target: &Path) -> Option<String> {
+pub fn sha256_of_sidecar(target: &Path) -> Option<String> {
     let sidecar = PathBuf::from(format!("{}.musicforge.json", target.display()));
     let text = std::fs::read_to_string(&sidecar).ok()?;
     let v: serde_json::Value = serde_json::from_str(&text).ok()?;
