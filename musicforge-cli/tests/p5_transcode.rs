@@ -118,6 +118,67 @@ fn transcode_same_format_is_skipped() {
 }
 
 #[test]
+fn split_cue_via_cli_writes_tagged_tracks() {
+    use musicforge_core::lossless::LosslessFormat;
+    use musicforge_core::synth::write_pcm;
+    let root = uniq_root("split");
+    let lib = root.join("lib");
+    std::fs::create_dir_all(&lib).unwrap();
+
+    let spec = PcmSpec {
+        channels: 2,
+        sample_rate: 44100,
+        bits_per_sample: 16,
+    };
+    let whole = musicforge_core::synth::sine(spec, 6.0, 440.0, 0.8);
+    write_pcm(&lib.join("album.wav"), LosslessFormat::Wav, &whole).unwrap();
+    let cue = lib.join("album.cue");
+    let cue_text = concat!(
+        "REM DATE 2023\n",
+        "TITLE \"叶惠美\"\n",
+        "PERFORMER \"周杰伦\"\n",
+        "FILE \"album.wav\" WAVE\n",
+        "TRACK 01 AUDIO\n",
+        "  TITLE \"晴天\"\n",
+        "  INDEX 01 00:00:00\n",
+        "TRACK 02 AUDIO\n",
+        "  TITLE \"七里香\"\n",
+        "  INDEX 01 00:03:00\n",
+    );
+    std::fs::write(&cue, cue_text).unwrap();
+
+    let out = root.join("tracks");
+    let (code, text) = run_cli(&[
+        "split",
+        cue.to_str().unwrap(),
+        "-o",
+        out.to_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(code, 0, "{text}");
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(v["tracks"].as_array().unwrap().len(), 2);
+    assert!(v["failed"].as_array().unwrap().is_empty());
+
+    // 标签回读（真二进制产物）
+    use lofty::prelude::*;
+    let t1 = out.join("01 晴天.wav");
+    assert!(t1.exists(), "分轨应存在: {}", t1.display());
+    let tagged = lofty::read_from_path(&t1).unwrap();
+    let tag = tagged.primary_tag().or_else(|| tagged.first_tag()).unwrap();
+    assert_eq!(
+        tag.get_string(lofty::tag::ItemKey::TrackTitle),
+        Some("晴天")
+    );
+    assert_eq!(
+        tag.get_string(lofty::tag::ItemKey::AlbumTitle),
+        Some("叶惠美")
+    );
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
 fn transcode_rejects_unknown_format() {
     let root = uniq_root("badfmt");
     let (code, out) = run_cli(&[

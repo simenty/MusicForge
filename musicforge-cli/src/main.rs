@@ -180,6 +180,18 @@ enum Sub {
         #[arg(long)]
         json: bool,
     },
+    /// 整轨切分：CUE + WAV/FLAC 镜像 → 按轨道切分为独立文件（无损，源不动）
+    Split {
+        /// CUE 文件（编码自动检测：UTF-8/GBK/BIG5）
+        #[arg(value_name = "CUE_FILE")]
+        cue: String,
+        /// 输出目录（分轨写入这里，命名 `NN 标题`）
+        #[arg(short = 'o', long)]
+        out: String,
+        /// JSON 输出（机器可读）
+        #[arg(long)]
+        json: bool,
+    },
     /// genre 写入：文件名风格码 `[Y23-S01-...]` → genre 标签（默认 dry-run）
     Genre {
         /// 曲库目录
@@ -918,6 +930,70 @@ fn run_transcode_sub(inputs: &[String], a: &TranscodeArgs) -> i32 {
     }
 }
 
+/// 整轨切分子命令：CUE → 独立音轨（校验在写盘前完成，失败轨不落盘）。
+fn run_split_sub(cue: &str, out: &str, json: bool) -> i32 {
+    match musicforge_core::cue::split_cue(Path::new(cue), Path::new(out), |n, t| {
+        let title = t.title.as_deref().unwrap_or("Unknown Track");
+        crate::sanitize_track_name(&format!("{n:02} {title}"))
+    }) {
+        Ok(report) => {
+            if json {
+                let o = serde_json::json!({
+                    "cue": cue,
+                    "source": report.source.display().to_string(),
+                    "album": report.sheet.title,
+                    "tracks": report.tracks.iter().map(|t| serde_json::json!({
+                        "index": t.index,
+                        "title": t.title,
+                        "path": t.dst.display().to_string(),
+                        "durationSecs": format!("{:.2}", t.duration_secs),
+                    })).collect::<Vec<_>>(),
+                    "failed": report.failed.iter().map(|(no, r)| serde_json::json!({
+                        "track": no, "reason": r,
+                    })).collect::<Vec<_>>(),
+                });
+                println!("{}", serde_json::to_string_pretty(&o).unwrap_or_default());
+            } else {
+                println!(
+                    "切分完成 {} 轨 · 失败 {} 轨 · 专辑「{}」",
+                    report.tracks.len(),
+                    report.failed.len(),
+                    report.sheet.title.as_deref().unwrap_or("—")
+                );
+                for t in &report.tracks {
+                    println!(
+                        "  {:02} {} ({:.2}s) → {}",
+                        t.index,
+                        t.title.as_deref().unwrap_or("Unknown"),
+                        t.duration_secs,
+                        t.dst.display()
+                    );
+                }
+                for (no, r) in &report.failed {
+                    println!("  ✕ 轨 {no}: {r}");
+                }
+                if !report.failed.is_empty() {
+                    println!("失败轨未写盘（校验在写盘前完成）；请检查 CUE 与音频是否匹配。");
+                }
+            }
+            if report.failed.is_empty() {
+                0
+            } else {
+                1
+            }
+        }
+        Err(e) => {
+            eprintln!("✗ 切分失败: {e}");
+            1
+        }
+    }
+}
+
+/// 轨道命名清洗（复用 template::sanitize——用户数据变文件名统一走这套规则）。
+fn sanitize_track_name(name: &str) -> String {
+    musicforge_core::template::sanitize(name)
+}
+
 /// genre 子命令参数包。
 struct GenreArgs {
     map: Option<String>,
@@ -1430,6 +1506,7 @@ fn main() {
                 format,
                 json,
             } => run_transcode_sub(&input, &TranscodeArgs { out, format, json }),
+            Sub::Split { cue, out, json } => run_split_sub(&cue, &out, json),
             Sub::Genre {
                 dir,
                 map,
