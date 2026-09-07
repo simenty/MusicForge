@@ -20,9 +20,11 @@
 - **CRC32 头校验**——损坏文件明确报错，绝不静默产出损坏音频
 - **命名模板**——`{artist}/{album}/{track:02d} {title}`，跨平台非法字符清洗
 - **结构保留**——递归导入自动保留目录树，同名自动去重
-- **可靠批量**——有界并发、单文件失败不中断、失败清单 CSV 导出
+- **可靠批量**——有界并发、单文件失败不中断、失败清单 CSV 导出、崩溃安全（原子落盘 + 断点续跑）
+- **曲库治理套件**——只读扫描 / 规则清洗（回收站可还原）/ 内容去重（可解释保留评分）/ 模板归位 / 歌单导出与失效修复 / 风格码写 genre / 相似封面分组
+- **增量状态库**——SQLite `library.db` 缓存文件哈希（size+mtime 命中零读取），二次扫描秒级
 - **不覆盖已有值**——标签与封面仅在缺失时写入（字段级写策略 + 来源溯源）
-- **体积极小**——CLI 1.04 MB / GUI 3.49 MB（Rust + Tauri 2 + WebView2）
+- **体积极小**——CLI ~2.5 MB / GUI ~3.5 MB（Rust + Tauri 2 + WebView2）
 
 ### 格式能力矩阵
 
@@ -76,7 +78,7 @@ cd MusicForge
 
 cargo build --release -p musicforge-cli            # CLI
 cargo build --release -p musicforge-gui            # GUI（需先构建前端，见 CONTRIBUTING.md）
-cargo test --workspace                        # 132 个测试函数（金标 + 对抗 + QA 双轮）
+cargo test --workspace                        # 220 个测试函数（金标 + 对抗 + QA 双轮 + 契约）
 ```
 
 ### macOS / Linux
@@ -99,9 +101,43 @@ musicforge.exe -d "网易云缓存目录" -r -o "音乐库" --template "{artist}
 musicforge.exe -d "缓存目录" -r --skip-existing --export-failures failures.csv
 ```
 
+### 曲库治理
+
+转换只是起点。以下命令把散乱目录治理成规范曲库——**破坏性操作默认 dry-run，
+牺牲项全部进回收站（`rollback.jsonl` 可整体还原），绝不直接删除**：
+
+```bash
+# 只读扫描：分类统计 + 垃圾/异常项命中报告（--json 供脚本消费）
+musicforge.exe scan "曲库目录"
+
+# 规则清洗：系统垃圾/临时文件/零字节/空目录/孤立歌词与封面 → 回收站
+musicforge.exe clean "曲库目录"              # dry-run 预览
+musicforge.exe clean "曲库目录" --apply      # 执行（误操作可 clean --restore 还原）
+
+# 内容去重：完全重复分组 + 可解释保留评分（牺牲项进回收站）
+musicforge.exe dedupe "曲库目录" --state-db "%LOCALAPPDATA%\MusicForge\library.db"
+musicforge.exe dedupe "曲库目录" --apply
+musicforge.exe dedupe "曲库目录" --suggest   # AI 保留建议：v0.7.0 提供，当前显式报错
+
+# 模板归位：按命名模板把音频文件整理进规范目录结构（绝不覆盖已有目标）
+musicforge.exe organize "曲库目录" --to "规范库" --template "{artist}/{album}/{title}" --conflict skip --apply
+
+# 歌单：按艺术家/专辑导出 M3U8；导入时自动修复失效路径
+musicforge.exe playlist export "曲库目录" --out "歌单目录" --by artist
+musicforge.exe playlist import "旧歌单.m3u" --search "曲库目录"
+
+# genre 写入：文件名风格码 [Y23-S01-C01] → genre 标签（已有 genre 绝不覆盖）
+musicforge.exe genre "曲库目录" --map codebook.json --apply
+```
+
+状态库（`--state-db`）缓存文件哈希（size+mtime 命中则零读取）——大曲库强烈建议提供，
+二次扫描与去重将接近纯元数据遍历的速度。
+
 ### GUI
 
-拖入 `.ncm` 文件或文件夹 → 开始转换 → 查看逐文件状态 → 导出失败清单。
+拖入 `.ncm` 文件或文件夹 → 开始转换（支持 dry-run 计划预览）→ 查看逐文件状态 → 导出失败清单。
+**曲库治理面板**（收起式，位于主窗口底部）：重复文件去重（组内对比 · 建议保留高亮 ·
+人工改选 · 回收站执行）与只读曲库扫描（垃圾/孤立文件/命名异常清单）。
 
 ## 命名模板
 

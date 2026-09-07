@@ -3,6 +3,10 @@
 > 本文档是 MusicForge 的正式 Roadmap + Architecture Baseline，由九轮输入整合定稿（详见仓库外《平台化方案 v2.4》）。
 > **自本版起 scope 冻结**（见 §10）：新能力一律走 `docs/rfc/`，主线只接受 Bug 修复、测试补充与既定 P0–P9 工作。
 > 代码基线：`a813cb3`（132 测试函数 / core 直接依赖 6 / CLI 1.04MB / GUI 3.49MB）。
+>
+> **执行状态（2026-09-07）**：P0 / P0.5 / P1a–e / P2（v0.2.0 已发布）/ **P3（v0.3.0 Scan/Clean）✅ / P4（v0.4.0 Dedupe/Organize/Playlist+genre+similar_cover+GUI 治理面板）✅**，
+> 真机实测通过并修复 2 个实测缺陷（约定目录剪枝、organize suffix 幂等）；当前执行位 = **P5a（v0.5.0 纯 Rust 无损）**。
+> 实测基线更新：220 测试函数 / CLI ~2.5MB / 依赖 +image（仅 jpeg/png 解码器）。
 
 ## 0. 定位
 
@@ -97,7 +101,7 @@ L3 云层（独立仓 musicforge-cloud，自托管，v1.x 可选）：账号 / L
 | P8 | v0.9.0 | server/Docker/fnOS + watcher 三级自动化 + LibraryRefresher 重扫 + 歌单导入 | `:ro` 破坏类拒绝；镜像 <40MB 零插件；防抖合并 |
 | P9 | v1.0.0 | 收敛：SDK 冻结、安全审计、签名评估、**商标/律师函（T1）收敛**、沙箱阶段 3 | 对抗测试全拒；审计无高危；法务书面收敛 |
 
-### P1 五步明细（当前执行位）
+### P1 五步明细（✅ 已完成，保留作过程记录）
 
 | 子步 | 内容 | 验收 |
 |:-:|:--|:--|

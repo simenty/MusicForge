@@ -61,3 +61,26 @@
 1. **Tauri 事件载荷字段名**（`batch-file`：`source/status/output/reason/tagsWritten`；`batch-done`：`ok/skipped/cancelled/failed/durationMs/isCancelled/results`）——载荷在 `musicforge-gui/src-tauri/src/main.rs` 内用 `serde_json::json!` **内联构造**，无独立结构体可测。抽成 struct 才能测（属生产代码改动，超出 P1a 范围）。
 2. **需要 `AppHandle` 的 5 个命令**（`start_batch`/`cancel_batch`/`select_ncm_files`/`select_directory`/`save_failures`）无法在纯 `cargo test` 下调用——返回类型以**编译期类型钉子**（`pin_*` 包装函数）钉住，字段级 schema 以 `InputPair`/`BatchArgs`/`FailureRow` 的 serde 测试覆盖。
 3. **CRC 校验只由「整文件 CRC 一致性」间接覆盖**：`golden_all_fixtures_byte_exact` 会在 CRC 覆盖范围变化时失败，但没有直接断言「CRC 覆盖 [0, crc_pos)」这一具体语义。
+
+---
+
+## 五、P3/P4 新增不变量（2026-09-07 追加）
+
+P3（scan/clean）与 P4（dedupe/organize/playlist/genre）引入的库治理面契约。
+与 B/T 系列同级：重构时逐条保持成立，验收方式即测试名。
+
+| # | 不变量 | 验收方式 |
+|---|---|---|
+| N1 | 扫描器**只读**且剪枝任意层级的 `.musicforge/` 约定目录——工具自身状态（回收站/清单/回滚）绝不进入扫描结果、计划或整理范围 | `musicforge_convention_dir_is_invisible_to_scan`（musicforge-core/tests/p3_scan.rs） |
+| N2 | clean/dedupe 牺牲**永不直接删除**：全部移入 `<root>/.musicforge/trash/<task>/`（保留相对结构）+ `rollback.jsonl`（from↔to），`clean --restore` 可整体还原 | `apply_moves_sacrifices_to_trash_and_restores`（p4_dedupe.rs）、`clean_apply_moves_to_trash_and_restore_roundtrip`（p3_cli.rs）、`apply_moves_sacrifices_to_trash_and_restores`（p4_cli.rs） |
+| N3 | 破坏性命令默认 dry-run；`--apply` 才执行；apply 结果先行于报告（人读与 JSON 反映真实发生的事） | `clean_defaults_to_dry_run_and_never_moves`、`dedupe_defaults_to_dry_run_and_never_moves`、`dedupe_apply_moves_sacrifices_keeps_best_and_restores`（p4_cli.rs，后者钉死「JSON 分支不得先于执行返回」的历史 bug） |
+| N4 | D17 哈希缓存语义：size+mtime 双一致才命中；命中零读取；mtime 不可得永远 miss（占位行）；二扫零重算 | `hash_cache_first_hash_then_all_hits`、`hash_cache_rehashes_only_changed_file`、`hash_cache_is_reused_across_runs`（p3_d17_scan_cache.rs、p4_dedupe.rs）、`scan_state_db_builds_then_reuses_hash_cache`（p3_cli.rs） |
+| N5 | dedupe 保留评分**可复算**：权重无损+40/采样率+8（组内最高）/位深+8/标签+10/封面+5/校验+20；平分取路径字典序最小且 reason 明示；两次运行分数与保留项一致 | `score_weights_are_pinned`、`keep_best_reason_is_recomputable`、`same_name_prefers_lossless_and_reports_only`（p4_dedupe.rs） |
+| N6 | 同名候选（同目录同 stem 不同内容）默认**仅报告**；`--include-same-name` 才纳入执行；跨目录同名绝不并组 | `same_name_prefers_lossless_and_reports_only`（p4_dedupe.rs） |
+| N7 | organize **绝不覆盖目标**（任何冲突策略；apply 前复查目标存在性）；冲突 skip 报告 / suffix 从 (2) 起连续编号 / overwrite-never 计失败 `MF-PATH-CONFLICT` | `conflict_strategies_never_overwrite`（p4_organize.rs） |
+| N8 | organize **幂等**：同模板二次规划零移动；suffix 落位形态（含既有 `(N)`）判已在位，绝不再后缀化 | `second_run_is_noop_and_rollback_restores`、`suffix_placed_files_are_in_place_on_second_run`（p4_organize.rs） |
+| N9 | organize 渲染与 convert **同源同语义**（sanitize/保留设备名/段长双上限/回退分支）；无标签走 Fallbacks::default；扩展名保留原格式 | `plan_renders_from_embedded_tags`、`fallback_render_without_tags`（p4_organize.rs）、template.rs 既有快照测试 |
+| N10 | playlist 导出条目路径必须可解析存在；导入修复**审计不丢行**（unresolved 以 `# FAIL` 注释保留）；时长 ±1s 消歧只在唯一命中时修复 | `export_by_artist_writes_groups_with_valid_entries`、`import_repairs_broken_paths_with_duration_disambiguation`、`import_roundtrip_all_ok`（p4_playlist.rs） |
+| N11 | genre 写入 FillMissingOnly：已有 genre **绝不覆盖**；`--replace-all` 升级高危需 `--yes`；无 style/scene 的码块不写空 genre | `genre_write_fill_missing_only_roundtrip`（p4_stylecode.rs）、`genre_replace_all_is_high_risk_needs_yes`（p4_cli.rs） |
+| N12 | `dedupe --suggest` 在离线版显式报 `MF-PLUGIN-NOT-FOUND`（绝不伪装给过 AI 建议） | `dedupe_suggest_reports_plugin_not_found`（p4_cli.rs） |
+| N13 | GUI `dedupe_apply` 逐条 canonical 校验牺牲路径**必须在曲库目录内**，逃逸显式拒绝；action 携带 canonical 路径（防 strip_prefix 失配退化为自移动） | `dedupe_commands_contract`（musicforge-gui/src-tauri/src/main.rs） |

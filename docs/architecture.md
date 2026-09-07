@@ -30,7 +30,7 @@ authoritative boundary description; the executable plan lives in [ROADMAP.md](..
 in a plugin; anything requiring accounts belongs in the optional cloud repo. A PR that moves
 network code into core is rejected on sight.
 
-## 2. Crates
+## 2. Crates & modules
 
 | Crate | Network | Responsibility |
 |:--|:-:|:--|
@@ -41,6 +41,21 @@ network code into core is rejected on sight.
 | `musicforge-plugin-host` | ✗ | process spawn/admission/timeout/isolation |
 | `musicforge-ui-protocol` | ✗ | single source of truth for UI event schemas |
 | `musicforge-server` (P8) | local HTTP | NAS web host, serves the same SPA |
+
+`musicforge-core` module map (as implemented, P3/P4):
+
+```text
+formats/   FormatAdapter + FormatRegistry (ncm built-in, magic-first detection)
+metadata/  model + tagger (lofty; FillMissingOnly semantics) + template engine
+scan.rs    read-only recursive walker (prunes .musicforge/), 9 rule cards,
+           trash-based clean executor + rollback.jsonl + restore
+db.rs      state layer (SQLite library.db: files index / hash cache / tasks / ack)
+dedupe.rs  exact grouping + same-name candidates + explainable keep-score
+           + similar-cover aHash clustering (report-only)
+organize.rs template placement + conflict strategies (never overwrites) + idempotent
+playlist.rs M3U8 export by category + import path repair
+stylecode.rs filename style-code parser ([Y23-S01-...]) + genre write plan/apply
+```
 
 ## 3. Format adapter boundary
 
@@ -61,6 +76,13 @@ Scan → Plan → Dry-run → Apply → Verify → Report → Trash / Undo
   (queryable history). The db is a **renewable cache**: the filesystem + manifests are the
   source of truth.
 - All writes go through temp-file + atomic rename; interrupted batches resume from the manifest.
+- Library-lifecycle commands (clean / dedupe / organize) never delete: sacrifices go to
+  `<root>/.musicforge/trash/<task>/` with a `rollback.jsonl` (`from`↔`to`); `clean --restore`
+  replays it in reverse. The scanner prunes `.musicforge/` so tool state never re-enters
+  scans, plans, or reorganizations.
+- Read-only commands (`scan`, `dedupe` without `--apply`, `playlist`, `genre` without
+  `--apply`) mutate nothing; `genre --apply` writes tags in place but never overwrites an
+  existing genre value unless `--replace-all` (high-risk grading requires `--yes`).
 
 ## 5. Safety boundaries
 

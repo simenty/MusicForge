@@ -18,6 +18,14 @@
 | Audio files & conversion output | Your directories | You |
 | Scan index / hash cache / task history (`library.db`) | Local config directory only (never on network mounts) | You |
 | Operation manifests & reports | `.musicforge/` inside your chosen output directory | You |
+| Playlist files (`playlist export`) | The output directory you choose | You |
+| Cover similarity hashes (`dedupe --covers`) | Computed in memory from embedded cover bytes; not persisted | You |
+
+Library governance commands (`scan` / `clean` / `dedupe` / `organize` / `playlist` /
+`genre`) operate purely on local files. Cover comparison reads **embedded cover bytes
+only** and computes a 64-bit perceptual hash in memory — covers are never uploaded,
+transmitted, or written anywhere by the analysis itself. The tool's own `.musicforge/`
+state directory is excluded from scans so trashed copies never resurface as duplicates.
 
 ## Plugins (opt-in only)
 

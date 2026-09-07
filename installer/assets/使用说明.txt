@@ -1,22 +1,60 @@
-MusicForge — 默认离线、可靠、可观测的本地 NCM 转换器
+MusicForge — 默认离线、可靠、可观测的本地音乐文件处理平台
 ══════════════════════════════════════════════════
 
-仅用于处理你已合法获得的文件的个人本地格式转换。
+仅用于处理你已合法获得的文件的个人本地格式转换与曲库治理。
 不联网 · 不上传 · 不收集任何数据 · MIT License
 
 ── GUI 图形界面 ──
-直接双击 musicforge-gui.exe 启动图形界面，拖入文件即可转换。
-支持「添加目录」与自定义输出目录，转换时会保留源目录结构。
+双击 musicforge-gui.exe 启动，拖入 .ncm 文件或文件夹即可转换。
+- 支持自定义输出目录与命名模板（保留源目录结构）；
+- 「仅规划（dry-run）」模式可预览全部产物，不写任何文件；
+- 窗口底部为曲库治理面板（收起式）：
+  · 重复文件去重——组内对比、建议保留高亮、可人工改选，
+    牺牲项进入回收站（可整体还原，绝不直接删除）；
+  · 曲库扫描——垃圾文件/孤立歌词封面/命名异常只读清单。
 
-── CLI 命令行 ──
-musicforge.exe -i <输入.ncm> [-o <输出目录>] [-f flac|mp3|wav]
-  例：musicforge.exe -i 歌曲.ncm -o ./out -f flac
-  -r 递归处理整个目录。
-  --jobs N 指定并行任务数。
-  --export-failures <csv> 将失败清单导出为 CSV 便于排查。
+── CLI：格式转换 ──
+musicforge.exe song.ncm
+  单文件转换，输出到同目录（文件名由默认模板渲染）。
+
+musicforge.exe -d <缓存目录> -r -o <输出目录> [选项]
+  -r                递归处理整个目录（保留源目录结构）
+  --template <模板>  命名模板，如 "{artist}/{album}/{track:02d} {title}"
+  --skip-existing    跳过已存在且校验一致的产物
+  --jobs N           并行任务数（默认 4）
+  --dry-run          仅规划，不写任何文件
+  --export-failures <csv>  导出失败清单
+
+── CLI：曲库治理（破坏性操作默认 dry-run，牺牲项全部进回收站）──
+musicforge.exe scan <曲库目录>
+  只读扫描：分类统计 + 垃圾/孤立文件/命名异常报告（--json 供脚本消费）。
+
+musicforge.exe clean <曲库目录> [--apply] [--rules <ID,..>] [--restore <清单>]
+  规则清洗（系统垃圾/临时文件/零字节/空目录/孤立歌词封面）。
+  缺省只预览；--apply 执行；牺牲项进回收站；--restore 整体还原。
+
+musicforge.exe dedupe <曲库目录> [--state-db <库.db>] [--apply] [--covers]
+  内容重复分组 + 可解释保留评分；--apply 把牺牲项移入回收站；
+  --covers 附带相似封面分组报告；--suggest 为 AI 建议（v0.7.0 起）。
+
+musicforge.exe organize <曲库目录> [--to <目标根>] [--template <模板>] [--apply]
+  按命名模板把音频文件归位到规范目录结构；
+  --conflict skip|suffix|overwrite-never 控制目标冲突（默认 skip，绝不覆盖）。
+
+musicforge.exe playlist export <曲库目录> --out <歌单目录> [--by artist|album|none]
+musicforge.exe playlist import <歌单.m3u8> --search <曲库目录> [--out <修复后>]
+  M3U8 导出（按分类）与导入失效路径自动修复。
+
+musicforge.exe genre <曲库目录> [--map codebook.json] [--apply]
+  文件名风格码 [Y23-S01-C01] → genre 标签；已有 genre 绝不覆盖。
+
+── 状态库 ──
+--state-db 指定的 library.db 缓存文件哈希（size+mtime 命中则零读取），
+让二次扫描与去重接近纯元数据遍历的速度。它只是可再生缓存：
+删除后自动重建，音乐文件本身永远不受影响。
 
 ── 合规提醒 ──
-本工具仅面向「已合法获得文件」的个人本地转换用途。
+本工具仅面向「已合法获得文件」的个人本地转换与治理用途。
 请遵守你所在地区的相关法律法规，不要将工具用于绕过他人
 对其作品所设置的技术保护措施。
 
