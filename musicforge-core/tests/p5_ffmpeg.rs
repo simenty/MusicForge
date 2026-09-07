@@ -165,3 +165,47 @@ fn lossy_to_lossless_with_explicit_flag_succeeds() {
     assert!(flac.exists(), "放行后应产出 FLAC");
     std::fs::remove_dir_all(&root).ok();
 }
+
+#[test]
+fn export_lossy_refuses_to_overwrite_existing_dst() {
+    // 稳定审计 B11 回归：dst 已存在 → MF-OUTPUT-EXISTS（ffmpeg -y 的覆盖语义被守卫拦截）
+    let Some(ff) = require_ff() else { return };
+    let root = uniq_root("ovw");
+    std::fs::create_dir_all(&root).unwrap();
+    let wav = root.join("s.wav");
+    write_pcm(&wav, LosslessFormat::Wav, &sine(spec(), 1.0, 440.0, 0.5)).unwrap();
+    let dst = root.join("out.mp3");
+    std::fs::write(&dst, b"PRECIOUS").unwrap();
+
+    let err = ff
+        .export_lossy(&wav, &dst, musicforge_core::ffmpeg::LossyPreset::Mp3)
+        .unwrap_err();
+    assert_eq!(err.mf_code(), "MF-OUTPUT-EXISTS", "{err}");
+    assert_eq!(
+        std::fs::read(&dst).unwrap(),
+        b"PRECIOUS",
+        "既有文件原样保留"
+    );
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn upgrade_bypass_wav_output_keeps_24bit_depth() {
+    // 稳定审计 B3 回归：升级放行路径 WAV 输出位深 = 24（pcm_s24le），
+    // 不得静默降为 16 位
+    let Some(ff) = require_ff() else { return };
+    let root = uniq_root("b3");
+    std::fs::create_dir_all(&root).unwrap();
+    let wav = root.join("s.wav");
+    write_pcm(&wav, LosslessFormat::Wav, &sine(spec(), 2.0, 440.0, 0.8)).unwrap();
+    let mp3 = root.join("s.mp3");
+    ff.export_lossy(&wav, &mp3, musicforge_core::ffmpeg::LossyPreset::Mp3)
+        .unwrap();
+
+    let back = root.join("s24.wav");
+    ff.export_custom(&mp3, &back, &["-codec:a", "pcm_s24le"])
+        .unwrap();
+    let pcm = musicforge_core::lossless::decode_to_pcm(&back).unwrap();
+    assert_eq!(pcm.spec.bits_per_sample, 24, "放行路径 WAV 输出必须 24 位");
+    std::fs::remove_dir_all(&root).ok();
+}

@@ -74,6 +74,9 @@ pub enum NcmError {
 
     #[error("有损→无损升级转换被拦截（MP3→FLAC 等不会凭空恢复音质）")]
     UpgradeBlocked,
+
+    #[error("目标文件已存在: {path}（转码/切分绝不覆盖既有文件）")]
+    OutputExists { path: String },
 }
 
 impl NcmError {
@@ -99,6 +102,7 @@ impl NcmError {
             NcmError::Lossless(_) => "LOSSLESS-ERROR",
             NcmError::FfmpegMissing { .. } => "FFMPEG-MISSING",
             NcmError::UpgradeBlocked => "UPGRADE-BLOCKED",
+            NcmError::OutputExists { .. } => "OUTPUT-EXISTS",
         }
     }
 
@@ -128,6 +132,7 @@ impl NcmError {
             NcmError::Lossless(_) => "MF-LOSSLESS-FAILED",
             NcmError::FfmpegMissing { .. } => "MF-FFMPEG-MISSING",
             NcmError::UpgradeBlocked => "MF-LOSSY-TO-LOSSLESS",
+            NcmError::OutputExists { .. } => "MF-OUTPUT-EXISTS",
         }
     }
 
@@ -159,6 +164,9 @@ impl NcmError {
             }
             NcmError::UpgradeBlocked => {
                 "有损源（MP3 等）转无损（FLAC/WAV）不会恢复已丢失的音质，属于伪升级，已拦截。如确有需要（如统一入库格式），加 --i-know-lossy-to-lossless。"
+            }
+            NcmError::OutputExists { .. } => {
+                "目标文件已存在，本工具绝不覆盖。请更换输出目录，或先处理同名产物。"
             }
             _ => "请检查文件与目录权限后重试，或使用失败清单导出功能记录该文件。",
         }

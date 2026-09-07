@@ -194,3 +194,48 @@ fn cue_pointing_to_missing_audio_is_rejected() {
     let err = split_cue(&cue, &root.join("out"), |_, _| "t".to_string()).unwrap_err();
     assert!(err.to_string().contains("不存在"), "{err}");
 }
+
+#[test]
+fn track_without_title_must_not_inherit_album_title_as_tracktitle() {
+    // 稳定审计 B2 回归：轨无 TITLE → TrackTitle 标签**缺席**（专辑名 ≠ 轨名）；
+    // 文件名由命名闭包给 "NN"（split_cue 的 sanitize 不受影响）
+    let root = uniq_root("notitle");
+    let lib = root.join("lib");
+    std::fs::create_dir_all(&lib).unwrap();
+
+    let spec = PcmSpec {
+        channels: 1,
+        sample_rate: 44100,
+        bits_per_sample: 16,
+    };
+    write_pcm(
+        &lib.join("a.wav"),
+        LosslessFormat::Wav,
+        &sine(spec, 3.0, 440.0, 0.5),
+    )
+    .unwrap();
+    let cue = lib.join("a.cue");
+    std::fs::write(
+        &cue,
+        "TITLE \"专辑名\"\nPERFORMER \"艺人\"\nFILE \"a.wav\" WAVE\nTRACK 01 AUDIO\nINDEX 01 00:00:00\n",
+    )
+    .unwrap();
+
+    let out = root.join("out");
+    let report = split_cue(&cue, &out, |n, _| format!("{n:02}")).unwrap();
+    assert_eq!(report.tracks.len(), 1);
+
+    use lofty::prelude::*;
+    let tagged = lofty::read_from_path(&report.tracks[0].dst).unwrap();
+    let tag = tagged.primary_tag().or_else(|| tagged.first_tag()).unwrap();
+    assert_eq!(
+        tag.get_string(lofty::tag::ItemKey::TrackTitle),
+        None,
+        "轨无 TITLE 时 TrackTitle 必须缺席（专辑名不得冒充轨名）"
+    );
+    assert_eq!(
+        tag.get_string(lofty::tag::ItemKey::TrackArtist),
+        Some("艺人")
+    );
+    std::fs::remove_dir_all(&root).ok();
+}

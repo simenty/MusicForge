@@ -248,6 +248,13 @@ pub fn transcode(
     if crate::ffmpeg::classify_source(src) == Some(crate::ffmpeg::SourceClass::Lossy) {
         return Err(NcmError::UpgradeBlocked);
     }
+    // 覆盖守卫（稳定审计 B1）：dst 已存在 → 拒绝（绝不覆盖既有文件；
+    // 回读校验失败的 remove_file 才不会连带毁掉原有产物）
+    if dst.exists() {
+        return Err(NcmError::OutputExists {
+            path: dst.display().to_string(),
+        });
+    }
     let pcm = decode_to_pcm(src)?;
     let bytes_written = encode_pcm(dst, target, &pcm)?;
     // 内置回读校验：目标解码后必须与源逐样本一致

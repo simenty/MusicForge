@@ -179,6 +179,12 @@ impl Ffmpeg {
         dst: &Path,
         preset: LossyPreset,
     ) -> Result<u64, NcmError> {
+        // 覆盖守卫（稳定审计 B11）：与 transcode 同语义，绝不覆盖既有文件
+        if dst.exists() {
+            return Err(NcmError::OutputExists {
+                path: dst.display().to_string(),
+            });
+        }
         let out = Command::new(&self.path)
             .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
             .arg(src)
@@ -198,6 +204,12 @@ impl Ffmpeg {
 
     /// 自定义参数导出（升级转换放行后的有损→无损，如 `-codec:a flac`）。
     pub fn export_custom(&self, src: &Path, dst: &Path, args: &[&str]) -> Result<u64, NcmError> {
+        // 覆盖守卫（同 export_lossy）
+        if dst.exists() {
+            return Err(NcmError::OutputExists {
+                path: dst.display().to_string(),
+            });
+        }
         let out = Command::new(&self.path)
             .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
             .arg(src)

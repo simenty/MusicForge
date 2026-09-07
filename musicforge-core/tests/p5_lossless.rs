@@ -195,3 +195,36 @@ fn silence_sine_sizes_are_consistent() {
     let pcm2 = sine(spec(16, 2), 1.0, 440.0, 0.5);
     assert_eq!(pcm2.samples.len(), 44100 * 2);
 }
+
+#[test]
+fn transcode_refuses_to_overwrite_existing_dst() {
+    // 稳定审计 B1 回归：dst 已存在 → MF-OUTPUT-EXISTS，且**原文件字节不变**
+    let root = uniq_root("exists");
+    let a = root.join("a.wav");
+    let dst = root.join("out.wav");
+    write_pcm(&a, LosslessFormat::Wav, &sine(spec(16, 1), 0.3, 440.0, 0.5)).unwrap();
+    // 预置一个「既有产物」（内容为非音频哨兵字节）
+    std::fs::write(&dst, b"PRECIOUS-EXISTING-CONTENT").unwrap();
+
+    let err = transcode(&a, &dst, LosslessFormat::Flac).unwrap_err();
+    assert_eq!(err.mf_code(), "MF-OUTPUT-EXISTS", "{err}");
+    assert_eq!(
+        std::fs::read(&dst).unwrap(),
+        b"PRECIOUS-EXISTING-CONTENT",
+        "既有文件必须原样保留"
+    );
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn transcode_to_fresh_dst_still_works_after_guard() {
+    // 守卫不得误伤正常路径：fresh dst 照常转码
+    let root = uniq_root("fresh");
+    let a = root.join("a.wav");
+    let dst = root.join("out.flac");
+    let pcm = sine(spec(16, 1), 0.3, 440.0, 0.5);
+    write_pcm(&a, LosslessFormat::Wav, &pcm).unwrap();
+    let o = transcode(&a, &dst, LosslessFormat::Flac).unwrap();
+    assert!(o.verified && dst.exists());
+    std::fs::remove_dir_all(&root).ok();
+}

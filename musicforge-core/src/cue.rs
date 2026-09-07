@@ -408,7 +408,7 @@ pub fn split_cue_ex(
         write_track_tags(
             &dst,
             out_format,
-            track.title.as_deref().or(track.title.as_deref()),
+            track.title.as_deref(),
             track.performer.as_deref().or(sheet.performer.as_deref()),
             sheet.title.as_deref(),
             track.number,
@@ -423,7 +423,6 @@ pub fn split_cue_ex(
             sample_count: track_pcm.sample_count(),
             duration_secs: track_secs,
         });
-        let _ = ch;
     }
     Ok(report)
 }

@@ -868,10 +868,9 @@ fn run_transcode_sub(inputs: &[String], a: &TranscodeArgs) -> i32 {
     // ffmpeg 惰性解析（五级探测，只做一次；Err 复用给所有需要它的文件）
     let mut ff_resolved: Option<Result<Ffmpeg, musicforge_core::NcmError>> = None;
     let mut get_ff = |a: &TranscodeArgs, failures: &mut Vec<Fail>| -> Option<Ffmpeg> {
-        if ff_resolved.is_none() {
-            ff_resolved = Some(Ffmpeg::find(a.ffmpeg_path.as_deref().map(Path::new)));
-        }
-        match ff_resolved.as_ref().unwrap() {
+        let resolved = ff_resolved
+            .get_or_insert_with(|| Ffmpeg::find(a.ffmpeg_path.as_deref().map(Path::new)));
+        match resolved {
             Ok(ff) => Some(ff.clone()),
             Err(e) => {
                 failures.push(Fail {
@@ -940,7 +939,8 @@ fn run_transcode_sub(inputs: &[String], a: &TranscodeArgs) -> i32 {
                     };
                     let args: &[&str] = match tl {
                         LosslessFormat::Flac => &["-codec:a", "flac"],
-                        LosslessFormat::Wav => &["-codec:a", "pcm_s16le"],
+                        // 24-bit 容器承载 16/24 位源（值空间无损；16le 会静默降位深）
+                        LosslessFormat::Wav => &["-codec:a", "pcm_s24le"],
                     };
                     match ff.export_custom(src_path, &dst, args) {
                         Ok(bytes) => done.push(Item {
@@ -1086,8 +1086,9 @@ fn run_split_sub(
         target,
         ff.as_ref(),
         |n, t| {
+            // 清洗由 split_cue_ex 统一执行（template::sanitize）；此处只做命名
             let title = t.title.as_deref().unwrap_or("Unknown Track");
-            crate::sanitize_track_name(&format!("{n:02} {title}"))
+            format!("{n:02} {title}")
         },
     ) {
         Ok(report) => {
@@ -1141,11 +1142,6 @@ fn run_split_sub(
             1
         }
     }
-}
-
-/// 轨道命名清洗（复用 template::sanitize——用户数据变文件名统一走这套规则）。
-fn sanitize_track_name(name: &str) -> String {
-    musicforge_core::template::sanitize(name)
 }
 
 /// genre 子命令参数包。
