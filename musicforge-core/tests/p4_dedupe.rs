@@ -22,7 +22,10 @@ fn uniq_root(tag: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("mf-p4-{tag}-{n}"))
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::SeqCst);
+    std::env::temp_dir().join(format!("mf-p4-{tag}-{n}-{}-{}", seq, std::process::id()))
 }
 
 /// 最小合法 PCM WAV（单声道静音）——lofty 可解析出采样率/位深/无损容器。

@@ -13,12 +13,17 @@ fn exe() -> &'static str {
 
 /// 树：1 组 exact ×2（同内容）+ 1 组同名候选（同目录同 stem 不同内容）+ 1 unique。
 fn tree() -> PathBuf {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::SeqCst);
     let root = std::env::temp_dir().join(format!(
-        "musicforge-p4cli-{}",
+        "musicforge-p4cli-{}-{}-{}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_nanos()
+            .as_nanos(),
+        seq,
+        std::process::id()
     ));
     let a = root.join("a");
     std::fs::create_dir_all(&a).unwrap();
