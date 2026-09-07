@@ -179,6 +179,39 @@ fn split_cue_via_cli_writes_tagged_tracks() {
 }
 
 #[test]
+fn transcode_blocks_lossy_to_lossless_before_ffmpeg() {
+    // 升级拦截发生在 ffmpeg 解析之前——本测试不依赖 ffmpeg 是否存在
+    let root = uniq_root("block");
+    let lib = root.join("lib");
+    std::fs::create_dir_all(&lib).unwrap();
+    std::fs::write(lib.join("fake.mp3"), b"ID3fake").unwrap();
+
+    let out = root.join("out");
+    let (code, text) = run_cli(&[
+        "transcode",
+        lib.to_str().unwrap(),
+        "-o",
+        out.to_str().unwrap(),
+        "--format",
+        "flac",
+        "--json",
+    ]);
+    assert_eq!(code, 1, "存在被拦截项必须退出码 1: {text}");
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let fails = v["failures"].as_array().unwrap();
+    assert!(!fails.is_empty());
+    assert!(
+        fails[0]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("MF-LOSSY-TO-LOSSLESS"),
+        "拦截必须携带稳定码: {text}"
+    );
+    assert!(!out.join("fake.flac").exists(), "拦截后不得产出文件");
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
 fn transcode_rejects_unknown_format() {
     let root = uniq_root("badfmt");
     let (code, out) = run_cli(&[
@@ -187,7 +220,7 @@ fn transcode_rejects_unknown_format() {
         "-o",
         root.join("out").to_str().unwrap(),
         "--format",
-        "mp3",
+        "wma",
     ]);
     assert_eq!(code, 2, "未知目标格式必须退出码 2: {out}");
     // 两条拒绝路径皆可：clap value_parser 解析层拒绝，或 handler 显式报错

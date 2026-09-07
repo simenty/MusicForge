@@ -24,6 +24,7 @@ pub mod cue;
 pub mod db;
 pub mod dedupe;
 pub mod error;
+pub mod ffmpeg;
 pub mod formats;
 pub mod lossless;
 pub mod metadata;

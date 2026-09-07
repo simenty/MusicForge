@@ -165,17 +165,23 @@ enum Sub {
         #[command(subcommand)]
         cmd: PlaylistCmd,
     },
-    /// 无损转码：WAV↔FLAC 采样级精确互转（内置回读校验，绝不修改源文件）
+    /// 转码：无损（WAV↔FLAC，纯 Rust 回读校验）+ 有损导出（MP3 320/AAC 256/Opus 160，FFmpeg sidecar）
     Transcode {
-        /// 输入：文件或目录（目录递归收集 WAV/FLAC，按魔数识别）
+        /// 输入：文件或目录（目录递归收集音频，按魔数/扩展名识别）
         #[arg(value_name = "INPUT")]
         input: Vec<String>,
         /// 输出目录（产物写入这里，绝不修改源）
         #[arg(short = 'o', long)]
         out: String,
-        /// 目标格式
-        #[arg(long, value_parser = ["flac", "wav"], default_value = "flac")]
+        /// 目标格式（mp3=320k / aac=256k / opus=160k）
+        #[arg(long, value_parser = ["flac", "wav", "mp3", "aac", "opus"], default_value = "flac")]
         format: String,
+        /// ffmpeg 可执行文件路径（五级探测的第 0 级；有损导出必需）
+        #[arg(long)]
+        ffmpeg_path: Option<String>,
+        /// 显式放行有损→无损的伪升级转换（默认拦截）
+        #[arg(long)]
+        i_know_lossy_to_lossless: bool,
         /// JSON 输出（机器可读）
         #[arg(long)]
         json: bool,
@@ -775,19 +781,33 @@ struct OrganizeArgs {
 struct TranscodeArgs {
     out: String,
     format: String,
+    ffmpeg_path: Option<String>,
+    i_know_lossy_to_lossless: bool,
     json: bool,
 }
 
-/// 无损转码子命令：WAV↔FLAC（内置逐样本回读校验；源文件永不修改）。
+/// 转码子命令：无损走纯 Rust 管线（回读校验），有损走 ffmpeg sidecar（D1 永不捆绑）。
 fn run_transcode_sub(inputs: &[String], a: &TranscodeArgs) -> i32 {
+    use musicforge_core::ffmpeg::{classify_source, Ffmpeg, LossyPreset, SourceClass};
     use musicforge_core::lossless::{self, LosslessFormat};
 
-    let Some(target) = LosslessFormat::parse(&a.format) else {
-        eprintln!("✗ 未知目标格式 {}（可选 flac|wav）", a.format);
-        return 2;
+    enum Target {
+        Lossless(LosslessFormat),
+        Lossy(LossyPreset),
+    }
+    let target = match a.format.as_str() {
+        "flac" => Target::Lossless(LosslessFormat::Flac),
+        "wav" => Target::Lossless(LosslessFormat::Wav),
+        "mp3" => Target::Lossy(LossyPreset::Mp3),
+        "aac" => Target::Lossy(LossyPreset::Aac),
+        "opus" => Target::Lossy(LossyPreset::Opus),
+        other => {
+            eprintln!("✗ 未知目标格式 {other}（可选 flac|wav|mp3|aac|opus）");
+            return 2;
+        }
     };
 
-    // 收集输入：文件直收（按魔数认领），目录递归收集
+    // 收集输入：文件/目录递归，认领无损（魔数）与有损（扩展名）源
     let mut files: Vec<PathBuf> = Vec::new();
     let mut skipped_inputs = 0usize;
     for raw in inputs {
@@ -801,17 +821,16 @@ fn run_transcode_sub(inputs: &[String], a: &TranscodeArgs) -> i32 {
                 for e in rd.flatten() {
                     let ep = e.path();
                     if ep.is_dir() {
-                        // 工具状态目录剪枝（与 scan 同语义）
                         if ep.file_name().and_then(|n| n.to_str()) == Some(".musicforge") {
                             continue;
                         }
                         stack.push(ep);
-                    } else if lossless::probe_lossless_file(&ep).is_some() {
+                    } else if classify_source(&ep).is_some() {
                         files.push(ep);
                     }
                 }
             }
-        } else if lossless::probe_lossless_file(p).is_some() {
+        } else if classify_source(p).is_some() {
             files.push(p.to_path_buf());
         } else {
             skipped_inputs += 1;
@@ -830,7 +849,6 @@ fn run_transcode_sub(inputs: &[String], a: &TranscodeArgs) -> i32 {
         src: PathBuf,
         dst: PathBuf,
         bytes: u64,
-        samples: usize,
     }
     struct Fail {
         src: String,
@@ -841,44 +859,121 @@ fn run_transcode_sub(inputs: &[String], a: &TranscodeArgs) -> i32 {
     let mut failures: Vec<Fail> = Vec::new();
     let mut used_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    for src_path in &files {
-        // 同格式 = 无转码意义，跳过
-        let src_fmt = lossless::probe_lossless_file(src_path);
-        if src_fmt
-            == Some(match target {
-                LosslessFormat::Wav => lossless::LosslessFormat::Wav,
-                LosslessFormat::Flac => lossless::LosslessFormat::Flac,
-            })
-        {
-            same_format += 1;
-            continue;
+    // ffmpeg 惰性解析（五级探测，只做一次；Err 复用给所有需要它的文件）
+    let mut ff_resolved: Option<Result<Ffmpeg, musicforge_core::NcmError>> = None;
+    let mut get_ff = |a: &TranscodeArgs, failures: &mut Vec<Fail>| -> Option<Ffmpeg> {
+        if ff_resolved.is_none() {
+            ff_resolved = Some(Ffmpeg::find(a.ffmpeg_path.as_deref().map(Path::new)));
         }
+        match ff_resolved.as_ref().unwrap() {
+            Ok(ff) => Some(ff.clone()),
+            Err(e) => {
+                failures.push(Fail {
+                    src: "(ffmpeg)".to_string(),
+                    reason: format!("{}: {e}", e.mf_code()),
+                });
+                None
+            }
+        }
+    };
+
+    for src_path in &files {
+        let Some(class) = classify_source(src_path) else {
+            skipped_inputs += 1;
+            continue;
+        };
         let stem = src_path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("output")
             .to_string();
-        // 目标名冲突 → (n) 后缀
+
+        let ext: String = match &target {
+            Target::Lossless(f) => f.extension().to_string(),
+            Target::Lossy(p) => p.extension().to_string(),
+        };
         let mut n = 1usize;
-        let mut dst = out_dir.join(format!("{stem}.{}", target.extension()));
+        let mut dst = out_dir.join(format!("{stem}.{ext}"));
         loop {
             if used_names.insert(dst.to_string_lossy().into_owned()) && !dst.exists() {
                 break;
             }
             n += 1;
-            dst = out_dir.join(format!("{stem} ({n}).{}", target.extension()));
+            dst = out_dir.join(format!("{stem} ({n}).{ext}"));
         }
-        match lossless::transcode(src_path, &dst, target) {
-            Ok(o) => done.push(Item {
-                src: src_path.clone(),
-                dst: o.dst,
-                bytes: o.bytes_written,
-                samples: o.sample_count,
-            }),
-            Err(e) => failures.push(Fail {
-                src: src_path.to_string_lossy().into_owned(),
-                reason: format!("{}: {e}", e.mf_code()),
-            }),
+
+        match &target {
+            Target::Lossless(tl) => match class {
+                SourceClass::Lossless => {
+                    if lossless::probe_lossless_file(src_path) == Some(*tl) {
+                        same_format += 1;
+                        continue;
+                    }
+                    match lossless::transcode(src_path, &dst, *tl) {
+                        Ok(o) => done.push(Item {
+                            src: src_path.clone(),
+                            dst: o.dst,
+                            bytes: o.bytes_written,
+                        }),
+                        Err(e) => failures.push(Fail {
+                            src: src_path.to_string_lossy().into_owned(),
+                            reason: format!("{}: {e}", e.mf_code()),
+                        }),
+                    }
+                }
+                SourceClass::Lossy => {
+                    if !a.i_know_lossy_to_lossless {
+                        failures.push(Fail {
+                            src: src_path.to_string_lossy().into_owned(),
+                            reason: "MF-LOSSY-TO-LOSSLESS: 有损→无损升级被拦截（如确需加 --i-know-lossy-to-lossless）".to_string(),
+                        });
+                        continue;
+                    }
+                    let Some(ff) = get_ff(a, &mut failures) else {
+                        continue;
+                    };
+                    let args: &[&str] = match tl {
+                        LosslessFormat::Flac => &["-codec:a", "flac"],
+                        LosslessFormat::Wav => &["-codec:a", "pcm_s16le"],
+                    };
+                    match ff.export_custom(src_path, &dst, args) {
+                        Ok(bytes) => done.push(Item {
+                            src: src_path.clone(),
+                            dst,
+                            bytes,
+                        }),
+                        Err(e) => failures.push(Fail {
+                            src: src_path.to_string_lossy().into_owned(),
+                            reason: format!("{}: {e}", e.mf_code()),
+                        }),
+                    }
+                }
+            },
+            Target::Lossy(preset) => {
+                if src_path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.eq_ignore_ascii_case(preset.extension()))
+                    .unwrap_or(false)
+                {
+                    same_format += 1;
+                    continue;
+                }
+                let Some(ff) = get_ff(a, &mut failures) else {
+                    continue;
+                };
+                match ff.export_lossy(src_path, &dst, *preset) {
+                    Ok(bytes) => done.push(Item {
+                        src: src_path.clone(),
+                        dst,
+                        bytes,
+                    }),
+                    Err(e) => failures.push(Fail {
+                        src: src_path.to_string_lossy().into_owned(),
+                        reason: format!("{}: {e}", e.mf_code()),
+                    }),
+                }
+            }
         }
     }
 
@@ -886,7 +981,7 @@ fn run_transcode_sub(inputs: &[String], a: &TranscodeArgs) -> i32 {
     if a.json {
         let out = serde_json::json!({
             "inputs": inputs,
-            "target": target.extension(),
+            "target": a.format,
             "found": files.len(),
             "skipped_same_format": same_format,
             "skipped_inputs": skipped_inputs,
@@ -897,7 +992,6 @@ fn run_transcode_sub(inputs: &[String], a: &TranscodeArgs) -> i32 {
                 "source": i.src.display().to_string(),
                 "target": i.dst.display().to_string(),
                 "bytes": i.bytes,
-                "samples": i.samples,
             })).collect::<Vec<_>>(),
             "failures": failures.iter().map(|f| serde_json::json!({
                 "source": f.src, "reason": f.reason,
@@ -909,7 +1003,7 @@ fn run_transcode_sub(inputs: &[String], a: &TranscodeArgs) -> i32 {
 
     println!(
         "输入 {} · 认领 {} · 同格式跳过 {} · 成功 {} · 失败 {} · 写出 {:.1} MB",
-        files.len(),
+        files.len() + skipped_inputs,
         files.len(),
         same_format,
         done.len(),
@@ -922,7 +1016,7 @@ fn run_transcode_sub(inputs: &[String], a: &TranscodeArgs) -> i32 {
     for f in &failures {
         println!("  ✕ {} — {}", f.src, f.reason);
     }
-    println!("回读校验已内置：每个产物均解码比对逐样本一致（无损承诺）");
+    println!("校验承诺：无损产物逐样本回读一致；有损产物容器魔数+时长差<1s 回读校验。");
     if failures.is_empty() {
         0
     } else {
@@ -1504,8 +1598,19 @@ fn main() {
                 input,
                 out,
                 format,
+                ffmpeg_path,
+                i_know_lossy_to_lossless,
                 json,
-            } => run_transcode_sub(&input, &TranscodeArgs { out, format, json }),
+            } => run_transcode_sub(
+                &input,
+                &TranscodeArgs {
+                    out,
+                    format,
+                    ffmpeg_path,
+                    i_know_lossy_to_lossless,
+                    json,
+                },
+            ),
             Sub::Split { cue, out, json } => run_split_sub(&cue, &out, json),
             Sub::Genre {
                 dir,

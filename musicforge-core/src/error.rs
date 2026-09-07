@@ -68,6 +68,12 @@ pub enum NcmError {
 
     #[error("无损转码失败: {0}")]
     Lossless(String),
+
+    #[error("未找到 ffmpeg（已尝试 {searched} 个候选位置）")]
+    FfmpegMissing { searched: usize },
+
+    #[error("有损→无损升级转换被拦截（MP3→FLAC 等不会凭空恢复音质）")]
+    UpgradeBlocked,
 }
 
 impl NcmError {
@@ -91,6 +97,8 @@ impl NcmError {
             NcmError::TagWrite(_) => "TAG-WRITE",
             NcmError::Db(_) => "MF-DB-FAILED",
             NcmError::Lossless(_) => "LOSSLESS-ERROR",
+            NcmError::FfmpegMissing { .. } => "FFMPEG-MISSING",
+            NcmError::UpgradeBlocked => "UPGRADE-BLOCKED",
         }
     }
 
@@ -118,6 +126,8 @@ impl NcmError {
             NcmError::TagWrite(_) => "MF-TAG-WRITE-FAILED",
             NcmError::Db(_) => "MF-DB-FAILED",
             NcmError::Lossless(_) => "MF-LOSSLESS-FAILED",
+            NcmError::FfmpegMissing { .. } => "MF-FFMPEG-MISSING",
+            NcmError::UpgradeBlocked => "MF-LOSSY-TO-LOSSLESS",
         }
     }
 
@@ -143,6 +153,12 @@ impl NcmError {
             }
             NcmError::Lossless(_) => {
                 "无损转码失败：源文件可能损坏或包含不支持的 PCM 形态（如浮点 WAV）。源文件未被修改，可放心重试或更换目标格式。"
+            }
+            NcmError::FfmpegMissing { .. } => {
+                "未找到 ffmpeg。安装方式：ffmpeg.org 下载后加入 PATH，或用 --ffmpeg-path 指定 ffmpeg 可执行文件位置。有损导出（MP3/AAC/Opus）依赖它。"
+            }
+            NcmError::UpgradeBlocked => {
+                "有损源（MP3 等）转无损（FLAC/WAV）不会恢复已丢失的音质，属于伪升级，已拦截。如确有需要（如统一入库格式），加 --i-know-lossy-to-lossless。"
             }
             _ => "请检查文件与目录权限后重试，或使用失败清单导出功能记录该文件。",
         }

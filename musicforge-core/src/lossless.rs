@@ -244,6 +244,10 @@ pub fn transcode(
     dst: &Path,
     target: LosslessFormat,
 ) -> Result<TranscodeOutcome, NcmError> {
+    // 升级转换拦截（P5b）：有损源进入无损管线 = 伪升级，显式拦截
+    if crate::ffmpeg::classify_source(src) == Some(crate::ffmpeg::SourceClass::Lossy) {
+        return Err(NcmError::UpgradeBlocked);
+    }
     let pcm = decode_to_pcm(src)?;
     let bytes_written = encode_pcm(dst, target, &pcm)?;
     // 内置回读校验：目标解码后必须与源逐样本一致
