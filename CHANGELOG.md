@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - Unreleased
+
+### Added
+- **Library dedupe (`dedupe`)**: exact-content duplicate grouping (size pre-filter →
+  streaming sha256 buckets, reusing the D17 hash cache); explainable keep-score
+  interpreter (lossless +40 / sample-rate +8 / bit-depth +8 / tags +10 / cover +5 /
+  verified sidecar +20; ties keep the lexicographically smallest path — recomputable
+  reasons printed per sacrifice); same-name candidates reported (opt-in execution via
+  `--include-same-name`); sacrifices always go to the trash with a rollback manifest.
+- **Similar-cover grouping (`dedupe --covers`)**: hand-written 8×8 grayscale aHash over
+  embedded cover bytes only; union-find clustering at Hamming ≤ 8/64; report-only
+  (cover replacement ships with v0.7.0 AI review).
+- **Library organize (`organize`)**: template-driven placement sharing the converter's
+  rendering semantics (sanitize / reserved names / dual length caps / fallbacks);
+  metadata from embedded tags; conflict strategies `skip | suffix | overwrite-never`
+  (default `skip`; nothing is ever overwritten); idempotent (suffix-placed files are
+  recognized as in-place on re-plans); rollback manifest restorable via `clean --restore`.
+- **Playlist module (`playlist export` / `playlist import`)**: UTF-8 M3U8 export grouped
+  by artist/album (EXTINF title/duration, playlist-relative paths); import repairs
+  broken paths by same-name matching with ±1s duration disambiguation; unresolvable
+  entries preserved as `# FAIL` comments (audit never loses rows).
+- **Genre writer (`genre`)**: filename style codes `[Y23-S01-E01-C01-C02-V00]` →
+  year/style/mood/scenes/version (codebook JSON translation with raw-code fallback);
+  `FillMissingOnly` by default — existing genres are never overwritten;
+  `--replace-all` requires `--yes` (high-risk grading).
+- **GUI**: duplicate-groups view (in-group comparison, suggested-keep highlight,
+  manual re-pick via radio, trash execution with confirmation and server-side
+  path-escape validation) and library-scan panel.
+- D17 incremental hashing wired into scanning: second scan of the same library
+  re-hashes nothing (real-library evidence: 1340 files → 161 hashed once, then 1.0s
+  all-cache-hits).
+
+### Fixed
+- Scanner now prunes the `.musicforge/` convention directory — trashed copies no
+  longer re-enter scans as phantom duplicate groups, and organize can no longer
+  relocate pending-restore files (surfaced by real-library validation).
+- Organize suffix strategy is idempotent: `name (2).ext` placements are no longer
+  re-suffixed on every plan (unbounded growth bug, surfaced by real-library validation).
+
+## [0.3.0] - Unreleased
+
+### Added
+- **Library scan (`scan`)**: read-only recursive classification (audio/lyrics/cover/
+  junk/other), empty-directory collection, orphan lyric/cover detection, long-path /
+  illegal-character / mojibake-replacement flags; human and `--json` reports.
+- **Library clean (`clean`)**: 9 rule cards (`MF-CLEAN-001`–`009`, rules-as-data shared
+  with the GUI); destructive grading (dry-run by default, `--apply` to execute);
+  everything goes to the trash (relative structure preserved, `rollback.jsonl`) —
+  never deleted; `--rules` filter and `--restore`.
+- CLI subcommands (`scan` / `clean`) alongside legacy top-level converter arguments
+  (subcommand/args mutual exclusion, legacy behavior unchanged).
+
 ## [0.2.0] - 2026-09-06
 
 ### Added
