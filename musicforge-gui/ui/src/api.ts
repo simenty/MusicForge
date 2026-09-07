@@ -133,6 +133,52 @@ export async function scanLibrary(dir: string, recursive: boolean): Promise<Scan
   return invoke<ScanReport>("scan_library", { dir, recursive });
 }
 
+/** P4.5 去重：组内成员（score 为该组上下文中的得分） */
+export interface DupFile {
+  path: string;
+  score: number;
+  size: number;
+}
+
+/** P4.5 去重：exact 内容重复组（keep = 建议保留，前端可改选） */
+export interface DupGroup {
+  sha256: string;
+  size: number;
+  keep: { path: string; score: number; detail: string };
+  sacrifices: { path: string; score: number; reason: string }[];
+  all: DupFile[];
+}
+
+/** P4.5 去重：同名候选组（默认仅报告） */
+export interface SameNameGroup {
+  stem: string;
+  keep: { path: string; score: number };
+  candidates: { path: string; score: number; reason: string }[];
+}
+
+/** P4.5 去重扫描报告（只读） */
+export interface DedupeReport {
+  dir: string;
+  filesSeen: number;
+  hashedNow: number;
+  skipped: number;
+  groups: DupGroup[];
+  sameName: SameNameGroup[];
+}
+
+/** 只读去重扫描（组内对比 + 建议保留；人工改选在前端完成后经 dedupeApply 提交） */
+export async function dedupeScan(dir: string): Promise<DedupeReport> {
+  return invoke<DedupeReport>("dedupe_scan", { dir });
+}
+
+/** 执行用户改选后的去重（牺牲清单进回收站；服务端强校验路径在 dir 内） */
+export async function dedupeApply(
+  dir: string,
+  sacrificePaths: string[]
+): Promise<{ requested: number; moved: number; rollback: string | null }> {
+  return invoke("dedupe_apply", { dir, sacrificePaths });
+}
+
 export async function startBatch(args: BatchArgs): Promise<void> {
   await invoke("start_batch", { args });
 }

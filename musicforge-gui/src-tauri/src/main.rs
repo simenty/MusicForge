@@ -191,6 +191,129 @@ fn scan_library(dir: String, recursive: bool) -> Result<serde_json::Value, Strin
     }))
 }
 
+/// 去重扫描（P4.5 重复组视图）：只读，返回 exact 组 + 同名候选。
+///
+/// 组内对比数据随行（保留建议 + 评分明细 + 牺牲理由）——「建议保留」
+/// 由前端高亮，「人工改选」由前端 radio 完成（改选结果经 `dedupe_apply`
+/// 提交，服务端强校验）。
+#[tauri::command]
+fn dedupe_scan(dir: String) -> Result<serde_json::Value, String> {
+    use musicforge_core::dedupe::{dedupe_scan, DedupeOptions};
+    let report = dedupe_scan(
+        Path::new(&dir),
+        &DedupeOptions::default(),
+        None, // GUI 扫描不接状态库（哈希即时计算；CLI 大库场景才用缓存）
+    )
+    .map_err(|e| e.to_string())?;
+    let groups: Vec<serde_json::Value> = report
+        .groups
+        .iter()
+        .map(|g| {
+            let (mr, md) = (
+                g.files
+                    .iter()
+                    .map(|f| f.score.sample_rate)
+                    .max()
+                    .unwrap_or(0),
+                g.files.iter().map(|f| f.score.bit_depth).max().unwrap_or(0),
+            );
+            let keep = g.keep();
+            serde_json::json!({
+                "sha256": g.sha256,
+                "size": g.size,
+                "keep": {
+                    "path": keep.path.display().to_string(),
+                    "score": g.score_of(keep),
+                    "detail": keep.score.detail(mr, md),
+                },
+                "sacrifices": g.sacrifices().iter().map(|f| serde_json::json!({
+                    "path": f.path.display().to_string(),
+                    "score": g.score_of(f),
+                    "reason": g.sacrifice_reason(f),
+                })).collect::<Vec<_>>(),
+                "all": g.files.iter().map(|f| serde_json::json!({
+                    "path": f.path.display().to_string(),
+                    "score": g.score_of(f),
+                    "size": f.size,
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    let same_name: Vec<serde_json::Value> = report
+        .same_name
+        .iter()
+        .map(|g| {
+            let keep = g.keep();
+            serde_json::json!({
+                "stem": g.stem,
+                "keep": { "path": keep.path.display().to_string(), "score": g.score_of(keep) },
+                "candidates": g.files.iter().enumerate().filter(|(i, _)| *i != g.keep_index)
+                    .map(|(_, f)| serde_json::json!({
+                        "path": f.path.display().to_string(),
+                        "score": g.score_of(f),
+                        "reason": g.candidate_reason(f),
+                    })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({
+        "dir": dir,
+        "filesSeen": report.files_seen,
+        "hashedNow": report.hashed_now,
+        "skipped": report.skipped,
+        "groups": groups,
+        "sameName": same_name,
+    }))
+}
+
+/// 执行用户改选后的去重（GUI 分级闸门）：
+///
+/// - 前端提交**最终牺牲清单**（改选后的非保留成员）；
+/// - 服务端逐条强校验：路径存在、是文件、且 **canonical 化后必须位于
+///   `dir` 之内**——防 `../` 逃逸与符号链接跳板（威胁模型 T2）；
+/// - 走 P3 回收站机制（rollback.jsonl），可经 `clean --restore` 整体还原；
+/// - 绝不直接删除。
+#[tauri::command]
+fn dedupe_apply(dir: String, sacrifice_paths: Vec<String>) -> Result<serde_json::Value, String> {
+    let dir_canon =
+        std::fs::canonicalize(Path::new(&dir)).map_err(|e| format!("曲库目录不可读: {e}"))?;
+    let mut actions = Vec::new();
+    for p in &sacrifice_paths {
+        let path = PathBuf::from(p);
+        let canon = std::fs::canonicalize(&path).map_err(|e| format!("路径不可读 {p}: {e}"))?;
+        if !canon.is_file() {
+            return Err(format!("牺牲项不是文件: {p}"));
+        }
+        if !canon.starts_with(&dir_canon) {
+            return Err(format!(
+                "安全拒绝：牺牲项 {p} 位于曲库目录之外（已记录并阻止）"
+            ));
+        }
+        // action 用 canonical 路径：apply_clean_plan 按 strip_prefix(scan_root)
+        // 计算回收站内相对结构——两侧必须同一规范化形态（Windows 大小写差异
+        // 会让非 canonical 路径失配，导致 rename 退化为自移动）
+        actions.push(musicforge_core::scan::CleanAction {
+            path: canon,
+            rule_id: "MF-DUP-EXACT",
+        });
+    }
+    let plan = musicforge_core::scan::CleanPlan {
+        actions,
+        empty_dirs: Vec::new(),
+        trash_root: dir_canon.join(".musicforge/trash"),
+        scan_root: dir_canon.clone(),
+    };
+    let to_move = plan.actions.len();
+    let task_id = musicforge_cli::manifest::new_task_id();
+    let outcome =
+        musicforge_core::scan::apply_clean_plan(&plan, &task_id).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "requested": to_move,
+        "moved": outcome.moved,
+        "rollback": outcome.rollback_manifest.as_ref().map(|p| p.display().to_string()),
+    }))
+}
+
 /// 启动批处理：立即返回；进度经 `batch-file`（逐文件）与 `batch-done`（汇总）事件推送。
 /// 已有任务运行时返回 Err。
 #[tauri::command]
@@ -433,6 +556,8 @@ fn main() {
             collect_files,
             plan_batch,
             scan_library,
+            dedupe_scan,
+            dedupe_apply,
             start_batch,
             cancel_batch,
             preview_template,
@@ -546,6 +671,56 @@ mod tests {
         assert!(err.is_err(), "不存在的目录必须报错");
 
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// dedupe_scan / dedupe_apply 契约：组结构 + 改选执行 + 路径逃逸拒绝。
+    #[test]
+    fn dedupe_commands_contract() {
+        let base = std::env::temp_dir().join(format!("mf-gui-dup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(base.join("a.flac"), b"dup-content").unwrap();
+        std::fs::write(base.join("b.flac"), b"dup-content").unwrap();
+        std::fs::write(base.join("unique.flac"), b"unique").unwrap();
+
+        let v = dedupe_scan(base.to_string_lossy().into_owned()).unwrap();
+        let groups = v["groups"].as_array().unwrap();
+        assert_eq!(groups.len(), 1, "应恰 1 个 exact 组: {v}");
+        assert_eq!(groups[0]["all"].as_array().unwrap().len(), 2);
+        assert_eq!(groups[0]["sacrifices"].as_array().unwrap().len(), 1);
+        assert!(!groups[0]["keep"]["path"].as_str().unwrap().is_empty());
+
+        // 改选执行：牺牲组内另一成员（用户改选语义 = 前端换 radio 后提交）
+        let keep_path = groups[0]["keep"]["path"].as_str().unwrap();
+        let other = if keep_path.ends_with("a.flac") {
+            base.join("b.flac")
+        } else {
+            base.join("a.flac")
+        };
+        let r = dedupe_apply(
+            base.to_string_lossy().into_owned(),
+            vec![other.to_string_lossy().into_owned()],
+        )
+        .unwrap();
+        assert_eq!(r["moved"].as_u64(), Some(1));
+        assert!(!other.exists(), "牺牲项应已进回收站");
+        assert!(Path::new(keep_path).exists(), "保留项原位");
+        let rb = r["rollback"].as_str().unwrap();
+        assert!(Path::new(rb).exists(), "回滚清单应存在");
+
+        // 路径逃逸：曲库目录之外的文件必须被拒绝
+        let outside = std::env::temp_dir().join(format!("mf-outside-{}.txt", std::process::id()));
+        std::fs::write(&outside, b"x").unwrap();
+        let err = dedupe_apply(
+            base.to_string_lossy().into_owned(),
+            vec![outside.to_string_lossy().into_owned()],
+        )
+        .unwrap_err();
+        assert!(err.contains("安全拒绝"), "必须显式拒绝路径逃逸: {err}");
+        assert!(outside.exists(), "外部文件不得被动");
+
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::remove_file(&outside).ok();
     }
 
     /// InputPair 序列化字段名集合：前端按 `{"path","root"}` 解构，
