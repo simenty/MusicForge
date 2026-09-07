@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added（P6b.1：格式迁移插件 Host 桥接框架）
+- **plugin-api**：`FORMAT_MIGRATE` 方法常量 + `FormatMigrateParams` /
+  `FormatMigrateResult` / `MigrateVerification` / `MigrateAudit` 强类型契约；
+  `PluginManifest.ack_required` 字段（X35 规则：缺键默认 false，向后兼容）。
+- **config**：`plugins.acked`（高风险插件 ACK 确认记录；缺段默认空，向后兼容）。
+- **cli**：`plugins list / enable / disable-all / acknowledge` 子命令（config 持久化）
+  + `format migrate` 命令——ACK 闸先行（未确认 → `MF-PLUGIN-ACK-REQUIRED`），
+  启用且白名单目录存在插件方可调用；默认构建响亮报 `MF-PLUGIN-NOT-FOUND`
+  （绝不静默装作执行过）。
+- **回归测试 ×8**：ack_gate / acknowledge 幂等 / status 装配 / set_enabled
+  整表覆盖 / 默认构建响亮降级 / config acked roundtrip / manifest ack_required
+  缺键兼容 / format.migrate 类型 roundtrip。
+- 独立仓同步：`musicforge-plugins` ×3 清单 + `musicforge-format-plugins`
+  `kwm-migration` 清单/服务环声明 `ack_required`（防漂移测试覆盖）。
+
 ## [0.7.0] - 2026-09-08
 
 ### Added（P6a：插件系统 + AI，★曲库管家完整形态）

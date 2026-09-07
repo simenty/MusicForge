@@ -80,6 +80,12 @@ pub enum NcmError {
 
     #[error("配置错误: {0}")]
     Config(String),
+
+    #[error("需要用户确认: {0}")]
+    PluginAckRequired(String),
+
+    #[error("插件不可用: {0}")]
+    PluginNotFound(String),
 }
 
 impl NcmError {
@@ -107,6 +113,8 @@ impl NcmError {
             NcmError::UpgradeBlocked => "UPGRADE-BLOCKED",
             NcmError::OutputExists { .. } => "OUTPUT-EXISTS",
             NcmError::Config(_) => "MF-CONFIG-INVALID",
+            NcmError::PluginAckRequired(_) => "MF-PLUGIN-ACK-REQUIRED",
+            NcmError::PluginNotFound(_) => "MF-PLUGIN-NOT-FOUND",
         }
     }
 
@@ -138,6 +146,8 @@ impl NcmError {
             NcmError::UpgradeBlocked => "MF-LOSSY-TO-LOSSLESS",
             NcmError::OutputExists { .. } => "MF-OUTPUT-EXISTS",
             NcmError::Config(_) => "MF-CONFIG-INVALID",
+            NcmError::PluginAckRequired(_) => "MF-PLUGIN-ACK-REQUIRED",
+            NcmError::PluginNotFound(_) => "MF-PLUGIN-NOT-FOUND",
         }
     }
 
@@ -175,6 +185,12 @@ impl NcmError {
             }
             NcmError::Config(_) => {
                 "配置文件损坏或版本过高。修正内容，或删除 config.json 后由程序以默认配置重建（配置是可再生的）。"
+            }
+            NcmError::PluginAckRequired(_) => {
+                "该插件属高风险类（如本地格式迁移），需先显式确认：musicforge plugins acknowledge <插件名>（或 GUI 等价操作）。"
+            }
+            NcmError::PluginNotFound(_) => {
+                "插件运行时不可用。离线版不包含插件；请安装对应插件到白名单目录并启用后重试。"
             }
             _ => "请检查文件与目录权限后重试，或使用失败清单导出功能记录该文件。",
         }

@@ -976,6 +976,203 @@ pub fn run(cfg: BatchConfig) -> BatchSummary {
     run_with_progress(cfg, |_| {})
 }
 
+// ============ P6b：插件管理 + 格式迁移桥接 ============
+//
+// 管理面（始终可用）：只读写 config.json 与白名单清单文件，不 spawn 进程——
+// 默认构建零 host 符号（D8）。
+// 数据面（`format.migrate`）：仅 plugin-host feature 下真实桥接；默认构建显式报
+// `MF-PLUGIN-NOT-FOUND`——绝不静默装作执行过（G5 教训 / B4 同源原则）。
+
+pub mod plugins {
+    //! 插件管理（P6b）：状态 / 启用禁用 / 高风险确认（ACK 闸）。
+
+    use std::path::{Path, PathBuf};
+
+    /// 白名单插件目录（PLUGIN_POLICY.md；与 GUI `plugins_status` 同源）。
+    pub fn dirs() -> Vec<PathBuf> {
+        let mut v = Vec::new();
+        if let Some(la) = std::env::var_os("LOCALAPPDATA") {
+            v.push(PathBuf::from(la).join("MusicForge").join("plugins"));
+        }
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from);
+        if let Some(h) = home {
+            v.push(h.join(".local/share/musicforge/plugins"));
+        }
+        v
+    }
+
+    /// 读取单个插件目录的 plugin.json（serde_json 手工解析——默认构建不链接协议 crate）。
+    fn manifest_value(dir: &Path) -> Option<serde_json::Value> {
+        let text = std::fs::read_to_string(dir.join("plugin.json")).ok()?;
+        let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+        v.get("name")?.as_str()?;
+        Some(v)
+    }
+
+    /// 插件状态：config（enabled/acked）+ 白名单目录已装清单（可注入目录，测试友好）。
+    pub fn status(
+        config: &musicforge_core::config::AppConfig,
+        dirs: &[PathBuf],
+    ) -> serde_json::Value {
+        let mut installed = Vec::new();
+        for d in dirs {
+            if !d.is_dir() {
+                continue;
+            }
+            let Ok(rd) = std::fs::read_dir(d) else {
+                continue;
+            };
+            for entry in rd.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    if let Some(m) = manifest_value(&p) {
+                        installed.push(m);
+                    }
+                }
+            }
+        }
+        serde_json::json!({
+            "enabled": config.plugins.enabled,
+            "acked": config.plugins.acked,
+            "installed": installed,
+        })
+    }
+
+    /// ACK 闸判定（纯函数）：`ack_required` 且未确认 → 拒绝。
+    pub fn ack_gate(
+        ack_required: bool,
+        name: &str,
+        acked: &[String],
+    ) -> Result<(), musicforge_core::NcmError> {
+        if ack_required && !acked.iter().any(|x| x == name) {
+            return Err(musicforge_core::NcmError::PluginAckRequired(format!(
+                "插件 {name} 属高风险类，需先执行 `musicforge plugins acknowledge {name}` 显式确认"
+            )));
+        }
+        Ok(())
+    }
+
+    /// ACK 确认（幂等追加，config.json 持久化）。
+    pub fn acknowledge(config_path: &Path, name: &str) -> Result<(), musicforge_core::NcmError> {
+        if name.trim().is_empty() {
+            return Err(musicforge_core::NcmError::Config(
+                "插件名不得为空".to_string(),
+            ));
+        }
+        let mut cfg = musicforge_core::config::AppConfig::load(config_path)?;
+        if !cfg.plugins.acked.iter().any(|x| x == name) {
+            cfg.plugins.acked.push(name.to_string());
+            cfg.save(config_path)?;
+        }
+        Ok(())
+    }
+
+    /// 设置启用列表（整表覆盖语义；空名拒绝，显式可见）。
+    pub fn set_enabled(
+        config_path: &Path,
+        names: &[String],
+    ) -> Result<(), musicforge_core::NcmError> {
+        for name in names {
+            if name.trim().is_empty() {
+                return Err(musicforge_core::NcmError::Config(
+                    "插件名不得为空".to_string(),
+                ));
+            }
+        }
+        let mut cfg = musicforge_core::config::AppConfig::load(config_path)?;
+        cfg.plugins.enabled = names.to_vec();
+        cfg.save(config_path)
+    }
+
+    /// 在白名单目录定位插件可执行文件（`<dir>/<name>/<name>[.exe]`）。
+    #[cfg(feature = "plugin-host")]
+    pub fn plugin_exe(name: &str) -> Option<PathBuf> {
+        let exe = if cfg!(windows) {
+            format!("{name}.exe")
+        } else {
+            name.to_string()
+        };
+        dirs()
+            .iter()
+            .map(|d| d.join(name).join(&exe))
+            .find(|p| p.is_file())
+    }
+}
+
+/// `format.migrate`（P6b）：经插件执行本地格式迁移。
+///
+/// 默认构建（无 plugin-host）显式报 `MF-PLUGIN-NOT-FOUND`——绝不静默装作执行过。
+#[cfg(not(feature = "plugin-host"))]
+pub fn format_migrate(
+    plugin: &str,
+    _source: &str,
+    _output_dir: &str,
+    _work_root: Option<&str>,
+    _ekey: Option<&str>,
+) -> Result<String, musicforge_core::NcmError> {
+    Err(musicforge_core::NcmError::PluginNotFound(format!(
+        "格式迁移需要插件运行时（当前为离线构建）：插件 {plugin} 无法调用。\
+安装插件到白名单目录并使用带 plugin-host 的发行版后重试。"
+    )))
+}
+
+/// `format.migrate` 真实桥接（plugin-host feature）：spawn → D20 → ACK 闸 → 调用。
+#[cfg(feature = "plugin-host")]
+pub fn format_migrate(
+    plugin: &str,
+    source: &str,
+    output_dir: &str,
+    work_root: Option<&str>,
+    ekey: Option<&str>,
+) -> Result<String, musicforge_core::NcmError> {
+    use musicforge_plugin_api::{methods, FormatMigrateParams, FormatMigrateResult};
+
+    // ACK 闸先行：未经确认的高风险插件在 spawn 前即拒绝
+    let config_path = musicforge_core::config::AppConfig::default_path();
+    let cfg = musicforge_core::config::AppConfig::load(&config_path)?;
+    if !cfg.plugins.enabled.iter().any(|x| x == plugin) {
+        return Err(musicforge_core::NcmError::PluginNotFound(format!(
+            "插件 {plugin} 未启用：请在 GUI「AI 与插件」面板启用，或编辑 config.json"
+        )));
+    }
+    let exe = plugins::plugin_exe(plugin).ok_or_else(|| {
+        musicforge_core::NcmError::PluginNotFound(format!(
+            "白名单目录内未找到插件 {plugin} 的可执行文件"
+        ))
+    })?;
+
+    let mut p = musicforge_plugin_host::PluginProcess::spawn(&exe, ">=1,<2")
+        .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
+    plugins::ack_gate(
+        p.manifest.ack_required,
+        &p.manifest.name,
+        &cfg.plugins.acked,
+    )?;
+
+    let params = FormatMigrateParams {
+        work_root: match work_root {
+            Some(w) => w.to_string(),
+            None => Path::new(source)
+                .parent()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
+        },
+        source_path: source.to_string(),
+        output_dir: output_dir.to_string(),
+        ekey: ekey.map(|s| s.to_string()),
+    };
+    let result: FormatMigrateResult = p
+        .call_typed(
+            methods::FORMAT_MIGRATE,
+            serde_json::to_value(&params).unwrap(),
+            15_000,
+        )
+        .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
+    Ok(result.output_path)
+}
+
 #[cfg(test)]
 mod atomic_rename_tests {
     use super::*;

@@ -186,6 +186,29 @@ enum Sub {
         #[arg(long)]
         json: bool,
     },
+    /// 插件管理：状态 / 启用禁用 / 高风险确认（ACK 闸；config.json 持久化）
+    Plugins {
+        #[command(subcommand)]
+        cmd: PluginsCmd,
+    },
+    /// 格式迁移（P6b）：经插件解封装 B/C 级容器（L3 高风险；需 ACK 闸确认）
+    FormatMigrate {
+        /// 插件名（须已在白名单目录安装并启用；如 kwm-migration）
+        #[arg(long)]
+        plugin: String,
+        /// 源文件（必须位于工作根内）
+        #[arg(long, value_name = "FILE")]
+        source: String,
+        /// 输出目录（必须位于工作根内；绝不覆盖既有产物）
+        #[arg(short = 'o', long)]
+        output_dir: String,
+        /// 授权工作根（路径边界；缺省 = 源文件父目录）
+        #[arg(long)]
+        work_root: Option<String>,
+        /// 预留：QMCv2 类用户自备密钥（本地传递，绝不联网获取）
+        #[arg(long)]
+        ekey: Option<String>,
+    },
     /// 整轨切分：CUE + WAV/FLAC/APE/WV/TAK 镜像 → 按轨道切分为独立文件（无损，源不动）
     Split {
         /// CUE 文件（编码自动检测：UTF-8/GBK/BIG5）
@@ -221,6 +244,26 @@ enum Sub {
         /// JSON 输出（机器可读）
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum PluginsCmd {
+    /// 列出白名单目录内已安装插件与启用/确认状态
+    List,
+    /// 启用插件（整表覆盖：`--names` 逗号分隔）
+    Enable {
+        /// 插件名列表（逗号分隔）
+        #[arg(long, value_delimiter = ',')]
+        names: Vec<String>,
+    },
+    /// 禁用全部插件（enabled 置空）
+    DisableAll,
+    /// 高风险插件确认（ACK 闸；幂等）
+    Acknowledge {
+        /// 插件名
+        #[arg(long)]
+        name: String,
     },
 }
 
@@ -1582,12 +1625,91 @@ fn chrono_like_now() -> String {
     format!("{secs}")
 }
 
+// ---- P6b：插件管理 / 格式迁移子命令 ----
+
+fn run_plugins_sub(cmd: PluginsCmd) -> i32 {
+    let config_path = musicforge_core::config::AppConfig::default_path();
+    match cmd {
+        PluginsCmd::List => {
+            let cfg = musicforge_core::config::AppConfig::load(&config_path).unwrap_or_default();
+            let status = musicforge_cli::plugins::status(&cfg, &musicforge_cli::plugins::dirs());
+            println!("{}", serde_json::to_string_pretty(&status).unwrap());
+            0
+        }
+        PluginsCmd::Enable { names } => {
+            if let Err(e) = musicforge_cli::plugins::set_enabled(&config_path, &names) {
+                eprintln!("✗ {e}");
+                return 1;
+            }
+            println!(
+                "✓ 已启用: {}",
+                if names.is_empty() {
+                    "（空——全部禁用）".to_string()
+                } else {
+                    names.join(", ")
+                }
+            );
+            0
+        }
+        PluginsCmd::DisableAll => {
+            if let Err(e) = musicforge_cli::plugins::set_enabled(&config_path, &[]) {
+                eprintln!("✗ {e}");
+                return 1;
+            }
+            println!("✓ 已禁用全部插件（离线模式）");
+            0
+        }
+        PluginsCmd::Acknowledge { name } => {
+            if let Err(e) = musicforge_cli::plugins::acknowledge(&config_path, &name) {
+                eprintln!("✗ {e}");
+                return 1;
+            }
+            println!("✓ 已确认高风险插件 {name}（ACK 闸放行；写入 config.json plugins.acked）");
+            0
+        }
+    }
+}
+
+fn run_format_migrate_sub(
+    plugin: &str,
+    source: &str,
+    output_dir: &str,
+    work_root: Option<&str>,
+    ekey: Option<&str>,
+) -> i32 {
+    match musicforge_cli::format_migrate(plugin, source, output_dir, work_root, ekey) {
+        Ok(output_path) => {
+            println!("✓ 迁移完成: {output_path}");
+            println!("  产物已通过 magic + 音频属性双验；源文件未被修改。");
+            0
+        }
+        Err(e) => {
+            eprintln!("✗ {}: {e} | 建议: {}", e.code(), e.suggestion());
+            1
+        }
+    }
+}
+
 fn main() {
     let args = Args::parse();
 
     // v0.3.0 子命令分派：scan / clean（legacy 顶层参数不受影响）
     if let Some(sub) = args.command {
         let code = match sub {
+            Sub::Plugins { cmd } => run_plugins_sub(cmd),
+            Sub::FormatMigrate {
+                plugin,
+                source,
+                output_dir,
+                work_root,
+                ekey,
+            } => run_format_migrate_sub(
+                &plugin,
+                &source,
+                &output_dir,
+                work_root.as_deref(),
+                ekey.as_deref(),
+            ),
             Sub::Scan {
                 dir,
                 recursive,

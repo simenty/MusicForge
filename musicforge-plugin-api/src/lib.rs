@@ -42,6 +42,9 @@ pub mod methods {
     /// D22：封面来源优先级最末
     pub const COVER_SEARCH: &str = "cover.search";
     pub const COVER_GENERATE: &str = "cover.generate";
+    /// P6b：本地格式迁移（L3；路径边界 + 双验 + 隔离 + 审计，见 RFC
+    /// docs/rfc/p6b-format-plugin-framework.md；ack_required 清单申报 + ACK 闸）
+    pub const FORMAT_MIGRATE: &str = "format.migrate";
 }
 
 // ---------------------------------------------------------------- 信封 --
@@ -116,6 +119,10 @@ pub enum PluginKind {
 ///
 /// 准入规则（方案 §4.10）：`network == false` 对 format-adapter 强制；
 /// `data_not_sent` 必须显式列出（最小请求模型的对偶声明）。
+/// P6b 增补 `ack_required`（X35 规则：缺键默认 false，旧清单向后兼容）——
+/// 为 true 的高风险插件（如格式迁移）必须经主程序确认闸
+/// （`musicforge plugins acknowledge <id>` / GUI 等价）后方可调用，
+/// 否则返回 `MF-PLUGIN-ACK-REQUIRED`。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PluginManifest {
     pub name: String,
@@ -127,6 +134,49 @@ pub struct PluginManifest {
     pub data_sent: Vec<String>,
     #[serde(default)]
     pub data_not_sent: Vec<String>,
+    #[serde(default)]
+    pub ack_required: bool,
+}
+
+/// `format.migrate` 请求参数（P6b；L3 域——路径为必要输入，
+/// AI 域禁发 `absolute_path` 的规则不适用于本方法，但仅限 format 插件域）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct FormatMigrateParams {
+    /// Host 授权工作根（唯一路径边界来源；插件拒绝边界外一切路径）
+    pub work_root: String,
+    pub source_path: String,
+    pub output_dir: String,
+    /// 预留：QMCv2 类需用户自备密钥（本地传递，非网络）
+    #[serde(default)]
+    pub ekey: Option<String>,
+}
+
+/// 产物双验结果（magic + 音频属性）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MigrateVerification {
+    pub magic: String,
+    #[serde(default)]
+    pub sample_rate: Option<u32>,
+    #[serde(default)]
+    pub channels: Option<u16>,
+    #[serde(default)]
+    pub duration_s: Option<f64>,
+}
+
+/// 审计行（源/产物 sha256 + 隔离标记）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MigrateAudit {
+    pub source_sha256: String,
+    pub output_sha256: String,
+    pub quarantined: bool,
+}
+
+/// `format.migrate` 结果。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FormatMigrateResult {
+    pub output_path: String,
+    pub verification: MigrateVerification,
+    pub audit: MigrateAudit,
 }
 
 // ---------------------------------------------------------------- AI 域类型 --
@@ -400,6 +450,50 @@ mod tests {
         .unwrap();
         assert_eq!(m.kind, PluginKind::Ai);
         assert!(!m.network);
+        assert!(!m.ack_required, "缺省 ack_required 必须 false（X35 兼容）");
         assert!(m.data_not_sent.contains(&"absolute_path".to_string()));
+    }
+
+    #[test]
+    fn manifest_ack_required_opt_in() {
+        let m: PluginManifest = serde_json::from_str(
+            r#"{"name":"kwm-migration","api_version":"1.0.0","kind":"format-adapter",
+                "network":false,"ack_required":true}"#,
+        )
+        .unwrap();
+        assert!(m.ack_required, "高风险插件显式申报 ACK 闸");
+        assert!(m.data_not_sent.is_empty());
+    }
+
+    #[test]
+    fn format_migrate_types_roundtrip() {
+        let params = FormatMigrateParams {
+            work_root: "C:/music".into(),
+            source_path: "C:/music/song.kwm".into(),
+            output_dir: "C:/music/out".into(),
+            ekey: None,
+        };
+        let v = serde_json::to_value(&params).unwrap();
+        assert_eq!(v["work_root"], "C:/music");
+        let back: FormatMigrateParams = serde_json::from_value(v).unwrap();
+        assert_eq!(back, params);
+
+        let result = FormatMigrateResult {
+            output_path: "C:/music/out/song.flac".into(),
+            verification: MigrateVerification {
+                magic: "fLaC".into(),
+                sample_rate: Some(44100),
+                channels: Some(2),
+                duration_s: Some(252.0),
+            },
+            audit: MigrateAudit {
+                source_sha256: "a".repeat(64),
+                output_sha256: "b".repeat(64),
+                quarantined: false,
+            },
+        };
+        let back: FormatMigrateResult =
+            serde_json::from_value(serde_json::to_value(&result).unwrap()).unwrap();
+        assert_eq!(back, result);
     }
 }

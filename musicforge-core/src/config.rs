@@ -20,11 +20,14 @@ pub const CONFIG_SCHEMA_VERSION: u32 = 1;
 /// 配置文件名（位于 [`crate::db::local_config_dir`] 下）。
 pub const CONFIG_FILE_NAME: &str = "config.json";
 
-/// 已启用插件名列表（X36 空段约定）。
+/// 已启用插件名列表与确认记录（X36 空段约定；P6b 增补 `acked`）。
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PluginsConfig {
     /// 已启用插件（`plugin.json` 的 `name`）；空 = 全禁用（默认，离线铁律）
     pub enabled: Vec<String>,
+    /// P6b ACK 闸：已显式确认过高风险提示的插件（如格式迁移）；
+    /// X35 规则——缺键/缺段默认空，向后兼容
+    pub acked: Vec<String>,
 }
 
 /// 应用配置。
@@ -48,7 +51,10 @@ impl AppConfig {
     pub fn to_value(&self) -> serde_json::Value {
         serde_json::json!({
             "schema_version": self.schema_version,
-            "plugins": { "enabled": self.plugins.enabled },
+            "plugins": {
+                "enabled": self.plugins.enabled,
+                "acked": self.plugins.acked,
+            },
         })
     }
 
@@ -65,19 +71,23 @@ impl AppConfig {
                 "config schema 版本 {version} 高于本程序支持的 {CONFIG_SCHEMA_VERSION}：拒绝打开以免误读新格式（请升级 MusicForge）"
             )));
         }
-        let enabled = v
-            .get("plugins")
-            .and_then(|p| p.get("enabled"))
-            .and_then(|e| e.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let list = |key: &str| -> Vec<String> {
+            v.get("plugins")
+                .and_then(|p| p.get(key))
+                .and_then(|e| e.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
         Ok(Self {
             schema_version: version,
-            plugins: PluginsConfig { enabled },
+            plugins: PluginsConfig {
+                enabled: list("enabled"),
+                acked: list("acked"),
+            },
         })
     }
 
@@ -133,11 +143,32 @@ mod tests {
         let cfg = AppConfig {
             plugins: PluginsConfig {
                 enabled: vec!["ai-openai-compatible".into(), "lyrics-online".into()],
+                ..Default::default()
             },
             ..Default::default()
         };
         let back = AppConfig::from_value(&cfg.to_value()).unwrap();
         assert_eq!(back, cfg);
+    }
+
+    /// P6b：acked（ACK 闸确认记录）roundtrip + 缺段默认空（X35 兼容）。
+    #[test]
+    fn acked_list_roundtrip_and_defaults() {
+        let cfg = AppConfig {
+            plugins: PluginsConfig {
+                enabled: vec!["kwm-migration".into()],
+                acked: vec!["kwm-migration".into()],
+            },
+            ..Default::default()
+        };
+        let back = AppConfig::from_value(&cfg.to_value()).unwrap();
+        assert_eq!(back, cfg);
+
+        // 旧版 config（无 acked 键）→ 默认空，绝不报错
+        let legacy = serde_json::json!({ "schema_version": 1, "plugins": { "enabled": ["a"] } });
+        let cfg = AppConfig::from_value(&legacy).unwrap();
+        assert!(cfg.plugins.acked.is_empty());
+        assert_eq!(cfg.plugins.enabled, vec!["a".to_string()]);
     }
 
     #[test]
@@ -177,6 +208,7 @@ mod tests {
         let cfg = AppConfig {
             plugins: PluginsConfig {
                 enabled: vec!["cover-online".into()],
+                ..Default::default()
             },
             ..Default::default()
         };

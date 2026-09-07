@@ -188,6 +188,7 @@ impl PluginProcess {
                 network: false,
                 data_sent: vec![],
                 data_not_sent: vec![],
+                ack_required: false,
             },
             program: program.to_path_buf(),
         };

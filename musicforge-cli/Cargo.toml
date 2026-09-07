@@ -13,7 +13,7 @@ path = "src/main.rs"
 # D8 能力分层：plugin-host 为可选接入（default 关）——
 # 默认构建不得含任何插件 host 符号（CI grep 断言）；
 # 离线版发布也不启用。启用方式：--features plugin-host
-plugin-host = ["dep:musicforge-plugin-host"]
+plugin-host = ["dep:musicforge-plugin-host", "dep:musicforge-plugin-api"]
 
 [dev-dependencies]
 # p4_cli 集成测试构造内嵌封面 fixture（生产代码不经此依赖）
@@ -33,3 +33,6 @@ musicforge-core = { path = "../musicforge-core" }
 clap = { version = "4", features = ["derive"] }
 # P6a（D8）：仅 plugin-host feature 启用时链接
 musicforge-plugin-host = { path = "../musicforge-plugin-host", optional = true }
+# P6b（RFC §2.2）：format.migrate 强类型契约（纯协议，仍受 D8 断言约束——
+# CI grep 的是 plugin-host/musicforge-cloud，纯类型 crate 随 feature 启用）
+musicforge-plugin-api = { path = "../musicforge-plugin-api", optional = true }

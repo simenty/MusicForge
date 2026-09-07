@@ -60,6 +60,7 @@ fn main() {
                         "audio_bytes".into(),
                         "cover_bytes".into(),
                     ],
+                    ack_required: false,
                 };
                 Response::ok(&req.id, serde_json::to_value(&manifest).unwrap())
             }

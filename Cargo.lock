@@ -2214,6 +2214,7 @@ dependencies = [
  "image",
  "lofty",
  "musicforge-core",
+ "musicforge-plugin-api",
  "musicforge-plugin-host",
  "rusqlite",
  "serde_json",
