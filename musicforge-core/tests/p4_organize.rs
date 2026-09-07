@@ -205,6 +205,45 @@ fn conflict_strategies_never_overwrite() {
 }
 
 #[test]
+fn suffix_placed_files_are_in_place_on_second_run() {
+    // 真机实测发现的幂等性缺陷回归：suffix 落位的 "name (2).ext" 在二次
+    // 规划中必须判为已在位，绝不再后缀化（否则无限膨胀）。
+    let root = uniq_root("suffix");
+    let src = root.join("lib");
+    let target = root.join("sorted");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("d.wav"), b"content-A").unwrap();
+    std::fs::write(src.join("d2.wav"), b"content-B").unwrap();
+    // 预置冲突目标（真实场景：已有文件占用 d.wav 的渲染位）
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::write(target.join("d.wav"), b"content-PRE-OCCUPIED").unwrap();
+
+    let opts = OrganizeOptions {
+        template: "{title}",
+        target_root: &target,
+        conflict: ConflictStrategy::Suffix,
+    };
+    let plan1 = plan_organize(&src, &opts).unwrap();
+    assert_eq!(plan1.counts().planned, 2, "d.wav→d (2).wav、d2.wav→d2.wav");
+    let out1 = apply_organize_plan(&plan1, "suffix-r1").unwrap();
+    assert_eq!(out1.moved, 2);
+    assert!(target.join("d (2).wav").exists(), "suffix 落位形态");
+    assert_eq!(
+        std::fs::read(target.join("d.wav")).unwrap(),
+        b"content-PRE-OCCUPIED",
+        "既有目标绝不被覆盖"
+    );
+
+    // 二次规划（原地）：suffix 形态必须判为已在位，零移动
+    let plan2 = plan_organize(&target, &opts).unwrap();
+    let c2 = plan2.counts();
+    assert_eq!(c2.planned, 0, "suffix 落位后二次规划不得再产生移动项");
+    assert_eq!(c2.in_place, 3);
+    assert!(!target.join("d (2) (2).wav").exists(), "绝不允许二次后缀化");
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
 fn second_run_is_noop_and_rollback_restores() {
     let root = uniq_root("idempotent");
     let src = root.join("lib");

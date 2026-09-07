@@ -256,6 +256,12 @@ pub fn scan_library(root: &Path, options: &ScanOptions) -> Result<ScanReport, Nc
 
     let mut stack: Vec<(PathBuf, usize)> = vec![(root.to_path_buf(), 0)];
     while let Some((dir, depth)) = stack.pop() {
+        // 约定目录剪枝：`.musicforge/`（回收站/清单/回滚清单等工具自身状态）
+        // 绝不进入扫描结果——否则去重会把回收站副本当新重复组、organize 会
+        // 把待还原文件搬走（真机实测发现，G5「兜底伪装」同族教训）。
+        if dir.file_name().and_then(|n| n.to_str()) == Some(".musicforge") {
+            continue;
+        }
         report.scanned_dirs += 1;
         let Ok(rd) = std::fs::read_dir(&dir) else {
             continue;
