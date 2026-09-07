@@ -40,6 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   all-cache-hits).
 
 ### Fixed
+- Keep selection on exact-score ties prefers filenames **without** `(N)`
+  duplicate-artifact markers (real libraries contain `song.flac` + `song (2).flac`
+  pairs from repeated downloads; the clean-named original is now the one kept).
 - Scanner now prunes the `.musicforge/` convention directory — trashed copies no
   longer re-enter scans as phantom duplicate groups, and organize can no longer
   relocate pending-restore files (surfaced by real-library validation).

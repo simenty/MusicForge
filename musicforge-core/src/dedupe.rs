@@ -242,7 +242,7 @@ impl DupGroup {
             keep.score.total(mr, md),
         );
         if tie {
-            r.push_str("；全体平分，按路径字典序取最小为保留");
+            r.push_str("；全体平分，优先保留无 (N) 重复标记的文件名，仍平分取路径字典序最小");
         }
         r
     }
@@ -451,19 +451,43 @@ pub fn dedupe_scan(
     Ok(rep)
 }
 
-/// 确定性保留选择：得分最高；平分取路径字典序最小（files 已按路径排序）。
+/// 确定性保留选择：得分最高；平分时优先保留**无 ` (N)` 重复标记**的文件名
+/// （真库实测：重复下载残留形如 `song.flac` + `song (2).flac`，用户期望保留
+/// 干净命名；` (N)` 垨记视为复制产物）；仍平分取路径字典序最小（files 已按路径排序）。
 fn pick_keep(files: &[DedupeFile], max_rate: u32, max_depth: u32) -> usize {
     let mut best = 0usize;
     let mut best_score = files[0].score.total(max_rate, max_depth);
+    let mut best_artifact = is_duplicate_artifact_name(&files[0].path);
     for (i, f) in files.iter().enumerate().skip(1) {
         let s = f.score.total(max_rate, max_depth);
         if s > best_score {
             best = i;
             best_score = s;
+            best_artifact = is_duplicate_artifact_name(&f.path);
+        } else if s == best_score {
+            let artifact = is_duplicate_artifact_name(&f.path);
+            if best_artifact && !artifact {
+                // 同分：无 (N) 标记者胜出（files 已按路径升序，后续同级不覆盖先到者）
+                best = i;
+                best_artifact = artifact;
+            }
         }
-        // 平分时保持先到者（路径更小）——files 已按路径升序
     }
     best
+}
+
+/// 文件名是否带 ` (N)` 复制产物标记（stem 以 ` (数字)` 结尾）。
+fn is_duplicate_artifact_name(path: &Path) -> bool {
+    let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+        return false;
+    };
+    let Some(i) = stem.rfind(" (") else {
+        return false;
+    };
+    let inner = &stem[i + 2..];
+    stem.ends_with(')')
+        && !inner.is_empty()
+        && inner[..inner.len() - 1].chars().all(|c| c.is_ascii_digit())
 }
 
 fn stem_key(p: &Path) -> String {

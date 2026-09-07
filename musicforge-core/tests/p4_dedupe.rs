@@ -114,6 +114,37 @@ fn exact_groups_and_members_are_correct() {
 }
 
 #[test]
+fn keep_prefers_clean_name_over_artifact_suffix() {
+    // 真库形态回归：重复下载残留 "song.flac" + "song (2).flac" 内容完全相同
+    // → 全体平分 → 必须保留干净命名的 song.flac，牺牲 (2) 副本（旧行为相反）。
+    let root = uniq_root("artifact");
+    let lib = root.join("lib");
+    std::fs::create_dir_all(&lib).unwrap();
+    std::fs::write(lib.join("song.flac"), b"identical-payload").unwrap();
+    std::fs::write(lib.join("song (2).flac"), b"identical-payload").unwrap();
+
+    let rep = dedupe_scan(&lib, &DedupeOptions::default(), None).unwrap();
+    assert_eq!(rep.groups.len(), 1);
+    let g = &rep.groups[0];
+    let keep_name = g.keep().path.file_name().unwrap().to_str().unwrap();
+    assert_eq!(
+        keep_name,
+        "song.flac",
+        "平分必须保留干净命名: {}",
+        g.keep().path.display()
+    );
+    assert_eq!(g.sacrifices().len(), 1);
+    assert!(g.sacrifices()[0]
+        .path
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .starts_with("song ("));
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
 fn keep_best_reason_is_recomputable() {
     let root = uniq_root("recomp");
     build_tree(&root);
