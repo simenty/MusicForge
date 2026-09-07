@@ -48,7 +48,7 @@
 
 ### Windows（推荐：NSIS 安装包）
 
-1. 下载 `MusicForge-0.2.0-setup.exe`（约 1.3 MB）。
+1. 下载 `MusicForge-0.4.0-setup.exe`（约 1.3 MB）。
 2. 双击运行 —— **无需管理员权限**，默认安装到 `%LOCALAPPDATA%\Programs\MusicForge`。
 3. 安装向导会先展示[法律须知](#法律须知)，同意后选择组件：
    - 主程序（必需）：`musicforge-gui.exe` + `musicforge.exe`
@@ -62,13 +62,13 @@
 静默安装（企业部署 / 脚本）：
 
 ```bat
-MusicForge-0.2.0-setup.exe /S
+MusicForge-0.4.0-setup.exe /S
 "%LOCALAPPDATA%\Programs\MusicForge\Uninstall.exe" /S
 ```
 
 ### 免安装版
 
-解压 `musicforge-v0.2.0-windows-x64.zip`（约 1.8 MB）到任意目录，直接运行其中的 `musicforge-gui.exe`。
+解压 `musicforge-v0.4.0-windows-x64.zip`（约 1.8 MB）到任意目录，直接运行其中的 `musicforge-gui.exe`。
 
 ### 从源码构建
 

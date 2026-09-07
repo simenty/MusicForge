@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.4.0] - Unreleased
+## [0.4.0] - 2026-09-07
 
 ### Added
 - **Library dedupe (`dedupe`)**: exact-content duplicate grouping (size pre-filter →
@@ -49,7 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Organize suffix strategy is idempotent: `name (2).ext` placements are no longer
   re-suffixed on every plan (unbounded growth bug, surfaced by real-library validation).
 
-## [0.3.0] - Unreleased
+## [0.3.0] - 2026-09-07
+
+> 随 v0.4.0 同树发布（未单独打 tag）：0.4.0 包含两处真机实测修复，单独切 0.3.0 代码态会带上已修复的缺陷。
 
 ### Added
 - **Library scan (`scan`)**: read-only recursive classification (audio/lyrics/cover/
@@ -136,7 +138,8 @@ Initial public release (renamed from the private prototype "Shelf").
 
 - Core has zero network code paths (CI-enforced); no telemetry, no crash reporting, no analytics.
 
-[Unreleased]: https://github.com/simenty/MusicForge/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/simenty/MusicForge/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/simenty/MusicForge/compare/v0.2.0...v0.4.0
 [0.2.0]: https://github.com/simenty/MusicForge/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/simenty/MusicForge/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/simenty/MusicForge/releases/tag/v0.1.0
