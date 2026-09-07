@@ -6,12 +6,17 @@ use std::path::{Path, PathBuf};
 use musicforge_core::scan::{build_clean_plan, scan_library, CleanPlan, ScanOptions, ScanReport};
 
 fn fixtures() -> PathBuf {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::SeqCst);
     let dir = std::env::temp_dir().join(format!(
-        "musicforge-p3-{}",
+        "musicforge-p3-{}-{}-{}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_nanos()
+            .as_nanos(),
+        seq,
+        std::process::id()
     ));
     fs::create_dir_all(&dir).unwrap();
     dir

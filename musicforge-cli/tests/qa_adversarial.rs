@@ -554,11 +554,17 @@ fn case_only_collision_no_silent_overwrite() {
         return;
     }
 
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::SeqCst);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let base = std::env::temp_dir().join(format!("musicforge-case-{nanos}"));
+    let base = std::env::temp_dir().join(format!(
+        "musicforge-case-{nanos}-{seq}-{}",
+        std::process::id()
+    ));
     let src_dir = base.join("src");
     let out_dir = base.join("out");
     std::fs::create_dir_all(&src_dir).expect("创建源目录");
