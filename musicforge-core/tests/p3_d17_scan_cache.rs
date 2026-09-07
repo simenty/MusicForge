@@ -15,7 +15,10 @@ fn uniq_root(tag: &str) -> std::path::PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("mf-d17-{tag}-{n}"))
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::SeqCst);
+    std::env::temp_dir().join(format!("mf-d17-{tag}-{n}-{}-{}", seq, std::process::id()))
 }
 
 /// 2 音频 + 1 歌词 + 1 垃圾（均为自建临时内容，无版权材料）。

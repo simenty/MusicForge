@@ -16,7 +16,10 @@ fn uniq_root(tag: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("mf-pl-{tag}-{n}"))
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::SeqCst);
+    std::env::temp_dir().join(format!("mf-pl-{tag}-{n}-{}-{}", seq, std::process::id()))
 }
 
 /// 指定数据字节数的 WAV（时长 = bytes/2/44100 秒）。
@@ -161,9 +164,7 @@ fn import_repairs_broken_paths_with_duration_disambiguation() {
     };
     std::fs::write(
         &list,
-        format!(
-            "#EXTM3U\n#EXTINF:2,song long\n{dead_a}\n#EXTINF:1,lost\n{dead_b}\n"
-        ),
+        format!("#EXTM3U\n#EXTINF:2,song long\n{dead_a}\n#EXTINF:1,lost\n{dead_b}\n"),
     )
     .unwrap();
 
@@ -187,7 +188,10 @@ fn import_repairs_broken_paths_with_duration_disambiguation() {
 
     // 修复后清单：unresolved 以 # FAIL 注释保留（审计不丢行）
     let fixed_text = std::fs::read_to_string(rep.written.as_ref().unwrap()).unwrap();
-    assert!(fixed_text.contains(&format!("# FAIL {dead_b}")), "{fixed_text}");
+    assert!(
+        fixed_text.contains(&format!("# FAIL {dead_b}")),
+        "{fixed_text}"
+    );
     assert!(fixed_text.contains("#EXTINF:2,song long"));
     std::fs::remove_dir_all(&root).ok();
 }
