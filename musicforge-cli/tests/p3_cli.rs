@@ -13,12 +13,17 @@ fn exe() -> &'static str {
 
 /// 构造污染树（真实可写；Windows 下不含非法字符文件名）。
 fn polluted() -> PathBuf {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::SeqCst);
     let root = std::env::temp_dir().join(format!(
-        "musicforge-p3cli-{}",
+        "musicforge-p3cli-{}-{}-{}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_nanos()
+            .as_nanos(),
+        seq,
+        std::process::id()
     ));
     let audio = root.join("audio");
     std::fs::create_dir_all(&audio).unwrap();
