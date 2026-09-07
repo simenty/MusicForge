@@ -1101,6 +1101,198 @@ pub mod plugins {
     }
 }
 
+/// P6b.2：格式迁移插件 → `FormatAdapter` 桥接组件（仅 plugin-host feature）。
+///
+/// 设计（RFC §3）：加密容器**无明文魔数**——`probe` 走 plugin.json 的
+/// `extensions` 能力声明（逐格式兼容性申报），置信度 0.6 低于一切内置
+/// magic 探测；`decode` 委托插件 `format.migrate`（路径边界/双验/隔离/
+/// 审计全部由插件框架承担），产物读回构造 `DecodedAudio` 进入转码管线。
+#[cfg(feature = "plugin-host")]
+pub mod format_bridge {
+    use std::path::{Path, PathBuf};
+
+    use musicforge_core::formats::registry::{
+        DecodedAudio, FormatAdapter, ProbeInput, ProbeResult,
+    };
+    use musicforge_plugin_api::{methods, FormatMigrateParams, FormatMigrateResult};
+
+    /// 一个已启用 + 已确认的格式迁移插件（Host 侧桥接实体）。
+    #[derive(Debug, Clone)]
+    pub struct PluginFormatAdapter {
+        /// 插件名（= manifest.name = 白名单子目录名）
+        pub name: String,
+        /// 可执行文件路径（白名单目录内）
+        pub exe: PathBuf,
+        /// 能力声明：可迁移扩展名（小写、不含点）
+        pub extensions: Vec<String>,
+    }
+
+    impl PluginFormatAdapter {
+        /// 从插件清单构造（调用方保证：已启用 + ACK 闸已过 + exe 存在）。
+        pub fn from_manifest(name: &str, exe: PathBuf, extensions: Vec<String>) -> Option<Self> {
+            if extensions.is_empty() {
+                return None; // 无能力声明的格式插件不参与探测
+            }
+            Some(Self {
+                name: name.to_string(),
+                exe,
+                extensions: extensions.iter().map(|e| e.to_lowercase()).collect(),
+            })
+        }
+
+        /// 汇聚 source 与 output_dir 的最小公共祖先作为授权工作根。
+        ///
+        /// 两路径无公共前缀（如跨盘）→ None（显式报错，绝不放宽边界）。
+        pub fn common_work_root(source: &Path, output_dir: &Path) -> Option<PathBuf> {
+            let s: Vec<_> = source.components().collect();
+            let o: Vec<_> = output_dir.components().collect();
+            let mut common = PathBuf::new();
+            for (a, b) in s.iter().zip(o.iter()) {
+                if a != b {
+                    break;
+                }
+                common.push(a.as_os_str());
+            }
+            if common.as_os_str().is_empty() {
+                None
+            } else {
+                Some(common)
+            }
+        }
+
+        fn migrate(
+            &self,
+            source: &Path,
+            out_dir: &Path,
+        ) -> Result<FormatMigrateResult, musicforge_core::NcmError> {
+            let work_root = Self::common_work_root(source, out_dir).ok_or_else(|| {
+                musicforge_core::NcmError::PluginNotFound(format!(
+                    "无法确定授权工作根：源 {} 与输出 {} 无公共前缀",
+                    source.display(),
+                    out_dir.display()
+                ))
+            })?;
+            let mut p = musicforge_plugin_host::PluginProcess::spawn(&self.exe, ">=1,<2")
+                .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
+            let params = FormatMigrateParams {
+                work_root: work_root.display().to_string(),
+                source_path: source.display().to_string(),
+                output_dir: out_dir.display().to_string(),
+                ekey: None,
+            };
+            let result: FormatMigrateResult = p
+                .call_typed(
+                    methods::FORMAT_MIGRATE,
+                    serde_json::to_value(&params).unwrap(),
+                    15_000,
+                )
+                .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
+            Ok(result)
+        }
+    }
+
+    impl FormatAdapter for PluginFormatAdapter {
+        fn id(&self) -> &'static str {
+            // 插件名为运行期字符串，trait 要求 'static——每个适配器进程内只
+            // 注册一次，leak 一个短字符串（有界、可审计；改 trait 签名属核心
+            // 变更，RFC 明确不做）
+            Box::leak(self.name.clone().into_boxed_str())
+        }
+
+        fn probe(&self, input: &ProbeInput<'_>) -> Option<ProbeResult> {
+            let ext = input.extension?.to_lowercase();
+            self.extensions.contains(&ext).then(|| ProbeResult {
+                format_id: Box::leak(self.name.clone().into_boxed_str()),
+                confidence: 0.6, // 扩展名探测：低于一切内置 magic 探测
+            })
+        }
+
+        fn decode(
+            &self,
+            input: &Path,
+            out_dir: &Path,
+        ) -> Result<DecodedAudio, musicforge_core::NcmError> {
+            let result = self.migrate(input, out_dir)?;
+            let product = PathBuf::from(&result.output_path);
+            let data = std::fs::read(&product).map_err(musicforge_core::NcmError::Io)?;
+            let format = musicforge_core::format::resolve(None, &data).ok_or_else(|| {
+                musicforge_core::NcmError::PluginNotFound(format!(
+                    "迁移产物 magic 不可识别: {}",
+                    product.display()
+                ))
+            })?;
+            // 迁移产物自带源端标签；metadata=None = 转换层跳过写标签（硬约束 11）
+            Ok(DecodedAudio {
+                audio_len: data.len() as u64,
+                path: product,
+                format,
+                metadata: None,
+            })
+        }
+    }
+
+    /// 装配运行期注册表：内置适配器 + 全部「已启用 + 已确认 + exe 存在」的
+    /// 格式迁移插件。禁用/未确认/缺失的插件**静默缺席**（降级铁律：
+    /// 五域 100% 可用——缺席只意味着该格式不可迁移，绝不影响其他格式）。
+    pub fn registry_with_plugins() -> musicforge_core::formats::registry::FormatRegistry {
+        let mut registry = musicforge_core::formats::registry::FormatRegistry::with_builtins();
+        let config_path = musicforge_core::config::AppConfig::default_path();
+        let Ok(cfg) = musicforge_core::config::AppConfig::load(&config_path) else {
+            return registry;
+        };
+        for d in super::plugins::dirs() {
+            if !d.is_dir() {
+                continue;
+            }
+            let Ok(rd) = std::fs::read_dir(&d) else {
+                continue;
+            };
+            for entry in rd.flatten() {
+                let dir = entry.path();
+                if !dir.is_dir() {
+                    continue;
+                }
+                let Some(m) = std::fs::read_to_string(dir.join("plugin.json"))
+                    .ok()
+                    .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+                else {
+                    continue;
+                };
+                let Some(name) = m.get("name").and_then(|x| x.as_str()) else {
+                    continue;
+                };
+                // 门槛三连：启用 + ACK 确认 + 可执行文件存在（缺一即缺席）
+                if !cfg.plugins.enabled.iter().any(|x| x == name) {
+                    continue;
+                }
+                let ack_required = m
+                    .get("ack_required")
+                    .and_then(|x| x.as_bool())
+                    .unwrap_or(false);
+                if ack_required && !cfg.plugins.acked.iter().any(|x| x == name) {
+                    continue;
+                }
+                let Some(exe) = super::plugins::plugin_exe(name) else {
+                    continue;
+                };
+                let extensions = m
+                    .get("extensions")
+                    .and_then(|x| x.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if let Some(adapter) = PluginFormatAdapter::from_manifest(name, exe, extensions) {
+                    registry.register(Box::new(adapter));
+                }
+            }
+        }
+        registry
+    }
+}
+
 /// `format.migrate`（P6b）：经插件执行本地格式迁移。
 ///
 /// 默认构建（无 plugin-host）显式报 `MF-PLUGIN-NOT-FOUND`——绝不静默装作执行过。

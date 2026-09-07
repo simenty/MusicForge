@@ -61,6 +61,7 @@ fn main() {
                         "cover_bytes".into(),
                     ],
                     ack_required: false,
+                    extensions: vec![],
                 };
                 Response::ok(&req.id, serde_json::to_value(&manifest).unwrap())
             }

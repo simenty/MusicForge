@@ -565,7 +565,8 @@ fn main() {
             select_directory,
             save_failures,
             plugins_status,
-            plugins_set_enabled
+            plugins_set_enabled,
+            plugins_acknowledge
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -604,11 +605,27 @@ fn read_plugin_manifest(dir: &Path) -> Option<serde_json::Value> {
     let api_version = v.get("api_version")?.as_str()?.to_string();
     let kind = v.get("kind")?.as_str()?.to_string();
     let network = v.get("network").and_then(|n| n.as_bool()).unwrap_or(false);
+    // P6b.2：ACK 闸声明 + 能力声明（extensions 透传给前端展示）
+    let ack_required = v
+        .get("ack_required")
+        .and_then(|x| x.as_bool())
+        .unwrap_or(false);
+    let extensions = v
+        .get("extensions")
+        .and_then(|x| x.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     Some(serde_json::json!({
         "name": name,
         "apiVersion": api_version,
         "kind": kind,
         "network": network,
+        "ackRequired": ack_required,
+        "extensions": extensions,
         "dir": dir.display().to_string(),
     }))
 }
@@ -679,6 +696,28 @@ fn plugins_set_enabled_inner(
 #[tauri::command]
 fn plugins_set_enabled(enabled: Vec<String>) -> Result<serde_json::Value, String> {
     plugins_set_enabled_inner(&musicforge_core::config::AppConfig::default_path(), enabled)
+}
+
+/// P6b.2：高风险插件 ACK 确认（GUI 等价 `musicforge plugins acknowledge`）。
+///
+/// 幂等；写入 config.json `plugins.acked`。前端必须展示风险提示后再调用
+/// （格式迁移类：在授权工作根内读写文件）。
+fn plugins_acknowledge_inner(config_path: &Path, name: &str) -> Result<(), String> {
+    if name.trim().is_empty() {
+        return Err("插件名不得为空".to_string());
+    }
+    let mut cfg =
+        musicforge_core::config::AppConfig::load(config_path).map_err(|e| e.to_string())?;
+    if !cfg.plugins.acked.iter().any(|x| x == name) {
+        cfg.plugins.acked.push(name.trim().to_string());
+        cfg.save(config_path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn plugins_acknowledge(name: String) -> Result<(), String> {
+    plugins_acknowledge_inner(&musicforge_core::config::AppConfig::default_path(), &name)
 }
 
 // ============ P1a 保护网：GUI ↔ 前端 IPC 契约测试 ============
@@ -926,7 +965,7 @@ mod tests {
         std::fs::create_dir_all(&pdir).unwrap();
         std::fs::write(
             pdir.join("plugin.json"),
-            r#"{"name":"mock-ai","api_version":"1.0.0","kind":"ai","network":false}"#,
+            r#"{"name":"mock-ai","api_version":"1.0.0","kind":"ai","network":false,"ack_required":false,"extensions":[]}"#,
         )
         .unwrap();
         // 白名单外的坏清单：缺 name → 必须被跳过，绝不让面板空白/崩溃

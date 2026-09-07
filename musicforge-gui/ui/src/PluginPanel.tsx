@@ -9,7 +9,12 @@
 // 展示（不可点击），不加载任何远程资源。降级提示常驻：本地五域功能无需插件。
 
 import { useCallback, useEffect, useState } from "react";
-import { pluginsSetEnabled, pluginsStatus, type PluginsStatus } from "./api";
+import {
+  pluginsAcknowledge,
+  pluginsSetEnabled,
+  pluginsStatus,
+  type PluginsStatus,
+} from "./api";
 
 export default function PluginPanel() {
   const [open, setOpen] = useState(false);
@@ -42,6 +47,23 @@ export default function PluginPanel() {
     );
   };
 
+  // P6b.2：高风险插件（格式迁移类）ACK 确认——面板内展示风险提示后确认
+  const acknowledge = async (name: string) => {
+    const ok = window.confirm(
+      `确认启用高风险插件「${name}」？\n\n` +
+        "格式迁移类插件将在授权工作根内读写你合法持有的文件。\n" +
+        "确认后写入 config.json plugins.acked（可随时删除该记录撤销）。"
+    );
+    if (!ok) return;
+    setError(null);
+    try {
+      await pluginsAcknowledge(name);
+      await load();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const save = async () => {
     setSaving(true);
     setError(null);
@@ -68,6 +90,7 @@ export default function PluginPanel() {
   const runtime = status?.runtimeAvailable ?? false;
   const installed = status?.installed ?? [];
   const enabled = new Set(selected);
+  const ackedList = new Set(status?.acked ?? []);
 
   return (
     <div className="scan-panel">
@@ -107,20 +130,30 @@ export default function PluginPanel() {
         </p>
       ) : (
         <ul className="plugin-list">
-          {installed.map((p) => (
-            <li key={p.name}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={enabled.has(p.name)}
-                  onChange={() => toggle(p.name)}
-                  disabled={!runtime}
-                />{" "}
-                <b>{p.name}</b>（{p.kind}，api {p.apiVersion}，
-                {p.network ? "声明联网" : "离线"})
-              </label>
-            </li>
-          ))}
+          {installed.map((p) => {
+            const needsAck = p.ackRequired && !ackedList.has(p.name);
+            return (
+              <li key={p.name}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={enabled.has(p.name)}
+                    onChange={() => toggle(p.name)}
+                    disabled={!runtime || needsAck}
+                  />{" "}
+                  <b>{p.name}</b>（{p.kind}，api {p.apiVersion}，
+                  {p.network ? "声明联网" : "离线"}
+                  {p.extensions.length > 0 && <>，迁移 {p.extensions.join("/")}</>})
+                  {needsAck && <b className="plugin-ack-warn">［需确认］</b>}
+                </label>
+                {needsAck && (
+                  <button className="btn sm" onClick={() => void acknowledge(p.name)}>
+                    确认启用（高风险）
+                  </button>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
 

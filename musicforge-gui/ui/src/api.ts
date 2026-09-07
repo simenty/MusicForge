@@ -90,6 +90,10 @@ export interface InstalledPlugin {
   apiVersion: string;
   kind: string;
   network: boolean;
+  /** P6b.2：高风险插件（格式迁移类）需 ACK 确认后方可调用 */
+  ackRequired: boolean;
+  /** 能力声明：可迁移扩展名（格式迁移类；AI/在线类为空） */
+  extensions: string[];
   dir: string;
 }
 
@@ -101,6 +105,8 @@ export interface PluginsStatus {
   pluginDirs: string[];
   /** config.json `plugins.enabled` 当前值 */
   enabled: string[];
+  /** P6b.2：ACK 闸确认记录（config.json `plugins.acked`） */
+  acked: string[];
   installed: InstalledPlugin[];
 }
 
@@ -110,6 +116,11 @@ export async function pluginsStatus(): Promise<PluginsStatus> {
 
 export async function pluginsSetEnabled(enabled: string[]): Promise<{ enabled: string[] }> {
   return invoke<{ enabled: string[] }>("plugins_set_enabled", { enabled });
+}
+
+/** P6b.2：高风险插件 ACK 确认（幂等；写入 config.json plugins.acked） */
+export async function pluginsAcknowledge(name: string): Promise<void> {
+  return invoke<void>("plugins_acknowledge", { name });
 }
 
 /** 计划预览条目（dry-run 的数据形态；target=null 表示规划失败） */

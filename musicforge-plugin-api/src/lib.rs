@@ -136,6 +136,10 @@ pub struct PluginManifest {
     pub data_not_sent: Vec<String>,
     #[serde(default)]
     pub ack_required: bool,
+    /// P6b.2：格式插件能力声明——可迁移的容器扩展名（小写、不含点，如 "kwm"）。
+    /// 加密容器无明文魔数，Host 按扩展名探测（PLUGIN_POLICY §4 逐格式兼容性申报）。
+    #[serde(default)]
+    pub extensions: Vec<String>,
 }
 
 /// `format.migrate` 请求参数（P6b；L3 域——路径为必要输入，
@@ -458,10 +462,15 @@ mod tests {
     fn manifest_ack_required_opt_in() {
         let m: PluginManifest = serde_json::from_str(
             r#"{"name":"kwm-migration","api_version":"1.0.0","kind":"format-adapter",
-                "network":false,"ack_required":true}"#,
+                "network":false,"ack_required":true,"extensions":["kwm"]}"#,
         )
         .unwrap();
         assert!(m.ack_required, "高风险插件显式申报 ACK 闸");
+        assert_eq!(
+            m.extensions,
+            vec!["kwm".to_string()],
+            "能力声明：可迁移扩展名"
+        );
         assert!(m.data_not_sent.is_empty());
     }
 
