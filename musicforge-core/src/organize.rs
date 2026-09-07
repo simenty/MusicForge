@@ -210,6 +210,25 @@ pub fn plan_organize(root: &Path, options: &OrganizeOptions) -> Result<OrganizeP
             continue;
         }
 
+        // 已在目标根内且当前名 = 渲染名（可带历史分配的 (N) 后缀）→ 已在位。
+        // 真机实测发现的幂等性缺陷：suffix 策略落位的 "name (2).ext" 在二次
+        // 规划时渲染回 "name.ext" ≠ 当前名 → 冲突 → 再次后缀 → 无限膨胀。
+        // 语义：文件已在目标根内、且名字符合本次渲染（含既有后缀）即视为归位。
+        if source
+            .parent()
+            .map(|p| p == options.target_root)
+            .unwrap_or(false)
+            && name_matches_with_optional_suffix(source, &target)
+        {
+            plan.items.push(OrganizeItem {
+                source: source.clone(),
+                target,
+                status: OrganizeStatus::AlreadyInPlace,
+                note: Some("已在规范位置（含既有后缀），无需移动".to_string()),
+            });
+            continue;
+        }
+
         if target.exists() {
             match options.conflict {
                 ConflictStrategy::Skip => plan.items.push(OrganizeItem {
@@ -278,6 +297,36 @@ fn same_file(a: &Path, b: &Path) -> bool {
         (Ok(ca), Ok(cb)) => ca == cb,
         _ => false,
     }
+}
+
+/// 源文件名是否等于渲染目标名，或等于其历史后缀形态 `stem (N).ext`（N≥1）。
+///
+/// 仅用于「源已在目标根内」的幂等判定——文件名本来就是工具上一轮分配的，
+/// 视作已归位，防止 suffix 策略无限膨胀。
+fn name_matches_with_optional_suffix(source: &Path, target: &Path) -> bool {
+    let (Some(s), Some(t)) = (
+        source.file_name().and_then(|f| f.to_str()),
+        target.file_name().and_then(|f| f.to_str()),
+    ) else {
+        return false;
+    };
+    if s == t {
+        return true;
+    }
+    let (t_stem, t_ext) = match t.rsplit_once('.') {
+        Some((st, e)) if !st.is_empty() => (st, format!(".{e}")),
+        _ => (t, String::new()),
+    };
+    let Some(rest) = s.strip_prefix(t_stem) else {
+        return false;
+    };
+    let Some(inner) = rest.strip_prefix(" (") else {
+        return false;
+    };
+    let Some(num) = inner.strip_suffix(&format!("){t_ext}")) else {
+        return false;
+    };
+    !num.is_empty() && num.chars().all(|c| c.is_ascii_digit())
 }
 
 /// 执行整理计划：`Planned` 项 rename 移动 + 写回滚清单。

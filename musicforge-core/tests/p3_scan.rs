@@ -22,6 +22,28 @@ fn fixtures() -> PathBuf {
     dir
 }
 
+/// 真机实测发现的回归：`.musicforge/`（回收站等工具状态）必须对扫描不可见，
+/// 否则去重把回收站副本当新组、organize 会搬走待还原文件。
+#[test]
+fn musicforge_convention_dir_is_invisible_to_scan() {
+    let root = fixtures();
+    let hidden = root.join(".musicforge").join("trash").join("t-1");
+    fs::create_dir_all(&hidden).unwrap();
+    fs::write(hidden.join("ghost.flac"), b"fLaC...").unwrap();
+    fs::write(root.join("visible.flac"), b"fLaC...").unwrap();
+
+    let report = scan_library(&root, &ScanOptions::default()).unwrap();
+    assert_eq!(report.audio, 1, "只有 visible.flac 应被扫描到");
+    assert!(
+        !report
+            .items
+            .iter()
+            .any(|i| i.path.to_string_lossy().contains(".musicforge")),
+        "任何 .musicforge 内容不得出现在扫描结果"
+    );
+    fs::remove_dir_all(&root).ok();
+}
+
 /// 构造污染树：覆盖全部 9 条规则的触发条件。
 fn polluted() -> PathBuf {
     let root = fixtures();
