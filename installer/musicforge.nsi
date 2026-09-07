@@ -18,9 +18,9 @@ Unicode true
 !define APPDESC    "本地 NCM 转换器（离线 · 不联网 · 不上传）"
 
 ; 版本号：默认 0.1.0，可由命令行覆盖
-;   makensis /DVERSION=0.2.0 musicforge.nsi
+;   makensis /DVERSION=0.4.0 musicforge.nsi
 !ifndef VERSION
-  !define VERSION  "0.2.0"
+  !define VERSION  "0.4.0"
 !endif
 
 !define PUBLISHER  "MusicForge contributors"
