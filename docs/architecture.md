@@ -1,7 +1,8 @@
 # Architecture
 
 MusicForge is a three-layer, offline-first music asset platform. This document is the
-authoritative boundary description; the executable plan lives in [ROADMAP.md](../ROADMAP.md).
+authoritative boundary description. The executable plan (ROADMAP.md) is maintained
+**locally by the maintainer and intentionally not tracked in this repository**.
 
 ## 1. Layers
 
@@ -37,24 +38,29 @@ network code into core is rejected on sight.
 | `musicforge-core` | ✗ | format framework, scan, clean, dedupe, organize, playlist, plan, task, report, safety, state (db) |
 | `musicforge-cli` | ✗ | zero-dependency CLI for desktop & NAS/SSH |
 | `musicforge-gui` | ✗ | Tauri shell + React workbench |
-| `musicforge-plugin-api` | ✗ | plugin protocol, schemas, permission model |
-| `musicforge-plugin-host` | ✗ | process spawn/admission/timeout/isolation |
+| `musicforge-plugin-api` | ✗ | plugin protocol (X8 NDJSON), frozen method set, typed params/results, D20 range negotiation |
+| `musicforge-plugin-host` | ✗ | process spawn/admission/timeout-kill isolation, typed calls, timeout window 10–30s, concurrency slots (≤2) |
 | `musicforge-ui-protocol` | ✗ | single source of truth for UI event schemas |
 | `musicforge-server` (P8) | local HTTP | NAS web host, serves the same SPA |
 
-`musicforge-core` module map (as implemented, P3/P4):
+`musicforge-core` module map (as implemented, P6a):
 
 ```text
 formats/   FormatAdapter + FormatRegistry (ncm built-in, magic-first detection)
 metadata/  model + tagger (lofty; FillMissingOnly semantics) + template engine
 scan.rs    read-only recursive walker (prunes .musicforge/), 9 rule cards,
-           trash-based clean executor + rollback.jsonl + restore
+           trash-based clean executor + rollback.jsonl + restore (collision-safe)
 db.rs      state layer (SQLite library.db: files index / hash cache / tasks / ack)
 dedupe.rs  exact grouping + same-name candidates + explainable keep-score
-           + similar-cover aHash clustering (report-only)
+           + QualityProfile (three default profiles, D24) + similar-cover clustering
 organize.rs template placement + conflict strategies (never overwrites) + idempotent
 playlist.rs M3U8 export by category + import path repair
 stylecode.rs filename style-code parser ([Y23-S01-...]) + genre write plan/apply
+lossless.rs WAV↔FLAC sample-exact transcode · cue.rs CUE splitting · ffmpeg.rs lossy presets
+assets.rs   asset policy (D22: source chains, asset_mode, 500px gate, dual-gate external
+            requests, sidecar .lrc/cover ingestion) + provenance (X36)
+config.rs   desktop config.json (X36: schema_version=1, plugins.enabled section)
+error.rs    NcmError with dual stable codes (legacy NCM-* + MF-*)
 ```
 
 ## 3. Format adapter boundary

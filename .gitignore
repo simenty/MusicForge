@@ -19,3 +19,6 @@ tmp-out/
 # 编辑器/调试期间的临时备份
 *.editor-stale
 *.committed-backup
+
+# ROADMAP.md 自 2026-09-08 起由主理人本地维护，不再入库（主理人指示）
+ROADMAP.md

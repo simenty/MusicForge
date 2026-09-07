@@ -30,12 +30,22 @@
 
 | 能力 | .ncm | WAV | FLAC | MP3 | AAC/M4A | QMC/MGG/MFLAC |
 |:--|:-:|:-:|:-:|:-:|:-:|:-:|
-| 解封装/读取 | ✅ | ✅ | ✅ | 📋 v0.6.0 | 📋 v0.6.0 | 🔌 可选格式插件 |
+| 解封装/读取 | ✅ | ✅ | ✅ | ✅ | ✅ | 🔌 可选格式插件 |
 | 无损转换 | ✅ 载荷直出 | ✅ 采样级精确 | ✅ 采样级精确 | —（有损源） | —（有损源） | 🔌 插件 |
-| 整轨切分（CUE） | — | ✅ v0.6.0 | ✅ v0.6.0 | — | — | 🔌 插件 |
+| 整轨切分（CUE） | — | ✅ | ✅ | — | — | 🔌 插件 |
 | 有损导出 | ✅ 载荷直出 | ✅ MP3 320 / AAC 256 / Opus 160 | ✅ 同左 | —（有损源） | —（有损源） | 🔌 插件 |
 
-✅ 已支持 · 📋 规划中（版本见 [ROADMAP.md](ROADMAP.md)） · 🔌 由[可选插件](PLUGIN_POLICY.md)提供（默认禁用）
+✅ 已支持 · 🔌 由[可选插件](PLUGIN_POLICY.md)提供（默认禁用）
+
+## 插件生态（独立分发，默认禁用）
+
+- [musicforge-plugins](https://github.com/simenty/musicforge-plugins) —— AI / 在线提供方：
+  `ai-openai-compatible`（元数据识别）/ `lyrics-online`（歌词核验，LRCLIB）/
+  `cover-online`（封面候选，iTunes）。Apache-2.0。
+- [musicforge-format-plugins](https://github.com/simenty/musicforge-format-plugins) ——
+  本地格式迁移（L3，`network=false`，需确认闸）。Apache-2.0。
+
+插件永不获得删除/移动/覆盖文件的权限；一切写入经「用户确认 → Plan → Apply」。
 
 ## 与同类工具的关系
 
@@ -44,9 +54,9 @@ beets 会整理但不碰加密格式、没有图形化任务安全；Picard 识�
 
 ## 平台化路线与治理文档
 
-- [ROADMAP.md](ROADMAP.md) —— 定稿路线图（P0–P9，scope 已冻结）
 - [PRIVACY.md](PRIVACY.md) —— 隐私承诺：无遥测、无账号、无后台上传
 - [PLUGIN_POLICY.md](PLUGIN_POLICY.md) —— 插件边界：分级、权限清单、准入规则
+- [CHANGELOG.md](CHANGELOG.md) —— 发布历史（版本节奏与 scope 决策记录）
 - [docs/threat-model.md](docs/threat-model.md) / [docs/architecture.md](docs/architecture.md) / [docs/dependency-policy.md](docs/dependency-policy.md)
 - [CHANGELOG.md](CHANGELOG.md) / [SECURITY.md](SECURITY.md) / [TRADEMARK.md](TRADEMARK.md)
 
