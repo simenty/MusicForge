@@ -24,6 +24,13 @@ serde, serde_json, thiserror, crc32fast, sha2, blake3, aes, base64, lofty, hound
 rusqlite (bundled), camino, smallvec, ignore, notify (runtime gating only — watcher is a
 shell/CLI feature, not core-path networking), tempfile (dev-dependency).
 
+**Approved 2026-09-07 (P4):** `image` with `default-features = false`, features =
+`["jpeg", "png"]` — decode of *embedded* cover bytes only, for the similar-cover aHash
+grouping. Justification: no smaller maintained crate covers both codecs; dual
+MIT/Apache-2.0 license; decoders are pure Rust (no C toolchain). Also approved as a
+**dev-dependency** of `musicforge-cli` (png) for test fixtures — production CLI never
+links it.
+
 Anything not on this list: open an RFC (see ROADMAP §10) with justification covering
 license, size impact (binary growth >10% needs a note), and maintenance status.
 

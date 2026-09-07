@@ -24,9 +24,12 @@ Out of scope: the optional cloud repo (threat-modeled separately before v1.x).
 
 | Threat | Vector | Mitigation | Residual |
 |:--|:--|:--|:--|
-| Template-driven path escape | `../` inside metadata or template | naming-template sanitization (illegal chars, control chars, trailing dots); golden tests | — |
+| Template-driven path escape | `../` inside metadata or template | naming-template sanitization (illegal chars, control chars, trailing dots); `.`/`..` segments sanitize to `_`; golden tests | — |
 | Output path escape (plugins) | `output_path`/`work_dir` outside allowed roots | host restricts to declared roots; `..`, absolute paths, symlink escapes rejected | — |
 | Long-path / reserved names (Windows) | `CON`, `>260` chars | `\\?\` prefixing in `safety/path.rs`; `illegal_name` fixture regression | — |
+| GUI dedupe escape | crafted sacrifice path via IPC (`dedupe_apply`) | every path canonicalized and asserted to stay **inside** the library directory; outside paths explicitly rejected and recorded (contract test `dedupe_commands_contract`) | — |
+| Tool-state self-consumption | scanner/organizer treating `.musicforge/` (trash, rollback manifests) as library content — phantom duplicate groups, restore breakage | walker prunes any `.musicforge` component (`musicforge_convention_dir_is_invisible_to_scan`); state db lives outside the library by default (`X16`) | — |
+| In-place tag overwrite | `genre --apply` clobbering user metadata | `FillMissingOnly` default (existing genre never written); `--replace-all` escalates to high-risk grading (`--yes` required, `MF-OP-NEEDS-YES`) | Tag edits are not trash-restorable — dry-run default is the gate |
 
 ## Quadrant 4 — Template injection
 
