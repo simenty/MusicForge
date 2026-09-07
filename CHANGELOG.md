@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added（P6a 施工：v0.7.0 插件系统 + AI，发布另行授权）
+## [0.7.0] - 2026-09-08
+
+### Added（P6a：插件系统 + AI，★曲库管家完整形态）
 - **D8 feature 接线**：`musicforge-cli` 新增 `plugin-host` optional feature
   （default off，默认构建零插件符号——CI `cargo tree` 断言扩展至 CLI）；
   `musicforge-gui` 新增 `plugin-host` feature（发行版构建默认携带，
@@ -256,7 +258,8 @@ Initial public release (renamed from the private prototype "Shelf").
 
 - Core has zero network code paths (CI-enforced); no telemetry, no crash reporting, no analytics.
 
-[Unreleased]: https://github.com/simenty/MusicForge/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/simenty/MusicForge/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/simenty/MusicForge/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/simenty/MusicForge/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/simenty/MusicForge/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/simenty/MusicForge/compare/v0.2.0...v0.4.0
