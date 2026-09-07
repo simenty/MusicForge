@@ -2205,7 +2205,7 @@ dependencies = [
 
 [[package]]
 name = "musicforge-cli"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "aes",
  "base64 0.22.1",
@@ -2222,7 +2222,7 @@ dependencies = [
 
 [[package]]
 name = "musicforge-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "aes",
  "base64 0.22.1",
@@ -2243,7 +2243,7 @@ dependencies = [
 
 [[package]]
 name = "musicforge-gui"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "musicforge-cli",
  "musicforge-core",

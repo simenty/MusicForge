@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-07
+
+### Added
+- **Pure-Rust lossless transcode (`transcode`)**: WAV↔FLAC sample-exact conversion
+  (hound read/write + claxon decode + flacenc encode — all pure Rust, Apache/MIT);
+  magic-first probing (RIFF..WAVE / fLaC, extension ignored); interleaved-i32 PCM
+  pipeline; **built-in read-back verification** (the output must decode sample-exact
+  or it is deleted and `MF-LOSSLESS-FAILED` raised — unverified output never
+  survives); float WAV and >25-bit FLAC encode rejected explicitly with source
+  untouched; same-format inputs skipped; `(n)` collision suffix; human + JSON.
+- **CUE sheet parsing & whole-track splitting (`split`, D21)**: encoding detection
+  (BOM → strict UTF-8 → chardetng GBK/BIG5, tolerant fallback); tolerant dialect
+  parser (unknown commands preserved-and-ignored, R21; multi-FILE rejected
+  explicitly); INDEX 01 boundaries (MM:SS:FF @75fps) with per-track duration
+  verification **before write** (vs INDEX delta <1s; failing tracks not written);
+  tag flow via lofty (track TITLE/ARTIST + album fallback, ALBUM, TRACKNUMBER,
+  REM DATE) and whole-track embedded cover written to every split track (WAV via
+  Id3v2 chunk — RiffInfo cannot hold pictures); naming `NN Title` through the
+  shared sanitizer.
+- **Synthetic waveform generator (D19)**: sine/silence at any spec written as
+  WAV/FLAC — zero-copyright test fixtures powering all transcode/CUE tests.
+- **GUI**: 「AI 与插件」placeholder panel (X37) — zero-request page stating that
+  all local features work without plugins; v0.7.0 reads as unlock, not a new
+  stranger entry.
+
+### Changed
+- deps: +hound, +claxon, +flacenc (pure Rust), +encoding_rs, +chardetng (MPL-2.0,
+  already allowlisted); CLI ~2.6MB (growth within budget).
+
 ## [0.4.0] - 2026-09-07
 
 ### Added
@@ -138,7 +167,8 @@ Initial public release (renamed from the private prototype "Shelf").
 
 - Core has zero network code paths (CI-enforced); no telemetry, no crash reporting, no analytics.
 
-[Unreleased]: https://github.com/simenty/MusicForge/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/simenty/MusicForge/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/simenty/MusicForge/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/simenty/MusicForge/compare/v0.2.0...v0.4.0
 [0.2.0]: https://github.com/simenty/MusicForge/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/simenty/MusicForge/compare/v0.1.0...v0.1.1

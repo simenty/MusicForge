@@ -19,6 +19,7 @@ import {
 import { loadSettings, saveSettings, type Settings } from "./settings";
 import DedupePanel from "./DedupePanel";
 import ScanPanel from "./ScanPanel";
+import PluginPanel from "./PluginPanel";
 
 /**
  * 行状态。
@@ -798,6 +799,8 @@ export default function App() {
       {/* ---------- 曲库治理面板（去重 / 扫描，均只读入口） ---------- */}
       <DedupePanel />
       <ScanPanel />
+      {/* ---------- 插件占位态（X37：零请求，P6a 前置） ---------- */}
+      <PluginPanel />
 
       <div className="legal">
         MusicForge 仅用于处理你已合法获得的文件的个人本地格式转换 · 不联网 · 不上传 · 不收集任何数据 ·

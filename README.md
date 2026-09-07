@@ -30,8 +30,9 @@
 
 | 能力 | .ncm | WAV | FLAC | MP3 | AAC/M4A | QMC/MGG/MFLAC |
 |:--|:-:|:-:|:-:|:-:|:-:|:-:|
-| 解封装/读取 | ✅ | 📋 v0.5.0 | 📋 v0.5.0 | 📋 v0.6.0 | 📋 v0.6.0 | 🔌 可选格式插件 |
-| 无损转换 | ✅ 载荷直出 | 📋 v0.5.0 | 📋 v0.5.0 | —（有损源） | —（有损源） | 🔌 插件 |
+| 解封装/读取 | ✅ | ✅ | ✅ | 📋 v0.6.0 | 📋 v0.6.0 | 🔌 可选格式插件 |
+| 无损转换 | ✅ 载荷直出 | ✅ 采样级精确 | ✅ 采样级精确 | —（有损源） | —（有损源） | 🔌 插件 |
+| 整轨切分（CUE） | — | ✅ v0.5.0 | ✅ v0.5.0 | — | — | 🔌 插件 |
 | 有损导出 | ✅ 载荷直出 | 📋 v0.6.0 | 📋 v0.6.0 | — | — | 🔌 插件 |
 
 ✅ 已支持 · 📋 规划中（版本见 [ROADMAP.md](ROADMAP.md)） · 🔌 由[可选插件](PLUGIN_POLICY.md)提供（默认禁用）
@@ -53,7 +54,7 @@ beets 会整理但不碰加密格式、没有图形化任务安全；Picard 识�
 
 ### Windows（推荐：NSIS 安装包）
 
-1. 下载 `MusicForge-0.4.0-setup.exe`（约 1.3 MB）。
+1. 下载 `MusicForge-0.5.0-setup.exe`（约 1.3 MB）。
 2. 双击运行 —— **无需管理员权限**，默认安装到 `%LOCALAPPDATA%\Programs\MusicForge`。
 3. 安装向导会先展示[法律须知](#法律须知)，同意后选择组件：
    - 主程序（必需）：`musicforge-gui.exe` + `musicforge.exe`
@@ -67,13 +68,13 @@ beets 会整理但不碰加密格式、没有图形化任务安全；Picard 识�
 静默安装（企业部署 / 脚本）：
 
 ```bat
-MusicForge-0.4.0-setup.exe /S
+MusicForge-0.5.0-setup.exe /S
 "%LOCALAPPDATA%\Programs\MusicForge\Uninstall.exe" /S
 ```
 
 ### 免安装版
 
-解压 `musicforge-v0.4.0-windows-x64.zip`（约 1.8 MB）到任意目录，直接运行其中的 `musicforge-gui.exe`。
+解压 `musicforge-v0.5.0-windows-x64.zip`（约 1.8 MB）到任意目录，直接运行其中的 `musicforge-gui.exe`。
 
 ### 从源码构建
 
@@ -83,7 +84,7 @@ cd MusicForge
 
 cargo build --release -p musicforge-cli            # CLI
 cargo build --release -p musicforge-gui            # GUI（需先构建前端，见 CONTRIBUTING.md）
-cargo test --workspace                        # 220 个测试函数（金标 + 对抗 + QA 双轮 + 契约）
+cargo test --workspace                        # 245 个测试函数（金标 + 对抗 + QA 双轮 + 契约）
 ```
 
 ### macOS / Linux
@@ -133,6 +134,14 @@ musicforge.exe playlist import "旧歌单.m3u" --search "曲库目录"
 
 # genre 写入：文件名风格码 [Y23-S01-C01] → genre 标签（已有 genre 绝不覆盖）
 musicforge.exe genre "曲库目录" --map codebook.json --apply
+
+# 无损转码：WAV↔FLAC 采样级精确互转（内置回读校验：产物解码与源逐样本一致，
+# 校验失败自动删除未验证产物——无损承诺由机器保证，不靠信任）
+musicforge.exe transcode "WAV 目录" -o "输出" --format flac
+
+# 整轨切分：CUE + WAV/FLAC 镜像 → 按轨道切分为带标签的分轨
+# （编码自动检测 UTF-8/GBK/BIG5；单轨时长 vs INDEX 偏差 ≥1s 的轨不写盘并报告）
+musicforge.exe split "专辑.cue" -o "分轨目录"
 ```
 
 状态库（`--state-db`）缓存文件哈希（size+mtime 命中则零读取）——大曲库强烈建议提供，
