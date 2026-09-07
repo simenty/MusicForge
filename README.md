@@ -36,6 +36,11 @@
 
 ✅ 已支持 · 📋 规划中（版本见 [ROADMAP.md](ROADMAP.md)） · 🔌 由[可选插件](PLUGIN_POLICY.md)提供（默认禁用）
 
+## 与同类工具的关系
+
+**为什么不直接用 beets / Picard / Music Tag Web / Czkawka？**
+beets 会整理但不碰加密格式、没有图形化任务安全；Picard 识别精准但没有批量治理管线；Music Tag Web 刮削方便但没有后悔药；Czkawka 找重复快但不会修标签。**MusicForge 是唯一把「解封装 → 治理 → 安全执行 → 可回滚 → NAS 自动化」串成一条管线的项目**——而且每一步都可预览、可审计、可回滚。详见 [docs/competitive-analysis.md](docs/competitive-analysis.md)。
+
 ## 平台化路线与治理文档
 
 - [ROADMAP.md](ROADMAP.md) —— 定稿路线图（P0–P9，scope 已冻结）
