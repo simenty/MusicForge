@@ -17,6 +17,7 @@ import {
   type UnlistenFn,
 } from "./api";
 import { loadSettings, saveSettings, type Settings } from "./settings";
+import DedupePanel from "./DedupePanel";
 import ScanPanel from "./ScanPanel";
 
 /**
@@ -794,7 +795,8 @@ export default function App() {
         </button>
       </div>
 
-      {/* ---------- 曲库扫描（只读，独立面板） ---------- */}
+      {/* ---------- 曲库治理面板（去重 / 扫描，均只读入口） ---------- */}
+      <DedupePanel />
       <ScanPanel />
 
       <div className="legal">
