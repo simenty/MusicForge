@@ -43,7 +43,48 @@ impl Default for Fallbacks {
 /// `meta` 为 `None`（metadataLen=0 场景）时全部走回退；
 /// `fallback_stem` 是源文件名（无扩展名），title 缺失时的最终兜底。
 /// 返回值保证非空、逐段清洗、不含非法字符。
+/// D25：beets / Music Tag Web 模板兼容别名——一次性别名表映射到 `{}` 语法，
+/// 不是双语法引擎。已知键：artist/album/title/track/format。
+///
+/// - `$artist`（beets 风格）：`$` 后完整命中键名（其后不得跟 ASCII 字母，
+///   防 `$artists` 被误伤为 `{artist}s`）；
+/// - `%artist%`（Music Tag Web 风格）：精确闭合匹配。
+pub fn normalize_aliases(template: &str) -> String {
+    const KEYS: &[&str] = &["artist", "album", "title", "track", "format"];
+    let mut out = template.to_string();
+    for key in KEYS {
+        // %key% 精确闭合
+        out = out.replace(&format!("%{key}%"), &format!("{{{key}}}"));
+        // $key：后随字符非 ASCII 字母才算命中
+        let pat = format!("${key}");
+        let rep = format!("{{{key}}}");
+        let mut res = String::with_capacity(out.len());
+        let mut rest = out.as_str();
+        while let Some(pos) = rest.find(&pat) {
+            let after = &rest[pos + pat.len()..];
+            let boundary = after
+                .chars()
+                .next()
+                .map(|c| !c.is_ascii_alphabetic())
+                .unwrap_or(true);
+            res.push_str(&rest[..pos]);
+            if boundary {
+                res.push_str(&rep);
+                rest = after;
+            } else {
+                res.push_str(&pat);
+                rest = after;
+            }
+        }
+        res.push_str(rest);
+        out = res;
+    }
+    out
+}
+
 pub fn render_filename(template: &str, meta: Option<&Metadata>, fallback_stem: &str) -> String {
+    // D25：beets/Music Tag Web 别名先归一化，再走原生 `{}` 引擎
+    let template = &normalize_aliases(template);
     let fb = Fallbacks::default();
 
     let rendered: Vec<String> = template

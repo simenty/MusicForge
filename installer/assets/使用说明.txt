@@ -48,13 +48,17 @@ musicforge.exe playlist import <歌单.m3u8> --search <曲库目录> [--out <修
 musicforge.exe genre <曲库目录> [--map codebook.json] [--apply]
   文件名风格码 [Y23-S01-C01] → genre 标签；已有 genre 绝不覆盖。
 
-musicforge.exe transcode <输入目录或文件> -o <输出目录> [--format flac|wav]
+musicforge.exe transcode <输入目录或文件> -o <输出目录> [--format flac|wav|mp3|aac|opus]
   无损转码：WAV↔FLAC 采样级精确互转（内置回读校验，
   产物解码必须与源逐样本一致，否则自动删除）。
+  有损导出：MP3 320 / AAC 256 / Opus 160 —— 依赖 ffmpeg（用户自备，
+  五级自动探测或 --ffmpeg-path 指定）；有损→无损默认拦截
+  （--i-know-lossy-to-lossless 显式放行）。
 
-musicforge.exe split <专辑.cue> -o <分轨目录>
-  整轨切分：CUE + WAV/FLAC 镜像 → 带标签的独立分轨。
-  编码自动检测（UTF-8/GBK/BIG5）；单轨时长与 INDEX 偏差 ≥1s 不写盘。
+musicforge.exe split <专辑.cue> -o <分轨目录> [--format flac|wav]
+  整轨切分：CUE + WAV/FLAC/APE/WV/TAK 镜像 → 带标签的独立分轨。
+  编码自动检测（UTF-8/GBK/BIG5）；单轨时长与 INDEX 偏差 ≥1s 不写盘；
+  APE/WV/TAK 源经 ffmpeg sidecar 解码（--ffmpeg-path 可指定），默认输出 FLAC。
 
 ── 状态库 ──
 --state-db 指定的 library.db 缓存文件哈希（size+mtime 命中则零读取），

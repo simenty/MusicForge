@@ -32,8 +32,8 @@
 |:--|:-:|:-:|:-:|:-:|:-:|:-:|
 | 解封装/读取 | ✅ | ✅ | ✅ | 📋 v0.6.0 | 📋 v0.6.0 | 🔌 可选格式插件 |
 | 无损转换 | ✅ 载荷直出 | ✅ 采样级精确 | ✅ 采样级精确 | —（有损源） | —（有损源） | 🔌 插件 |
-| 整轨切分（CUE） | — | ✅ v0.5.0 | ✅ v0.5.0 | — | — | 🔌 插件 |
-| 有损导出 | ✅ 载荷直出 | 📋 v0.6.0 | 📋 v0.6.0 | — | — | 🔌 插件 |
+| 整轨切分（CUE） | — | ✅ v0.6.0 | ✅ v0.6.0 | — | — | 🔌 插件 |
+| 有损导出 | ✅ 载荷直出 | ✅ MP3 320 / AAC 256 / Opus 160 | ✅ 同左 | —（有损源） | —（有损源） | 🔌 插件 |
 
 ✅ 已支持 · 📋 规划中（版本见 [ROADMAP.md](ROADMAP.md)） · 🔌 由[可选插件](PLUGIN_POLICY.md)提供（默认禁用）
 
@@ -54,7 +54,7 @@ beets 会整理但不碰加密格式、没有图形化任务安全；Picard 识�
 
 ### Windows（推荐：NSIS 安装包）
 
-1. 下载 `MusicForge-0.5.0-setup.exe`（约 1.3 MB）。
+1. 下载 `MusicForge-0.6.0-setup.exe`（约 1.3 MB）。
 2. 双击运行 —— **无需管理员权限**，默认安装到 `%LOCALAPPDATA%\Programs\MusicForge`。
 3. 安装向导会先展示[法律须知](#法律须知)，同意后选择组件：
    - 主程序（必需）：`musicforge-gui.exe` + `musicforge.exe`
@@ -68,13 +68,13 @@ beets 会整理但不碰加密格式、没有图形化任务安全；Picard 识�
 静默安装（企业部署 / 脚本）：
 
 ```bat
-MusicForge-0.5.0-setup.exe /S
+MusicForge-0.6.0-setup.exe /S
 "%LOCALAPPDATA%\Programs\MusicForge\Uninstall.exe" /S
 ```
 
 ### 免安装版
 
-解压 `musicforge-v0.5.0-windows-x64.zip`（约 1.8 MB）到任意目录，直接运行其中的 `musicforge-gui.exe`。
+解压 `musicforge-v0.6.0-windows-x64.zip`（约 1.8 MB）到任意目录，直接运行其中的 `musicforge-gui.exe`。
 
 ### 从源码构建
 
@@ -84,7 +84,7 @@ cd MusicForge
 
 cargo build --release -p musicforge-cli            # CLI
 cargo build --release -p musicforge-gui            # GUI（需先构建前端，见 CONTRIBUTING.md）
-cargo test --workspace                        # 245 个测试函数（金标 + 对抗 + QA 双轮 + 契约）
+cargo test --workspace                        # 258 个测试函数（金标 + 对抗 + QA 双轮 + 契约）
 ```
 
 ### macOS / Linux

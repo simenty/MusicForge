@@ -212,6 +212,84 @@ fn transcode_blocks_lossy_to_lossless_before_ffmpeg() {
 }
 
 #[test]
+fn split_wavpack_cue_via_ffmpeg_sidecar() {
+    // D21：APE/WV/TAK 整轨经 ffmpeg sidecar 切分。WavPack 有 ffmpeg 编码器
+    // 可做 fixture；APE/TAK 仅解码器——同一代码路径（wv 实证）。
+    // 依赖 ffmpeg：本机缺失则自跳过（CI runner 预装）。
+    let ff_ok = Command::new("ffmpeg")
+        .arg("-version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+        || std::env::var("PROGRAMFILES")
+            .map(|p| std::path::Path::new(&p).join("ffmpeg").exists())
+            .unwrap_or(false);
+    if !ff_ok {
+        eprintln!("SKIP：本机未找到 ffmpeg（WV 切分用例由 CI 覆盖）");
+        return;
+    }
+
+    let root = uniq_root("wv");
+    let lib = root.join("lib");
+    std::fs::create_dir_all(&lib).unwrap();
+
+    // ffmpeg 生成 6s WavPack 整轨 fixture
+    let wv = lib.join("album.wv");
+    let gen = Command::new("ffmpeg")
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=6",
+            "-c:a",
+            "wavpack",
+        ])
+        .arg(&wv)
+        .output()
+        .unwrap();
+    assert!(gen.status.success(), "ffmpeg 生成 WavPack 失败");
+
+    let cue = lib.join("album.cue");
+    let cue_text = concat!(
+        "TITLE \"WV 专辑\"\n",
+        "PERFORMER \"测试艺人\"\n",
+        "FILE \"album.wv\" WAVE\n",
+        "TRACK 01 AUDIO\n",
+        "  TITLE \"第一轨\"\n",
+        "  INDEX 01 00:00:00\n",
+        "TRACK 02 AUDIO\n",
+        "  TITLE \"第二轨\"\n",
+        "  INDEX 01 00:03:00\n",
+    );
+    std::fs::write(&cue, cue_text).unwrap();
+
+    let out = root.join("tracks");
+    let (code, text) = run_cli(&[
+        "split",
+        cue.to_str().unwrap(),
+        "-o",
+        out.to_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(code, 0, "{text}");
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(v["tracks"].as_array().unwrap().len(), 2, "{text}");
+
+    // 分轨时长 ≈3s（INDEX 差 <1s 校验已在 CLI 内置）
+    let t1 = v["tracks"][0]["path"].as_str().unwrap();
+    assert!(t1.ends_with(".flac"), "WV 源默认输出 FLAC: {t1}");
+    let pcm = musicforge_core::lossless::decode_to_pcm(std::path::Path::new(t1)).unwrap();
+    let dur = pcm.samples.len() as f64 / (pcm.spec.channels as f64) / pcm.spec.sample_rate as f64;
+    assert!((dur - 3.0).abs() < 1.0, "第一轨时长应 ≈3s，实测 {dur:.2}s");
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
 fn transcode_rejects_unknown_format() {
     let root = uniq_root("badfmt");
     let (code, out) = run_cli(&[

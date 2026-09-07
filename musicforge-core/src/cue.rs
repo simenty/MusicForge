@@ -16,6 +16,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::error::NcmError;
+use crate::ffmpeg::Ffmpeg;
 use crate::lossless::{decode_to_pcm, encode_pcm, probe_lossless_file, LosslessFormat, Pcm};
 
 // ---------------------------------------------------------------- 编码检测 --
@@ -277,6 +278,18 @@ pub fn split_cue(
     out_dir: &Path,
     naming: impl Fn(usize, &CueTrack) -> String,
 ) -> Result<SplitReport, NcmError> {
+    split_cue_ex(cue_path, out_dir, None, None, naming)
+}
+
+/// 扩展版：`target` 指定输出格式（None=源格式；APE/WV/TAK 源默认 FLAC）；
+/// `ff` 为 ffmpeg sidecar——APE/WavPack/TAK 源经它解码为临时 WAV 再切片（D21）。
+pub fn split_cue_ex(
+    cue_path: &Path,
+    out_dir: &Path,
+    target: Option<LosslessFormat>,
+    ff: Option<&Ffmpeg>,
+    naming: impl Fn(usize, &CueTrack) -> String,
+) -> Result<SplitReport, NcmError> {
     let sheet = parse_cue_file(cue_path)?;
     let audio_rel = sheet
         .file
@@ -290,17 +303,45 @@ pub fn split_cue(
             source.display()
         )));
     }
-    let src_format = probe_lossless_file(&source).ok_or_else(|| {
-        NcmError::Lossless(format!(
-            "{}: 不是支持的无损格式（仅 WAV/FLAC）",
-            source.display()
-        ))
-    })?;
 
-    // 整轨内嵌封面提取（写每个分轨；无封面则跳过）
-    let cover_bytes = extract_cover(&source)?;
+    // 源解析：WAV/FLAC 走纯 Rust 解码；APE/WV/TAK 走 ffmpeg sidecar 解码为临时
+    // WAV（24-bit PCM 容器承载 16/24 位源，值空间无损；临时文件用后即删）
+    const SIDECAR_EXTS: &[&str] = &["ape", "wv", "tak"];
+    let src_format = probe_lossless_file(&source);
+    let (whole, out_format) = match src_format {
+        Some(f) => (decode_to_pcm(&source)?, target.unwrap_or(f)),
+        None => {
+            let ext = source
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_ascii_lowercase())
+                .unwrap_or_default();
+            if !SIDECAR_EXTS.contains(&ext.as_str()) {
+                return Err(NcmError::Lossless(format!(
+                    "{}: 不是支持的切分格式（WAV/FLAC/APE/WV/TAK）",
+                    source.display()
+                )));
+            }
+            let ff = ff.ok_or_else(|| {
+                NcmError::Lossless(
+                    "APE/WavPack/TAK 整轨切分需要 ffmpeg sidecar（未提供）".to_string(),
+                )
+            })?;
+            let temp = out_dir.join(".mf-split-tmp.wav");
+            ff.export_custom(&source, &temp, &["-c:a", "pcm_s24le"])?;
+            let pcm = decode_to_pcm(&temp);
+            let _ = std::fs::remove_file(&temp);
+            (pcm?, target.unwrap_or(LosslessFormat::Flac))
+        }
+    };
 
-    let whole = decode_to_pcm(&source)?;
+    // 整轨内嵌封面提取（写每个分轨；无封面则跳过）——ffmpeg 解码源无内嵌封面
+    // 可提，同目录 cover.jpg 约定归 v0.7.0 资产策略域
+    let cover_bytes = if src_format.is_some() {
+        extract_cover(&source)?
+    } else {
+        None
+    };
     let ch = whole.spec.channels.max(1) as usize;
 
     std::fs::create_dir_all(out_dir)?;
@@ -362,11 +403,11 @@ pub fn split_cue(
         // 写盘 + 标签 + 封面
         let name = naming(i + 1, track);
         let safe = crate::template::sanitize(&name);
-        let dst = out_dir.join(format!("{safe}.{}", src_format.extension()));
-        let _bytes = encode_pcm(&dst, src_format, &track_pcm)?;
+        let dst = out_dir.join(format!("{safe}.{}", out_format.extension()));
+        let _bytes = encode_pcm(&dst, out_format, &track_pcm)?;
         write_track_tags(
             &dst,
-            src_format,
+            out_format,
             track.title.as_deref().or(track.title.as_deref()),
             track.performer.as_deref().or(sheet.performer.as_deref()),
             sheet.title.as_deref(),

@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-07
+
+### Added
+- **Lossy export presets (`transcode --format mp3|aac|opus`)**: MP3 320
+  (libmp3lame) / AAC 256 (native aac → .m4a) / Opus 160 (libopus) via FFmpeg
+  sidecar (D1: never bundled — five-level detection `--ffmpeg-path` → exe dir
+  → PATH → common dirs → `MF-FFMPEG-MISSING` with install guidance; every
+  candidate verified via `ffmpeg -version`); built-in read-back verification
+  per output (container magic per preset + duration delta <1s parsed from
+  `ffmpeg -i` stderr — no ffprobe dependency; failing output deleted).
+- **Upgrade interception**: lossy source entering the lossless pipeline raises
+  `MF-LOSSY-TO-LOSSLESS` before any decode; `--i-know-lossy-to-lossless`
+  bypasses explicitly (ffmpeg flac/pcm re-encode).
+- **APE / WavPack / TAK whole-track splitting (D21)**: `split` accepts
+  sidecar-format images via ffmpeg decode to temporary 24-bit WAV (value-space
+  lossless; temp deleted after slicing); output format defaults to FLAC for
+  these sources (`--format flac|wav` override); WavPack path covered by
+  end-to-end test (ffmpeg has a wv encoder; APE/TAK share the same decode
+  path — ffmpeg ships decoders only for them).
+- **Template compatibility aliases (D25)**: beets `$artist` and Music Tag Web
+  `%artist%` styles normalize to the native `{artist}` syntax (single alias
+  table, not a dual-syntax engine; `$artists`-style longer names never
+  clobbered); organize/convert templates accept all three spellings.
+- **Facade migration guide (D9)**: `docs/migration-facades.md` — full
+  old→new path mapping for the P1b facades, dual error-code namespaces, and
+  the honest preconditions for `#[deprecated]` markers (QA-protected tests
+  must migrate first).
+
+### Changed
+- deps: +encoding_rs, +chardetng (MPL-2.0, allowlisted); CLI ~2.7MB.
+
 ## [0.5.0] - 2026-09-07
 
 ### Added
@@ -167,7 +198,8 @@ Initial public release (renamed from the private prototype "Shelf").
 
 - Core has zero network code paths (CI-enforced); no telemetry, no crash reporting, no analytics.
 
-[Unreleased]: https://github.com/simenty/MusicForge/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/simenty/MusicForge/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/simenty/MusicForge/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/simenty/MusicForge/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/simenty/MusicForge/compare/v0.2.0...v0.4.0
 [0.2.0]: https://github.com/simenty/MusicForge/compare/v0.1.1...v0.2.0

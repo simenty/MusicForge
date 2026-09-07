@@ -186,7 +186,7 @@ enum Sub {
         #[arg(long)]
         json: bool,
     },
-    /// 整轨切分：CUE + WAV/FLAC 镜像 → 按轨道切分为独立文件（无损，源不动）
+    /// 整轨切分：CUE + WAV/FLAC/APE/WV/TAK 镜像 → 按轨道切分为独立文件（无损，源不动）
     Split {
         /// CUE 文件（编码自动检测：UTF-8/GBK/BIG5）
         #[arg(value_name = "CUE_FILE")]
@@ -194,6 +194,12 @@ enum Sub {
         /// 输出目录（分轨写入这里，命名 `NN 标题`）
         #[arg(short = 'o', long)]
         out: String,
+        /// 输出格式（缺省：WAV/FLAC 源保持原格式；APE/WV/TAK 源 → FLAC）
+        #[arg(long, value_parser = ["flac", "wav"])]
+        format: Option<String>,
+        /// ffmpeg 可执行文件路径（APE/WV/TAK 源切分必需）
+        #[arg(long)]
+        ffmpeg_path: Option<String>,
         /// JSON 输出（机器可读）
         #[arg(long)]
         json: bool,
@@ -1025,11 +1031,65 @@ fn run_transcode_sub(inputs: &[String], a: &TranscodeArgs) -> i32 {
 }
 
 /// 整轨切分子命令：CUE → 独立音轨（校验在写盘前完成，失败轨不落盘）。
-fn run_split_sub(cue: &str, out: &str, json: bool) -> i32 {
-    match musicforge_core::cue::split_cue(Path::new(cue), Path::new(out), |n, t| {
-        let title = t.title.as_deref().unwrap_or("Unknown Track");
-        crate::sanitize_track_name(&format!("{n:02} {title}"))
-    }) {
+fn run_split_sub(
+    cue: &str,
+    out: &str,
+    format: Option<String>,
+    ffmpeg_path: Option<String>,
+    json: bool,
+) -> i32 {
+    // APE/WV/TAK 源需要 ffmpeg sidecar（D21）；WAV/FLAC 源不需要
+    let needs_ff = Path::new(cue)
+        .parent()
+        .and_then(|dir| {
+            let sheet_text = std::fs::read_to_string(cue).ok()?;
+            let file_line = sheet_text
+                .lines()
+                .find(|l| l.trim_start().to_uppercase().starts_with("FILE"))?;
+            let name = file_line
+                .split('"')
+                .nth(1)
+                .map(|s| s.to_string())
+                .or_else(|| file_line.split_whitespace().nth(1).map(|s| s.to_string()))?;
+            Some(
+                dir.join(name)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.to_ascii_lowercase()),
+            )
+        })
+        .flatten()
+        .map(|ext| matches!(ext.as_str(), "ape" | "wv" | "tak"))
+        .unwrap_or(false);
+    let ff = if needs_ff {
+        match musicforge_core::ffmpeg::Ffmpeg::find(ffmpeg_path.as_deref().map(Path::new)) {
+            Ok(ff) => Some(ff),
+            Err(e) => {
+                eprintln!("✗ {e}");
+                eprintln!(
+                    "  {}",
+                    musicforge_core::NcmError::FfmpegMissing { searched: 0 }.suggestion()
+                );
+                return 1;
+            }
+        }
+    } else {
+        None
+    };
+    let target = format
+        .as_deref()
+        .and_then(musicforge_core::lossless::LosslessFormat::parse);
+
+    match musicforge_core::cue::split_cue_ex(
+        Path::new(cue),
+        Path::new(out),
+        target,
+        ff.as_ref(),
+        |n, t| {
+            let title = t.title.as_deref().unwrap_or("Unknown Track");
+            crate::sanitize_track_name(&format!("{n:02} {title}"))
+        },
+    ) {
         Ok(report) => {
             if json {
                 let o = serde_json::json!({
@@ -1611,7 +1671,13 @@ fn main() {
                     json,
                 },
             ),
-            Sub::Split { cue, out, json } => run_split_sub(&cue, &out, json),
+            Sub::Split {
+                cue,
+                out,
+                format,
+                ffmpeg_path,
+                json,
+            } => run_split_sub(&cue, &out, format, ffmpeg_path, json),
             Sub::Genre {
                 dir,
                 map,
