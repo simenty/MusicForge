@@ -43,6 +43,7 @@ MusicForge 的每个失败都携带一个**稳定错误码**：UI、日志、失
 | `MF-TASK-*` | — | P2（任务/报告） |
 | `MF-DUP-*` | `MF-DUP-EXACT`（exact 内容重复牺牲项，回滚清单 `rule` 字段）／`MF-DUP-SAME-NAME`（同名候选牺牲项，`--include-same-name` 才纳入执行） | P4（去重）✅ 已启用 |
 | `MF-PATH-CONFLICT` | organize 冲突策略 `overwrite-never`：目标已存在，该项计失败（任何策略绝不覆盖目标） | P4（整理）✅ 已启用 |
+| `MF-DIR-NOT-AUTHORIZED` | 目录未获授权（fnOS/只读挂载场景）：扫描上报未授权清单 + 授权引导文案；只读授权目录上执行破坏类操作拒绝 | P8（fnOS fpk，X31）📋 规划 |
 | `MF-ORGANIZE` | organize 移动项在回滚清单 `rule` 字段的标记（from=新位置 → to=原位置，`clean --restore` 可整体还原） | P4（整理）✅ 已启用 |
 | `MF-PLUGIN-NOT-FOUND` | `dedupe --suggest` 在离线版显式报出（AI 保留建议 = v0.7.0 `review_duplicate_group` 插件；绝不静默装作给过建议） | P4 触发 / P6a 修复 ✅ 已启用 |
 
