@@ -65,6 +65,9 @@ pub enum NcmError {
 
     #[error("状态库错误: {0}")]
     Db(String),
+
+    #[error("无损转码失败: {0}")]
+    Lossless(String),
 }
 
 impl NcmError {
@@ -87,6 +90,7 @@ impl NcmError {
             NcmError::TagRead(_) => "TAG-READ",
             NcmError::TagWrite(_) => "TAG-WRITE",
             NcmError::Db(_) => "MF-DB-FAILED",
+            NcmError::Lossless(_) => "LOSSLESS-ERROR",
         }
     }
 
@@ -113,6 +117,7 @@ impl NcmError {
             NcmError::TagRead(_) => "MF-TAG-READ-FAILED",
             NcmError::TagWrite(_) => "MF-TAG-WRITE-FAILED",
             NcmError::Db(_) => "MF-DB-FAILED",
+            NcmError::Lossless(_) => "MF-LOSSLESS-FAILED",
         }
     }
 
@@ -135,6 +140,9 @@ impl NcmError {
             NcmError::TagWrite(_) => "标签写入失败，请检查输出文件是否被其他程序占用。",
             NcmError::Db(_) => {
                 "状态库异常：它只是可再生缓存，删除后会自动重建；但请勿将其放在网络挂载目录上。"
+            }
+            NcmError::Lossless(_) => {
+                "无损转码失败：源文件可能损坏或包含不支持的 PCM 形态（如浮点 WAV）。源文件未被修改，可放心重试或更换目标格式。"
             }
             _ => "请检查文件与目录权限后重试，或使用失败清单导出功能记录该文件。",
         }

@@ -17,6 +17,10 @@ serde_json = "1"
 sha2 = "0.10"
 # P4 similar_cover：仅内嵌封面（JPEG/PNG）解码供 8×8 aHash；关默认特性控体积
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+# P5a 无损转码：WAV 读写（hound）/ FLAC 解码（claxon）/ FLAC 编码（flacenc）——全纯 Rust
+hound = "3.5"
+claxon = "0.4"
+flacenc = "0.5"
 
 # [profile.release] 只在 workspace 根定义（Cargo 语义：非根包的 profile 会被忽略，
 # 保留重复副本只会制造"改了没生效"的漂移陷阱——QA 审计 K4，2026-09-03 移除）
