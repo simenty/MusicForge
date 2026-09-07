@@ -210,13 +210,19 @@ pub fn plan_organize(root: &Path, options: &OrganizeOptions) -> Result<OrganizeP
             continue;
         }
 
-        // 已在目标根内且当前名 = 渲染名（可带历史分配的 (N) 后缀）→ 已在位。
+        // 已在渲染位次目录且当前名 = 渲染名（可带历史分配的 (N) 后缀）→ 已在位。
         // 真机实测发现的幂等性缺陷：suffix 策略落位的 "name (2).ext" 在二次
         // 规划时渲染回 "name.ext" ≠ 当前名 → 冲突 → 再次后缀 → 无限膨胀。
-        // 语义：文件已在目标根内、且名字符合本次渲染（含既有后缀）即视为归位。
+        // 语义：文件已在**渲染目标所在目录**、且名字符合本次渲染（含既有后缀）
+        // 即视为归位。
+        // P6a 收官回归修复：判定目录从「target_root 根」收紧为「target.parent()」
+        // ——子目录模板（如 `{album}/{title}`）下，根级同名文件曾被吞成
+        // AlreadyInPlace（永远不归入子文件夹），且子目录内的 suffix 落位文件
+        // 二次规划会被续编号到 (3)（无限膨胀）。平铺模板行为不变（parent 即
+        // target_root），既有幂等测试不受影响。
         if source
             .parent()
-            .map(|p| p == options.target_root)
+            .map(|p| p == target.parent().unwrap_or(options.target_root))
             .unwrap_or(false)
             && name_matches_with_optional_suffix(source, &target)
         {

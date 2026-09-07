@@ -279,3 +279,87 @@ fn second_run_is_noop_and_rollback_restores() {
     assert!(src.join("m.wav").exists(), "还原后文件回原位");
     std::fs::remove_dir_all(&root).ok();
 }
+
+// ============ P6a 收官回归：子目录模板的归位判定（修复用例，先证伪）============
+
+/// 回归：子目录模板 + 文件位于 target_root 根级 → 必须被规划进子文件夹。
+///
+/// 修复前缺陷：归位判定的 `name_matches_with_optional_suffix` 只比文件名，
+/// 根级 `a.wav` 与渲染目标 `未知专辑/a.wav` 的文件名相同即被误判 AlreadyInPlace，
+/// 文件永远不归入子文件夹（幂等测试此前只覆盖平铺模板 `{title}` 场景）。
+#[test]
+fn nested_template_moves_root_files_into_subfolder() {
+    let root = uniq_root("nested");
+    let lib = root.join("lib");
+    std::fs::create_dir_all(&lib).unwrap();
+    std::fs::write(lib.join("a.wav"), wav_bytes(44100, 16)).unwrap();
+
+    let opts = OrganizeOptions {
+        template: "{album}/{title}",
+        target_root: &lib,
+        conflict: ConflictStrategy::Skip,
+    };
+    let plan = plan_organize(&lib, &opts).unwrap();
+    let c = plan.counts();
+    assert_eq!(c.planned, 1, "根级文件必须被规划进子文件夹: {plan:?}");
+    assert_eq!(c.in_place, 0, "根级文件不得被误判已在位");
+
+    let out = apply_organize_plan(&plan, "nested-r1").unwrap();
+    assert_eq!(out.moved, 1);
+    assert!(
+        lib.join("未知专辑").join("a.wav").exists(),
+        "文件应落入渲染子目录"
+    );
+
+    // 幂等：二次规划全在位，零移动
+    let plan2 = plan_organize(&lib, &opts).unwrap();
+    let c2 = plan2.counts();
+    assert_eq!(c2.planned, 0, "归位后二次规划不得再产生移动项");
+    assert_eq!(c2.in_place, 1);
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// 回归：子目录模板 + Suffix 冲突 → 二次规划必须判在位（不得无限 (N) 膨胀）。
+///
+/// 修复前缺陷：suffix 幂等判定同样只作用于 `target_root` 根——子目录内
+/// `a (2).wav` 在二次规划中匹配不到归位规则，走冲突分支续编号到 `(3)`。
+#[test]
+fn nested_suffix_placed_files_are_in_place_on_second_run() {
+    let root = uniq_root("nested-suffix");
+    let lib = root.join("lib");
+    let occupied_dir = lib.join("未知专辑");
+    std::fs::create_dir_all(&occupied_dir).unwrap();
+    // 预置冲突目标（真实场景：既有文件占用渲染位）
+    std::fs::write(occupied_dir.join("a.wav"), b"PRE-OCCUPIED").unwrap();
+    // 待整理文件（渲染目标 a.wav 被占用 → suffix 落位）
+    std::fs::write(lib.join("a.wav"), b"CONTENT-A").unwrap();
+
+    let opts = OrganizeOptions {
+        template: "{album}/{title}",
+        target_root: &lib,
+        conflict: ConflictStrategy::Suffix,
+    };
+    let plan1 = plan_organize(&lib, &opts).unwrap();
+    assert_eq!(plan1.counts().planned, 1, "冲突 → suffix 改名规划");
+    let out1 = apply_organize_plan(&plan1, "nested-suffix-r1").unwrap();
+    assert_eq!(out1.moved, 1);
+    assert_eq!(
+        std::fs::read(occupied_dir.join("a.wav")).unwrap(),
+        b"PRE-OCCUPIED",
+        "既有目标绝不被覆盖"
+    );
+
+    // 二次规划：子目录内的 "a (2).wav" 必须判已在位，零移动（绝不允许 (3)）
+    let plan2 = plan_organize(&lib, &opts).unwrap();
+    let c2 = plan2.counts();
+    assert_eq!(
+        c2.planned, 0,
+        "suffix 落位后二次规划不得再产生移动项: {plan2:?}"
+    );
+    assert_eq!(c2.in_place, 2);
+    assert!(
+        !occupied_dir.join("a (2) (2).wav").exists(),
+        "绝不允许二次后缀化"
+    );
+    std::fs::remove_dir_all(&root).ok();
+}
