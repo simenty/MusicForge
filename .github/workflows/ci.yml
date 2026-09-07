@@ -193,7 +193,7 @@ jobs:
 
       - name: 默认构建 feature 断言（默认构建无插件宿主/云层）
         run: |
-          cargo tree -e features -p musicforge-core 2>/dev/null | grep -iE "plugin-host|musicforge-cloud" \
+          cargo tree -e features -p musicforge-core -p musicforge-cli 2>/dev/null | grep -iE "plugin-host|musicforge-cloud" \
             && exit 1 || echo "默认构建零插件宿主/云层 ✓"
 
   # ---- 断网行为测试（P0.5 第 4 层）：有网构建 → iptables 断网 → 跑金标 ----

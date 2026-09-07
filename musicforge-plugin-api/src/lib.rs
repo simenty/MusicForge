@@ -25,6 +25,25 @@ pub mod codes {
     pub const HOST_API_MAJOR: u64 = 1;
 }
 
+/// 冻结方法集（`docs/p6a-ai-interface.md` §2；P6a 施工清单第 2 项）。
+///
+/// 命名空间约定：`plugin.*` = 生命周期管理；`ai.*` / `lyrics.*` / `cover.*` = 能力域。
+pub mod methods {
+    pub const PLUGIN_MANIFEST: &str = "plugin.manifest";
+    pub const PLUGIN_HEALTH: &str = "plugin.health";
+    pub const PLUGIN_SHUTDOWN: &str = "plugin.shutdown";
+    pub const AI_IDENTIFY_TRACK: &str = "ai.identify_track";
+    /// 规则文本交回 core 执行（AI 只建议，执行权在 core）
+    pub const AI_GENERATE_FILENAME_REGEX: &str = "ai.generate_filename_regex";
+    /// D24：重复组保留建议（质量画像之外的语义判断）
+    pub const AI_REVIEW_DUPLICATE_GROUP: &str = "ai.review_duplicate_group";
+    /// 红线：绝不改歌手/歌名
+    pub const LYRICS_VERIFY: &str = "lyrics.verify";
+    /// D22：封面来源优先级最末
+    pub const COVER_SEARCH: &str = "cover.search";
+    pub const COVER_GENERATE: &str = "cover.generate";
+}
+
 // ---------------------------------------------------------------- 信封 --
 
 /// 请求信封（X8 强类型 NDJSON）。
@@ -129,6 +148,147 @@ pub struct IdentifySuggestion {
     pub reason: String,
 }
 
+// ---------------------------------------------------------------- 方法参数/结果 --
+
+/// `ai.identify_track` 请求参数（协议形状冻结于 p6a-ai-interface.md §3）。
+///
+/// 最小请求模型：类型层面不存在 `absolute_path`/`audio_bytes`/`cover_bytes`。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct IdentifyTrackParams {
+    pub normalized_filename: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub artists: Vec<String>,
+    #[serde(default)]
+    pub album: Option<String>,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+    #[serde(default)]
+    pub format: Option<String>,
+    #[serde(default)]
+    pub language_hint: Option<String>,
+}
+
+/// `ai.generate_filename_regex` 请求参数：文件名样例集。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct FilenameRegexParams {
+    pub samples: Vec<String>,
+}
+
+/// `ai.generate_filename_regex` 结果：规则文本（执行权在 core，插件不碰文件系统）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FilenameRegexResult {
+    pub rule: String,
+    pub confidence: f32,
+    pub reason: String,
+}
+
+/// 重复组成员画像（D24 语义判断的最小上下文；不含路径，仅元数据）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct DuplicateMember {
+    /// 文件名（含扩展名；禁发绝对路径）
+    pub filename: String,
+    #[serde(default)]
+    pub format: Option<String>,
+    #[serde(default)]
+    pub bitrate_kbps: Option<u64>,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+    #[serde(default)]
+    pub size_bytes: Option<u64>,
+}
+
+/// `ai.review_duplicate_group` 请求参数。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct DuplicateGroupParams {
+    pub members: Vec<DuplicateMember>,
+}
+
+/// `ai.review_duplicate_group` 结果：建议保留项（下标）+ 理由。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DuplicateReviewResult {
+    pub keep_index: usize,
+    pub reason: String,
+}
+
+/// `lyrics.verify` 请求参数（红线：绝不改歌手/歌名——本方法只核验，不产出替换标题）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LyricsVerifyParams {
+    pub title: String,
+    pub artists: Vec<String>,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+    /// 歌词文本抽样（前 N 行），供语义比对
+    pub lyrics_excerpt: String,
+}
+
+/// 歌词核验结论。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LyricsVerdict {
+    Match,
+    Mismatch,
+    Uncertain,
+}
+
+/// `lyrics.verify` 结果：核验结论 + 候选（候选仅为歌词来源描述，不含标题/艺人替换）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LyricsVerifyResult {
+    pub verdict: LyricsVerdict,
+    pub confidence: f32,
+    #[serde(default)]
+    pub candidates: Vec<String>,
+}
+
+/// 封面候选（`cover.search` / `cover.generate` 共用）。
+///
+/// `image_ref` 为远端引用或本地缓存描述——禁发 `cover_bytes` 本体。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CoverCandidate {
+    pub source: String,
+    pub image_ref: String,
+    #[serde(default)]
+    pub width_px: Option<u32>,
+    #[serde(default)]
+    pub height_px: Option<u32>,
+    pub confidence: f32,
+}
+
+/// 封面域查询参数（D22：来源优先级最末，仅在无达标内嵌时由 core 发起）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct CoverQueryParams {
+    pub title: String,
+    #[serde(default)]
+    pub artists: Vec<String>,
+    #[serde(default)]
+    pub album: Option<String>,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+    #[serde(default)]
+    pub style_hint: Option<String>,
+}
+
+/// `cover.search` / `cover.generate` 结果。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct CoverResult {
+    pub candidates: Vec<CoverCandidate>,
+}
+
+/// `plugin.health` 结果。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HealthResult {
+    pub status: String,
+    #[serde(default)]
+    pub uptime_ms: Option<u64>,
+}
+
+/// `plugin.shutdown` 结果（插件应答后自行退出）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ShutdownResult {
+    pub accepted: bool,
+}
+
 // ---------------------------------------------------------------- D20 协商 --
 
 /// D20：插件 `api_version` 是否落在 Host 支持区间内。
@@ -145,17 +305,41 @@ pub fn api_compatible(plugin_api_version: &str, host_range: &str) -> bool {
     if let Ok(major) = range.parse::<u64>() {
         return plugin_major == major;
     }
-    let mut lower: u64 = 0;
+    // 稳定审计修复（2026-09-08）：此前约束解析失败（如 "1.0.0"/"garbage"）时
+    // lower 默认 0 且无上界 → 隐式放行一切插件。修复为：未解析出任何合法约束
+    // 或出现未知形态 → 显式不兼容（拒绝优于放行）。
+    let mut lower: Option<u64> = None;
     let mut upper: Option<u64> = None;
+    let mut saw_constraint = false;
     for part in range.split(',') {
         let part = part.trim();
+        if part.is_empty() {
+            continue; // 容忍尾部逗号的空白片段
+        }
         if let Some(v) = part.strip_prefix(">=") {
-            lower = v.trim().parse().unwrap_or(0);
+            match v.trim().parse::<u64>() {
+                Ok(n) => {
+                    lower = Some(n);
+                    saw_constraint = true;
+                }
+                Err(_) => return false,
+            }
         } else if let Some(v) = part.strip_prefix('<') {
-            upper = v.trim().parse().ok();
+            match v.trim().parse::<u64>() {
+                Ok(n) => {
+                    upper = Some(n);
+                    saw_constraint = true;
+                }
+                Err(_) => return false,
+            }
+        } else {
+            return false; // 未知约束形态 → 显式不兼容
         }
     }
-    plugin_major >= lower && upper.map(|u| plugin_major < u).unwrap_or(true)
+    if !saw_constraint {
+        return false;
+    }
+    plugin_major >= lower.unwrap_or(0) && upper.map(|u| plugin_major < u).unwrap_or(true)
 }
 
 #[cfg(test)]
@@ -189,6 +373,21 @@ mod tests {
         assert!(api_compatible("1.0.0", "1"));
         assert!(!api_compatible("2.0.0", "1"));
         assert!(!api_compatible("garbage", ">=1,<2"));
+        // 稳定审计 B4：host_range 本身不可解析 → 必须显式拒绝（此前隐式放行一切）
+        assert!(!api_compatible("1.0.0", "garbage"), "垃圾区间不得放行");
+        assert!(
+            !api_compatible("1.0.0", "1.0.0"),
+            "完整 semver 误入区间位 → 拒绝而非放行"
+        );
+        assert!(!api_compatible("1.0.0", ">=x,<2"), "约束数值非法 → 拒绝");
+        assert!(
+            api_compatible("1.9.0", ">=1"),
+            "仅下界（无上界）仍是合法形态"
+        );
+        assert!(
+            api_compatible("2.0.0", ">=1"),
+            "仅下界（无上界）→ 2.x 合法（与原实现语义一致）"
+        );
     }
 
     #[test]

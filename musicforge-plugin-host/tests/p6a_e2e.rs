@@ -130,3 +130,302 @@ fn drop_terminates_child() {
                // 预研以「Drop 不 panic + 后续 spawn 正常」为充分信号
     let _ = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
 }
+
+// ============================== T2 方法集落地 ==============================
+
+mod method_set {
+    use super::*;
+
+    use musicforge_plugin_api::{
+        methods, CoverQueryParams, CoverResult, DuplicateGroupParams, DuplicateMember,
+        DuplicateReviewResult, FilenameRegexParams, FilenameRegexResult, HealthResult,
+        IdentifyTrackParams, LyricsVerdict, LyricsVerifyParams, LyricsVerifyResult, ShutdownResult,
+    };
+
+    /// 构造一次 spawn（每个用例独立进程，互不污染）。
+    fn spawn_mock() -> PluginProcess {
+        PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap()
+    }
+
+    #[test]
+    fn identify_track_typed_roundtrip() {
+        let mut p = spawn_mock();
+        let params = IdentifyTrackParams {
+            normalized_filename: "王铮亮 feat. 风华音纪 - 借墨 [SQ].wav".into(),
+            title: Some("借墨".into()),
+            artists: vec!["王铮亮".into()],
+            album: None,
+            duration_ms: Some(252_000),
+            format: Some("wav".into()),
+            language_hint: Some("zh".into()),
+        };
+        let sug: IdentifySuggestion = p
+            .call_typed(
+                methods::AI_IDENTIFY_TRACK,
+                serde_json::to_value(&params).unwrap(),
+                2_000,
+            )
+            .unwrap();
+        assert_eq!(sug.title, "借墨");
+        assert_eq!(sug.artists.len(), 2);
+        assert!((sug.confidence - 0.93).abs() < 1e-6);
+        assert_eq!(sug.field_confidence.get("album"), Some(&0.86));
+    }
+
+    #[test]
+    fn health_reports_ok() {
+        let mut p = spawn_mock();
+        let h: HealthResult = p
+            .call_typed(methods::PLUGIN_HEALTH, serde_json::json!({}), 2_000)
+            .unwrap();
+        assert_eq!(h.status, "ok");
+    }
+
+    #[test]
+    fn shutdown_responds_then_child_exits() {
+        let mut p = spawn_mock();
+        let s: ShutdownResult = p
+            .call_typed(methods::PLUGIN_SHUTDOWN, serde_json::json!({}), 2_000)
+            .unwrap();
+        assert!(s.accepted);
+        // 自愿退出路径：子进程必须在短窗内可见地退出（非 kill）
+        let mut exited = false;
+        for _ in 0..50 {
+            if p.child_try_wait().map(|s| s.is_some()).unwrap_or(false) {
+                exited = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(exited, "shutdown 后子进程必须自行退出");
+    }
+
+    #[test]
+    fn filename_regex_returns_rule_text() {
+        let mut p = spawn_mock();
+        let params = FilenameRegexParams {
+            samples: vec![
+                "王铮亮 - 借墨 [SQ].wav".into(),
+                "周杰伦 - 晴天 [HQ].flac".into(),
+            ],
+        };
+        let r: FilenameRegexResult = p
+            .call_typed(
+                methods::AI_GENERATE_FILENAME_REGEX,
+                serde_json::to_value(&params).unwrap(),
+                2_000,
+            )
+            .unwrap();
+        assert!(!r.rule.is_empty(), "规则文本不得为空");
+        assert!(
+            r.rule.contains("P<artist>"),
+            "规则必须含命名捕获组: {}",
+            r.rule
+        );
+    }
+
+    #[test]
+    fn duplicate_review_suggests_deterministic_keep() {
+        let mut p = spawn_mock();
+        let params = DuplicateGroupParams {
+            members: vec![
+                DuplicateMember {
+                    filename: "a.flac".into(),
+                    format: Some("flac".into()),
+                    bitrate_kbps: Some(800),
+                    duration_ms: Some(252_000),
+                    size_bytes: Some(25_000_000),
+                },
+                DuplicateMember {
+                    filename: "b.flac".into(),
+                    format: Some("flac".into()),
+                    bitrate_kbps: Some(1000),
+                    duration_ms: Some(252_000),
+                    size_bytes: Some(31_000_000),
+                },
+            ],
+        };
+        let r: DuplicateReviewResult = p
+            .call_typed(
+                methods::AI_REVIEW_DUPLICATE_GROUP,
+                serde_json::to_value(&params).unwrap(),
+                2_000,
+            )
+            .unwrap();
+        assert_eq!(r.keep_index, 1, "高码率成员应被建议保留");
+        assert!(!r.reason.is_empty());
+    }
+
+    #[test]
+    fn lyrics_verify_never_suggests_title_or_artists() {
+        let mut p = spawn_mock();
+        let params = LyricsVerifyParams {
+            title: "借墨".into(),
+            artists: vec!["王铮亮".into()],
+            duration_ms: Some(252_000),
+            lyrics_excerpt: "一笔借墨 挥毫落纸".into(),
+        };
+        let r: LyricsVerifyResult = p
+            .call_typed(
+                methods::LYRICS_VERIFY,
+                serde_json::to_value(&params).unwrap(),
+                2_000,
+            )
+            .unwrap();
+        assert_eq!(r.verdict, LyricsVerdict::Match);
+        // 红线：核验结果的候选不得是标题/艺人替换（类型层面无该字段，编译期保证）
+        for cand in &r.candidates {
+            assert_ne!(cand, &params.title, "候选不得为标题替换项");
+        }
+    }
+
+    #[test]
+    fn cover_search_and_generate_return_candidates() {
+        let mut p = spawn_mock();
+        let params = CoverQueryParams {
+            title: "借墨".into(),
+            artists: vec!["王铮亮".into()],
+            album: Some("借墨".into()),
+            duration_ms: Some(252_000),
+            style_hint: None,
+        };
+        let wire = serde_json::to_string(&params).unwrap();
+        for forbidden in ["cover_bytes", "audio_bytes", "absolute_path"] {
+            assert!(!wire.contains(forbidden), "封面请求含禁发字段: {forbidden}");
+        }
+        let s: CoverResult = p
+            .call_typed(
+                methods::COVER_SEARCH,
+                serde_json::to_value(&params).unwrap(),
+                2_000,
+            )
+            .unwrap();
+        assert!(!s.candidates.is_empty(), "cover.search 必须返回候选列表");
+        let g: CoverResult = p
+            .call_typed(
+                methods::COVER_GENERATE,
+                serde_json::to_value(&params).unwrap(),
+                2_000,
+            )
+            .unwrap();
+        assert!(!g.candidates.is_empty(), "cover.generate 必须返回候选列表");
+        for c in g.candidates.iter().chain(s.candidates.iter()) {
+            assert!(!c.image_ref.is_empty());
+            assert!(
+                (0.0..=1.0).contains(&c.confidence),
+                "置信度越界: {}",
+                c.confidence
+            );
+        }
+    }
+
+    #[test]
+    fn every_method_request_wire_has_no_forbidden_keys() {
+        // 全方法集线上断言：任何强类型参数序列化后都不得含禁发字段
+        let payloads: Vec<serde_json::Value> = vec![
+            serde_json::to_value(IdentifyTrackParams {
+                normalized_filename: "x.wav".into(),
+                ..Default::default()
+            })
+            .unwrap(),
+            serde_json::to_value(FilenameRegexParams {
+                samples: vec!["a.mp3".into()],
+            })
+            .unwrap(),
+            serde_json::to_value(DuplicateGroupParams {
+                members: vec![DuplicateMember {
+                    filename: "a.flac".into(),
+                    ..Default::default()
+                }],
+            })
+            .unwrap(),
+            serde_json::to_value(LyricsVerifyParams {
+                title: "t".into(),
+                artists: vec![],
+                duration_ms: None,
+                lyrics_excerpt: "l".into(),
+            })
+            .unwrap(),
+            serde_json::to_value(CoverQueryParams {
+                title: "t".into(),
+                ..Default::default()
+            })
+            .unwrap(),
+        ];
+        for v in &payloads {
+            let wire = v.to_string();
+            for forbidden in ["absolute_path", "audio_bytes", "cover_bytes"] {
+                assert!(
+                    !wire.contains(forbidden),
+                    "参数含禁发字段: {forbidden} → {wire}"
+                );
+            }
+        }
+    }
+}
+
+// ============================== T6 限制三件套 ==============================
+
+mod limits_suite {
+    use super::*;
+
+    use musicforge_plugin_host::limits;
+
+    /// 超时窗口 10–30s：过短夹到下限，过长夹到上限，窗口内原样。
+    #[test]
+    fn timeout_clamped_to_allowed_window() {
+        assert_eq!(
+            limits::clamp_timeout(0),
+            limits::TIMEOUT_MIN_MS,
+            "过短 → 下限"
+        );
+        assert_eq!(limits::clamp_timeout(1_000), limits::TIMEOUT_MIN_MS);
+        assert_eq!(limits::clamp_timeout(15_000), 15_000, "窗口内原样");
+        assert_eq!(
+            limits::clamp_timeout(u64::MAX),
+            limits::TIMEOUT_MAX_MS,
+            "过长 → 上限"
+        );
+    }
+
+    /// 并发上限 2：前两个槽位可取，第三个显式失败（try 路径）；释放后可再取。
+    #[test]
+    fn concurrency_slots_capped_at_two() {
+        let a = musicforge_plugin_host::try_acquire_plugin_slot().expect("第 1 个槽位应可取");
+        let b = musicforge_plugin_host::try_acquire_plugin_slot().expect("第 2 个槽位应可取");
+        assert!(
+            musicforge_plugin_host::try_acquire_plugin_slot().is_none(),
+            "第 3 个槽位必须被拒绝（上限 {}）",
+            limits::MAX_CONCURRENT_PLUGINS
+        );
+        drop(b); // RAII 释放 → 立即可再取
+        let c = musicforge_plugin_host::try_acquire_plugin_slot().expect("释放后必须可再取槽位");
+        drop(c);
+        drop(a);
+        // 全部释放后回到空位（再取成功 = 计数无泄漏）
+        let d = musicforge_plugin_host::try_acquire_plugin_slot().expect("无泄漏");
+        drop(d);
+    }
+
+    /// 验收红线：插件被外部杀掉（kill -9 形态）→ 主进程**存活**且显式报错，绝不悬挂。
+    #[test]
+    fn externally_killed_child_fails_fast_and_host_survives() {
+        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
+        // 模拟外部 kill -9：进程直接死亡，管道破裂
+        p.kill();
+        let err = p
+            .call("plugin.health", serde_json::json!({}), 2_000)
+            .unwrap_err();
+        // 平台差异：broken pipe 可能先于退出探测报 Io，但必须是**显式失败**之一
+        assert!(
+            matches!(err, PluginHostError::Gone | PluginHostError::Io(_)),
+            "必须显式失败（Gone/Io），不得悬挂: {err}"
+        );
+        // 主进程存活验证：随后仍能正常 spawn 新插件并完成一次调用
+        let mut p2 = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
+        let h: musicforge_plugin_api::HealthResult = p2
+            .call_typed("plugin.health", serde_json::json!({}), 2_000)
+            .unwrap();
+        assert_eq!(h.status, "ok", "kill 后主进程必须可继续服务");
+    }
+}

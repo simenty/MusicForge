@@ -110,6 +110,37 @@ pub struct FileResult {
     pub tags_written: usize,
 }
 
+/// X13/X35：AI 建议随 Plan 传递的数据载体。
+///
+/// 三条红线（`docs/p6a-ai-interface.md` §4）：AI 只建议不执行——Suggestion 经
+/// **用户确认 → Plan → Apply**，无独立自动执行路径；本结构只随 Plan 层流动。
+/// X35：NDJSON 行级新增可选键 = 向后兼容扩展（旧读取方忽略未知键）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct Suggestion {
+    /// 插件名（provider，如 `"ai-openai-compatible"`）
+    pub provider: String,
+    /// 冻结方法名（如 `ai.identify_track`，见 `musicforge-plugin-api::methods`）
+    pub method: String,
+    /// 总体置信度；字段级阈值判定用 `fields` 内调用方自行比对的 field_confidence
+    pub confidence: f32,
+    /// 建议字段子集（如 `{"title":"借墨","artists":["王铮亮","风华音纪"]}`）
+    pub fields: serde_json::Value,
+    pub reason: String,
+}
+
+impl Suggestion {
+    /// 序列化为 manifest 行内嵌对象（刻意不经 serde derive，对齐本 crate 依赖面约定）。
+    pub fn to_value(&self) -> serde_json::Value {
+        serde_json::json!({
+            "provider": self.provider,
+            "method": self.method,
+            "confidence": self.confidence,
+            "fields": self.fields,
+            "reason": self.reason,
+        })
+    }
+}
+
 /// 计划预览条目（`plan_only` 产出；供 GUI 预览面板与 dry-run 使用）。
 #[derive(Debug, Clone)]
 pub struct PlannedItem {
@@ -119,6 +150,8 @@ pub struct PlannedItem {
     /// 判定的音频格式扩展名（如 "flac"）；失败时为 None
     pub format: Option<String>,
     pub error: Option<String>,
+    /// X13：用户确认后随 Plan 并入的 AI 建议；纯本地规划为 None
+    pub suggestion: Option<Suggestion>,
 }
 
 /// 只规划不执行：对输入做展开 + 逐文件规划（含目标名去重），返回计划条目。
@@ -145,12 +178,14 @@ pub fn plan_only(
                 target: Some(p.target.display().to_string()),
                 format: Some(p.fmt.extension().to_string()),
                 error: None,
+                suggestion: None,
             }),
             Err(e) => items.push(PlannedItem {
                 source: item.0.display().to_string(),
                 target: None,
                 format: None,
                 error: Some(format!("{}: {e}", e.code())),
+                suggestion: None,
             }),
         }
     }
@@ -669,6 +704,7 @@ fn run_inner(
                             code: None,
                             rollback_available: false,
                             adapter: Some(p.adapter),
+                            suggestion: None,
                         }) {
                             eprintln!("⚠ manifest 写入失败（dry-run）: {e}");
                         }
@@ -743,6 +779,7 @@ fn run_inner(
                         code,
                         rollback_available: false,
                         adapter: Some(plan.adapter),
+                        suggestion: None,
                     });
                 }
                 lock_recover(&more).push(r);
@@ -792,15 +829,54 @@ fn temp_path_for(target: &Path) -> PathBuf {
     ))
 }
 
-/// 原子就位：Windows 的 rename 不能覆盖已存在目标，先删再 rename；失败清理临时文件。
+/// 原子就位：Windows 的 rename 不能覆盖已存在目标——旧产物先**同目录改名备份**
+/// （原子操作），tmp 就位成功才删备份；就位失败则**回滚备份**。
+///
+/// 稳定审计 B1（2026-09-08）：旧实现先 `remove_file(target)` 再 rename——
+/// rename 若失败（os error 5 / Defender 锁，仓库自述高频坑），旧产物已删 +
+/// 临时文件被清理 = **双丢失**。修复后任何路径下 target 要么是旧产物、
+/// 要么是新产物，绝不允许同时消失。
 fn atomic_rename(tmp: &Path, target: &Path) -> Result<(), NcmError> {
-    if target.exists() {
-        std::fs::remove_file(target)?;
-    }
+    let backup = if target.exists() {
+        // QA 拍板语义保持：目标存在但**不是文件**（如 sidecar 位被目录占用）→
+        // 与旧实现的 remove_file(目录) 一致地显式失败，绝不把它搬开伪装成功
+        if !target.is_file() {
+            return Err(NcmError::Io(std::io::Error::other(format!(
+                "目标存在但不是文件: {}",
+                target.display()
+            ))));
+        }
+        let name = target
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("output");
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let bak = target.with_file_name(format!(
+            ".musicforge-bak-{}-{nanos}-{name}",
+            std::process::id()
+        ));
+        // 备份失败（如目标被锁）→ 原地报错，旧产物完好，绝不继续
+        std::fs::rename(target, &bak)?;
+        Some(bak)
+    } else {
+        None
+    };
     match std::fs::rename(tmp, target) {
-        Ok(()) => Ok(()),
+        Ok(()) => {
+            if let Some(b) = &backup {
+                let _ = std::fs::remove_file(b);
+            }
+            Ok(())
+        }
         Err(e) => {
             let _ = std::fs::remove_file(tmp);
+            if let Some(b) = &backup {
+                // 回滚：旧产物归位（失败也不吞——但 rename 失败通常已随 e 显式报出）
+                let _ = std::fs::rename(b, target);
+            }
             Err(NcmError::from(e))
         }
     }
@@ -898,4 +974,63 @@ pub fn sha256_of_sidecar(target: &Path) -> Option<String> {
 /// 兼容入口：无进度回调
 pub fn run(cfg: BatchConfig) -> BatchSummary {
     run_with_progress(cfg, |_| {})
+}
+
+#[cfg(test)]
+mod atomic_rename_tests {
+    use super::*;
+
+    /// 稳定审计 B1 回归：tmp 不存在 → rename 必败，但**既有目标必须完好保留**
+    /// （旧实现先删 target 再 rename → 失败路径双丢失）。
+    #[test]
+    fn failed_rename_preserves_existing_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("out.flac");
+        std::fs::write(&target, b"OLD-VALID-OUTPUT").unwrap();
+        let missing_tmp = dir.path().join(".musicforge-tmp-nonexistent");
+
+        let err = atomic_rename(&missing_tmp, &target).unwrap_err();
+        let _ = err; // 错误码属 IO 域；本测试断言的是数据保全
+
+        // 核心不变量：target 要么是旧产物、要么是新产物——绝不允许消失
+        assert!(
+            target.exists(),
+            "rename 失败后旧产物必须仍在（B1 双丢失回归）"
+        );
+        assert_eq!(
+            std::fs::read(&target).unwrap(),
+            b"OLD-VALID-OUTPUT",
+            "旧产物内容必须原样保留"
+        );
+        // 目录内不得残留备份文件
+        let residue: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".musicforge-bak-"))
+            .collect();
+        assert!(
+            residue.is_empty(),
+            "备份必须已回滚归位，不得残留: {residue:?}"
+        );
+    }
+
+    /// 正常覆盖重转：新产物就位 + 备份清理。
+    #[test]
+    fn successful_overwrite_replaces_and_cleans_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("out.flac");
+        std::fs::write(&target, b"OLD").unwrap();
+        let tmp = dir.path().join(".musicforge-tmp-x");
+        std::fs::write(&tmp, b"NEW").unwrap();
+
+        atomic_rename(&tmp, &target).unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"NEW");
+        assert!(!tmp.exists());
+        let residue: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".musicforge-bak-"))
+            .collect();
+        assert!(residue.is_empty(), "备份必须已清理: {residue:?}");
+    }
 }

@@ -7,6 +7,7 @@ description = "Plugin process management: spawn, D20 handshake, NDJSON calls wit
 
 [dependencies]
 musicforge-plugin-api = { path = "../musicforge-plugin-api" }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # P6a 预研 mock 插件（D20/超时/kill 契约测试的可执行夹具；正式期移 examples/）

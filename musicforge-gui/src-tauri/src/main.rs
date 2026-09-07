@@ -563,10 +563,122 @@ fn main() {
             preview_template,
             select_ncm_files,
             select_directory,
-            save_failures
+            save_failures,
+            plugins_status,
+            plugins_set_enabled
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+// ============ P6a（X37/X36）：插件面板功能态 ============
+//
+// 命令面新增 `plugins_status` / `plugins_set_enabled`：
+// - **零网络**：只做本地文件读取（白名单插件目录 + config.json），页面无任何远程请求；
+// - **白名单**（PLUGIN_POLICY.md）：`%LOCALAPPDATA%\MusicForge\plugins\` 与
+//   `~/.local/share/musicforge/plugins/`——白名单之外的路径一律不可见；
+// - 清单读取是**纯 JSON 解析**（不 spawn 插件进程）——默认构建（无 plugin-host
+//   feature）同样可用；进程级 spawn/host 属 CLI/GUI 后续 AI 流程，不在本面板；
+// - 启用状态持久化走 X36 config（`plugins.enabled`），缺失段回退默认（空）。
+
+/// 白名单插件目录（PLUGIN_POLICY.md；本机场景）。
+fn plugin_dirs() -> Vec<PathBuf> {
+    let mut v = Vec::new();
+    if let Some(la) = std::env::var_os("LOCALAPPDATA") {
+        v.push(PathBuf::from(la).join("MusicForge").join("plugins"));
+    }
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from);
+    if let Some(h) = home {
+        v.push(h.join(".local/share/musicforge/plugins"));
+    }
+    v
+}
+
+/// 读取单个插件目录的 `plugin.json`（解析失败/字段缺失 → None，跳过不猜）。
+fn read_plugin_manifest(dir: &Path) -> Option<serde_json::Value> {
+    let text = std::fs::read_to_string(dir.join("plugin.json")).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let name = v.get("name")?.as_str()?.to_string();
+    let api_version = v.get("api_version")?.as_str()?.to_string();
+    let kind = v.get("kind")?.as_str()?.to_string();
+    let network = v.get("network").and_then(|n| n.as_bool()).unwrap_or(false);
+    Some(serde_json::json!({
+        "name": name,
+        "apiVersion": api_version,
+        "kind": kind,
+        "network": network,
+        "dir": dir.display().to_string(),
+    }))
+}
+
+/// 插件状态装配（可注入路径，测试友好）。
+fn plugins_status_inner(config_path: &Path, dirs: &[PathBuf]) -> serde_json::Value {
+    let cfg = musicforge_core::config::AppConfig::load(config_path).unwrap_or_default();
+    let mut installed: Vec<serde_json::Value> = Vec::new();
+    for d in dirs {
+        if !d.is_dir() {
+            continue;
+        }
+        let Ok(rd) = std::fs::read_dir(d) else {
+            continue;
+        };
+        for entry in rd.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                if let Some(m) = read_plugin_manifest(&p) {
+                    installed.push(m);
+                }
+            }
+        }
+    }
+    serde_json::json!({
+        "runtimeAvailable": cfg!(feature = "plugin-host"),
+        "configPath": config_path.display().to_string(),
+        "pluginDirs": dirs.iter().map(|d| d.display().to_string()).collect::<Vec<_>>(),
+        "enabled": cfg.plugins.enabled,
+        "installed": installed,
+    })
+}
+
+/// 插件面板状态（X37）：运行时可用性 + 白名单目录已装清单 + config 启用列表。
+#[tauri::command]
+fn plugins_status() -> serde_json::Value {
+    plugins_status_inner(
+        &musicforge_core::config::AppConfig::default_path(),
+        &plugin_dirs(),
+    )
+}
+
+/// 更新启用列表（X36 config 持久化；返回生效后的列表）。
+///
+/// 校验：空名/重复名拒绝（显式失败，绝不静默去重——配置错了要让用户看见）。
+fn plugins_set_enabled_inner(
+    config_path: &Path,
+    enabled: Vec<String>,
+) -> Result<serde_json::Value, String> {
+    let mut seen = std::collections::BTreeSet::new();
+    for name in &enabled {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("插件名不得为空".to_string());
+        }
+        if !seen.insert(name.to_string()) {
+            return Err(format!("重复的插件名: {name}"));
+        }
+    }
+    let mut cfg =
+        musicforge_core::config::AppConfig::load(config_path).map_err(|e| e.to_string())?;
+    cfg.plugins.enabled = seen.into_iter().collect();
+    cfg.save(config_path).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "enabled": cfg.plugins.enabled }))
+}
+
+/// 启用列表更新命令（写入 config.json 的 `plugins.enabled`）。
+#[tauri::command]
+fn plugins_set_enabled(enabled: Vec<String>) -> Result<serde_json::Value, String> {
+    plugins_set_enabled_inner(&musicforge_core::config::AppConfig::default_path(), enabled)
 }
 
 // ============ P1a 保护网：GUI ↔ 前端 IPC 契约测试 ============
@@ -801,6 +913,76 @@ mod tests {
         assert_eq!(rows[0].status, "failed");
         assert_eq!(rows[0].reason.as_deref(), Some("NCM-X: bad"));
         assert!(rows[1].reason.is_none(), "reason 为 null 必须可解析");
+    }
+
+    // ---- P6a（X37/X36）：插件面板命令契约 ----
+
+    /// plugins_status：形状契约 + 白名单目录扫描 + config 启用列表透传。
+    #[test]
+    fn plugins_status_contract() {
+        let base = std::env::temp_dir().join(format!("mf-gui-plugins-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let pdir = base.join("plugins").join("mock-ai");
+        std::fs::create_dir_all(&pdir).unwrap();
+        std::fs::write(
+            pdir.join("plugin.json"),
+            r#"{"name":"mock-ai","api_version":"1.0.0","kind":"ai","network":false}"#,
+        )
+        .unwrap();
+        // 白名单外的坏清单：缺 name → 必须被跳过，绝不让面板空白/崩溃
+        let bad = base.join("plugins").join("broken");
+        std::fs::create_dir_all(&bad).unwrap();
+        std::fs::write(bad.join("plugin.json"), r#"{"api_version":"1.0.0"}"#).unwrap();
+
+        let cfg_path = base.join("config.json");
+        let v = plugins_status_inner(&cfg_path, &[base.join("plugins")]);
+        assert_eq!(v["runtimeAvailable"], cfg!(feature = "plugin-host"));
+        assert_eq!(v["pluginDirs"].as_array().unwrap().len(), 1);
+        let installed = v["installed"].as_array().unwrap();
+        assert_eq!(installed.len(), 1, "坏清单必须跳过: {v}");
+        assert_eq!(installed[0]["name"], "mock-ai");
+        assert_eq!(installed[0]["apiVersion"], "1.0.0");
+        assert_eq!(installed[0]["network"], false);
+        assert_eq!(
+            v["enabled"],
+            serde_json::json!([]),
+            "缺省 config → 空 enabled（X36 空段语义）"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// plugins_set_enabled：持久化 roundtrip + 空名/重复名显式拒绝。
+    #[test]
+    fn plugins_set_enabled_roundtrip_and_validation() {
+        let base = std::env::temp_dir().join(format!("mf-gui-plugins-set-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let cfg_path = base.join("nested").join("config.json");
+
+        let r = plugins_set_enabled_inner(
+            &cfg_path,
+            vec!["ai-openai-compatible".into(), "lyrics-online".into()],
+        )
+        .unwrap();
+        assert_eq!(
+            r["enabled"],
+            serde_json::json!(["ai-openai-compatible", "lyrics-online"])
+        );
+        // 落盘验证：重新加载 config 必须读到同一列表（X36 持久化语义）
+        let cfg = musicforge_core::config::AppConfig::load(&cfg_path).unwrap();
+        assert_eq!(cfg.plugins.enabled.len(), 2);
+
+        // 空名拒绝
+        let err = plugins_set_enabled_inner(&cfg_path, vec!["  ".into()]).unwrap_err();
+        assert!(err.contains("不得为空"), "{err}");
+        // 重复名拒绝
+        let err = plugins_set_enabled_inner(&cfg_path, vec!["a".into(), "a".into()]).unwrap_err();
+        assert!(err.contains("重复"), "{err}");
+        // 失败路径不得破坏既有配置
+        let cfg2 = musicforge_core::config::AppConfig::load(&cfg_path).unwrap();
+        assert_eq!(cfg2.plugins.enabled.len(), 2, "被拒绝的调用不得改写配置");
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     // ---- 编译期返回类型钉子（无 AppHandle/State，无法运行期断言） ----

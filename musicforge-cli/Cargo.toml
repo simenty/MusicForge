@@ -9,6 +9,12 @@ description = "MusicForge CLI: offline, reliable, observable .ncm batch converte
 name = "musicforge"
 path = "src/main.rs"
 
+[features]
+# D8 能力分层：plugin-host 为可选接入（default 关）——
+# 默认构建不得含任何插件 host 符号（CI grep 断言）；
+# 离线版发布也不启用。启用方式：--features plugin-host
+plugin-host = ["dep:musicforge-plugin-host"]
+
 [dev-dependencies]
 # p4_cli 集成测试构造内嵌封面 fixture（生产代码不经此依赖）
 image = { version = "0.25", default-features = false, features = ["png"] }
@@ -25,3 +31,5 @@ sha2 = "0.10"
 serde_json = "1"
 musicforge-core = { path = "../musicforge-core" }
 clap = { version = "4", features = ["derive"] }
+# P6a（D8）：仅 plugin-host feature 启用时链接
+musicforge-plugin-host = { path = "../musicforge-plugin-host", optional = true }

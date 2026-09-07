@@ -33,6 +33,67 @@ pub const W_TAGS: i32 = 10;
 pub const W_COVER: i32 = 5;
 pub const W_VERIFIED: i32 = 20;
 
+/// D24 质量画像：保留评分的权重集合。
+///
+/// 铁律（ROADMAP D24）：
+/// - **固定权重 = 默认画像**——[`PROFILE_FIDELITY`] 就是上方 `W_*` 常量，
+///   不传画像的所有既有路径行为与 v0.4.0 完全一致；
+/// - **reason 可复算**——`total_with` 与 `detail_with` 同源同权重，
+///   两次运行逐字节一致；
+/// - 三默认画像之外的自定义权重集 = 评分语义变更，须走 `docs/rfc/`。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QualityProfile {
+    pub name: &'static str,
+    pub w_lossless: i32,
+    pub w_sample_rate: i32,
+    pub w_bit_depth: i32,
+    pub w_tags: i32,
+    pub w_cover: i32,
+    pub w_verified: i32,
+}
+
+/// 默认画像（= v0.4.0 固定权重；改名/改值即破坏兼容，禁止）。
+pub const PROFILE_FIDELITY: QualityProfile = QualityProfile {
+    name: "fidelity",
+    w_lossless: W_LOSSLESS,
+    w_sample_rate: W_SAMPLE_RATE,
+    w_bit_depth: W_BIT_DEPTH,
+    w_tags: W_TAGS,
+    w_cover: W_COVER,
+    w_verified: W_VERIFIED,
+};
+
+/// 归档画像：完整性与无损优先（校验/无损加权，展示性元数据降权）。
+pub const PROFILE_ARCHIVAL: QualityProfile = QualityProfile {
+    name: "archival",
+    w_lossless: 50,
+    w_sample_rate: 8,
+    w_bit_depth: 8,
+    w_tags: 5,
+    w_cover: 0,
+    w_verified: 40,
+};
+
+/// 元数据画像：标签与封面完整优先（流媒体库场景）。
+pub const PROFILE_METADATA: QualityProfile = QualityProfile {
+    name: "metadata",
+    w_lossless: 20,
+    w_sample_rate: 4,
+    w_bit_depth: 4,
+    w_tags: 40,
+    w_cover: 15,
+    w_verified: 10,
+};
+
+/// 三默认画像注册表（D24）。
+pub const PROFILES: [&QualityProfile; 3] =
+    [&PROFILE_FIDELITY, &PROFILE_ARCHIVAL, &PROFILE_METADATA];
+
+/// 按名取画像（CLI `--profile <name>` / GUI 下拉的解析入口）。
+pub fn profile_by_name(name: &str) -> Option<&'static QualityProfile> {
+    PROFILES.iter().copied().find(|p| p.name == name)
+}
+
 /// 单文件评分明细（可解释、可复算：确定性函数 of (文件可观测属性, 组内最大值)）。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ScoreBreakdown {
@@ -54,41 +115,58 @@ pub struct ScoreBreakdown {
 
 impl ScoreBreakdown {
     /// 总分。`max_sample_rate`/`max_bit_depth` 为**组内**最大值（0 表示全组未知）。
+    ///
+    /// 等价于 [`Self::total_with`] + 默认画像（D24：固定权重 = 默认画像）。
     pub fn total(&self, max_sample_rate: u32, max_bit_depth: u32) -> i32 {
+        self.total_with(&PROFILE_FIDELITY, max_sample_rate, max_bit_depth)
+    }
+
+    /// D24：按指定画像计分。
+    pub fn total_with(&self, p: &QualityProfile, max_sample_rate: u32, max_bit_depth: u32) -> i32 {
         let mut s = 0i32;
         if self.lossless {
-            s += W_LOSSLESS;
+            s += p.w_lossless;
         }
         if max_sample_rate > 0 && self.sample_rate == max_sample_rate {
-            s += W_SAMPLE_RATE;
+            s += p.w_sample_rate;
         }
         if max_bit_depth > 0 && self.bit_depth == max_bit_depth {
-            s += W_BIT_DEPTH;
+            s += p.w_bit_depth;
         }
         if self.has_tags {
-            s += W_TAGS;
+            s += p.w_tags;
         }
         if self.has_cover {
-            s += W_COVER;
+            s += p.w_cover;
         }
         if self.verified {
-            s += W_VERIFIED;
+            s += p.w_verified;
         }
         s
     }
 
     /// 明细展开（牺牲项 reason 的组成部分；与 [`Self::total`] 同源，可复算）。
     pub fn detail(&self, max_sample_rate: u32, max_bit_depth: u32) -> String {
+        self.detail_with(&PROFILE_FIDELITY, max_sample_rate, max_bit_depth)
+    }
+
+    /// D24：按指定画像展开明细（与 [`Self::total_with`] 同源同权重，可复算）。
+    pub fn detail_with(
+        &self,
+        p: &QualityProfile,
+        max_sample_rate: u32,
+        max_bit_depth: u32,
+    ) -> String {
         let mut parts: Vec<String> = Vec::new();
         parts.push(if self.lossless {
-            format!("无损+{W_LOSSLESS}")
+            format!("无损+{}", p.w_lossless)
         } else {
             "无损+0".to_string()
         });
         parts.push(format!(
             "采样率+{}",
             if max_sample_rate > 0 && self.sample_rate == max_sample_rate {
-                W_SAMPLE_RATE
+                p.w_sample_rate
             } else {
                 0
             }
@@ -96,16 +174,19 @@ impl ScoreBreakdown {
         parts.push(format!(
             "位深+{}",
             if max_bit_depth > 0 && self.bit_depth == max_bit_depth {
-                W_BIT_DEPTH
+                p.w_bit_depth
             } else {
                 0
             }
         ));
-        parts.push(format!("标签+{}", if self.has_tags { W_TAGS } else { 0 }));
-        parts.push(format!("封面+{}", if self.has_cover { W_COVER } else { 0 }));
+        parts.push(format!("标签+{}", if self.has_tags { p.w_tags } else { 0 }));
+        parts.push(format!(
+            "封面+{}",
+            if self.has_cover { p.w_cover } else { 0 }
+        ));
         parts.push(format!(
             "校验+{}",
-            if self.verified { W_VERIFIED } else { 0 }
+            if self.verified { p.w_verified } else { 0 }
         ));
         let mut s = parts.join(" ");
         for n in &self.notes {
@@ -225,6 +306,23 @@ impl DupGroup {
         f.score.total(mr, md)
     }
 
+    /// D24：按指定画像取成员得分（含组上下文）。
+    pub fn score_of_with(&self, p: &QualityProfile, f: &DedupeFile) -> i32 {
+        let (mr, md) = self.maxima();
+        f.score.total_with(p, mr, md)
+    }
+
+    /// D24：按指定画像重算保留项（不改变组内 `keep_index` 字段）。
+    pub fn keep_index_with(&self, p: &QualityProfile) -> usize {
+        let (mr, md) = self.maxima();
+        pick_keep_with(&self.files, p, mr, md)
+    }
+
+    /// D24：按指定画像取保留项。
+    pub fn keep_with(&self, p: &QualityProfile) -> &DedupeFile {
+        &self.files[self.keep_index_with(p)]
+    }
+
     /// 牺牲项 reason（明细展开；两次运行逐字节一致）。
     pub fn sacrifice_reason(&self, f: &DedupeFile) -> String {
         let keep = self.keep();
@@ -240,6 +338,28 @@ impl DupGroup {
             f.score.detail(mr, md),
             keep.path.display(),
             keep.score.total(mr, md),
+        );
+        if tie {
+            r.push_str("；全体平分，优先保留无 (N) 重复标记的文件名，仍平分取路径字典序最小");
+        }
+        r
+    }
+
+    /// D24：按指定画像展开牺牲项 reason（与 [`Self::sacrifice_reason`] 同构，可复算）。
+    pub fn sacrifice_reason_with(&self, p: &QualityProfile, f: &DedupeFile) -> String {
+        let keep = self.keep_with(p);
+        let (mr, md) = self.maxima();
+        let tie = self
+            .files
+            .iter()
+            .all(|x| x.score.total_with(p, mr, md) == keep.score.total_with(p, mr, md));
+        let mut r = format!(
+            "完全重复（sha256 {}…）：得分 {} [{}]；保留 {}（得分 {}）",
+            &self.sha256[..8.min(self.sha256.len())],
+            f.score.total_with(p, mr, md),
+            f.score.detail_with(p, mr, md),
+            keep.path.display(),
+            keep.score.total_with(p, mr, md),
         );
         if tie {
             r.push_str("；全体平分，优先保留无 (N) 重复标记的文件名，仍平分取路径字典序最小");
@@ -282,6 +402,18 @@ impl SameNameGroup {
         f.score.total(mr, md)
     }
 
+    /// D24：按指定画像取成员得分。
+    pub fn score_of_with(&self, p: &QualityProfile, f: &DedupeFile) -> i32 {
+        let (mr, md) = self.maxima();
+        f.score.total_with(p, mr, md)
+    }
+
+    /// D24：按指定画像重算保留项下标。
+    pub fn keep_index_with(&self, p: &QualityProfile) -> usize {
+        let (mr, md) = self.maxima();
+        pick_keep_with(&self.files, p, mr, md)
+    }
+
     /// 候选牺牲项 reason（仅报告；`--include-same-name` 时随 apply 进回收站）。
     pub fn candidate_reason(&self, f: &DedupeFile) -> String {
         let keep = self.keep();
@@ -294,6 +426,27 @@ impl SameNameGroup {
             keep.path.display(),
             keep.score.total(mr, md),
         )
+    }
+
+    /// D24：按指定画像展开候选牺牲项 reason（可复算）。
+    pub fn candidate_reason_with(&self, p: &QualityProfile, f: &DedupeFile) -> String {
+        let keep = self.keep_with(p);
+        let (mr, md) = self.maxima();
+        format!(
+            "同名不同内容（{}.*）：得分 {} [{}]；建议保留 {}（得分 {}）",
+            self.stem,
+            f.score.total_with(p, mr, md),
+            f.score.detail_with(p, mr, md),
+            keep.path.display(),
+            keep.score.total_with(p, mr, md),
+        )
+    }
+}
+
+impl SameNameGroup {
+    /// D24：按指定画像取保留项。
+    pub fn keep_with(&self, p: &QualityProfile) -> &DedupeFile {
+        &self.files[self.keep_index_with(p)]
     }
 }
 
@@ -327,10 +480,23 @@ impl Default for DedupeOptions {
 /// 扫描 `root` 生成去重报告（只读；哈希结果经 `db` 缓存复用/回写）。
 ///
 /// `db = None` 时直接流式计算、不落缓存（小库/一次性场景）。
+/// 等价于 [`dedupe_scan_with_profile`] + 默认画像（D24：固定权重 = 默认画像）。
 pub fn dedupe_scan(
     root: &Path,
     options: &DedupeOptions,
     db: Option<&crate::db::Db>,
+) -> Result<DedupeReport, NcmError> {
+    dedupe_scan_with_profile(root, options, db, &PROFILE_FIDELITY)
+}
+
+/// D24：按指定 [`QualityProfile`] 扫描生成去重报告（保留项按画像重算）。
+///
+/// 画像只影响 `keep_index` 的确定性选择；扫描/哈希/分组逻辑与默认路径完全一致。
+pub fn dedupe_scan_with_profile(
+    root: &Path,
+    options: &DedupeOptions,
+    db: Option<&crate::db::Db>,
+    profile: &QualityProfile,
 ) -> Result<DedupeReport, NcmError> {
     if !root.is_dir() {
         return Err(NcmError::Db(format!(
@@ -403,7 +569,7 @@ pub fn dedupe_scan(
             files.iter().map(|f| f.score.sample_rate).max().unwrap_or(0),
             files.iter().map(|f| f.score.bit_depth).max().unwrap_or(0),
         );
-        let keep_index = pick_keep(&files, mr, md);
+        let keep_index = pick_keep_with(&files, profile, mr, md);
         rep.groups.push(DupGroup {
             sha256: sha,
             size: files[0].size,
@@ -432,7 +598,7 @@ pub fn dedupe_scan(
                 files.iter().map(|f| f.score.sample_rate).max().unwrap_or(0),
                 files.iter().map(|f| f.score.bit_depth).max().unwrap_or(0),
             );
-            let keep_index = pick_keep(&files, mr, md);
+            let keep_index = pick_keep_with(&files, profile, mr, md);
             // 展示用 stem 取成员真实文件名（分组键是 dir::stem，不直接展示）
             let stem = files[0]
                 .path
@@ -454,12 +620,18 @@ pub fn dedupe_scan(
 /// 确定性保留选择：得分最高；平分时优先保留**无 ` (N)` 重复标记**的文件名
 /// （真库实测：重复下载残留形如 `song.flac` + `song (2).flac`，用户期望保留
 /// 干净命名；` (N)` 垨记视为复制产物）；仍平分取路径字典序最小（files 已按路径排序）。
-fn pick_keep(files: &[DedupeFile], max_rate: u32, max_depth: u32) -> usize {
+/// D24：确定性保留选择（按画像计分；平分规则与默认画像完全一致）。
+fn pick_keep_with(
+    files: &[DedupeFile],
+    profile: &QualityProfile,
+    max_rate: u32,
+    max_depth: u32,
+) -> usize {
     let mut best = 0usize;
-    let mut best_score = files[0].score.total(max_rate, max_depth);
+    let mut best_score = files[0].score.total_with(profile, max_rate, max_depth);
     let mut best_artifact = is_duplicate_artifact_name(&files[0].path);
     for (i, f) in files.iter().enumerate().skip(1) {
-        let s = f.score.total(max_rate, max_depth);
+        let s = f.score.total_with(profile, max_rate, max_depth);
         if s > best_score {
             best = i;
             best_score = s;

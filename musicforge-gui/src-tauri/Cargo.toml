@@ -11,6 +11,10 @@ tauri-build = { version = "2", features = [] }
 [features]
 # 生产构建必须启用：启用后 Tauri 嵌入 frontendDist 资源而非连接 devUrl
 custom-protocol = ["tauri/custom-protocol"]
+# P6a（D8）：GUI 发行版默认含插件 host——release 构建命令须同时携带
+# --features musicforge-gui/custom-protocol,musicforge-gui/plugin-host；
+# 开发/调试构建不带它时零插件符号。
+plugin-host = ["musicforge-cli/plugin-host"]
 
 [dependencies]
 tauri = { version = "2", features = [] }

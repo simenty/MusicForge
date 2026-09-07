@@ -570,6 +570,29 @@ pub fn apply_clean_plan(plan: &CleanPlan, task_id: &str) -> Result<CleanOutcome,
             .strip_prefix(&plan.scan_root)
             .unwrap_or(action.path.as_path());
         let dest = trash.join(rel);
+        // 稳定审计 B3（2026-09-08）：回收站内同名碰撞（同名文件二次清洗）曾使
+        // rename 失败 → 整批中断、部分移动。修复：冲突时追加 " (n)" 后缀落位
+        // （审计行 from=实际落位，还原语义不受影响）。
+        let dest = if dest.exists() {
+            let stem = dest
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("file")
+                .to_string();
+            let ext = dest
+                .extension()
+                .map(|e| format!(".{}", e.to_string_lossy()))
+                .unwrap_or_default();
+            let mut n = 2usize;
+            let mut cand = dest.with_file_name(format!("{stem} ({n}){ext}"));
+            while cand.exists() {
+                n += 1;
+                cand = dest.with_file_name(format!("{stem} ({n}){ext}"));
+            }
+            cand
+        } else {
+            dest
+        };
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -596,6 +619,12 @@ pub fn apply_clean_plan(plan: &CleanPlan, task_id: &str) -> Result<CleanOutcome,
 }
 
 /// 从回收站回滚：按 rollback.jsonl 逆向搬回（用于误清洗恢复）。
+///
+/// 稳定审计 B2（2026-09-08）：原实现目标被同名文件占用（用户重建）时 rename
+/// 失败 → 整个还原**中途失败**（部分还原状态混乱）。修复：
+/// - `from` 已不存在（回收站内被手动清理）→ 跳过该行，不再中断后续还原；
+/// - `to` 已存在 → 还原为邻位 `name (restored[-n]).ext`，**绝不覆盖占用者**，
+///   数据零丢失，整体还原语义保持。
 pub fn restore_from_trash(rollback_manifest: &Path) -> Result<usize, NcmError> {
     let text = std::fs::read_to_string(rollback_manifest)?;
     let mut n = 0usize;
@@ -606,10 +635,35 @@ pub fn restore_from_trash(rollback_manifest: &Path) -> Result<usize, NcmError> {
         if to.is_empty() {
             continue;
         }
-        if let Some(parent) = Path::new(to).parent() {
+        let from = Path::new(from);
+        if !from.is_file() {
+            continue; // 回收站内已被清理：跳过，不中断整体还原
+        }
+        let to = Path::new(to);
+        if let Some(parent) = to.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::rename(from, Path::new(to))?;
+        let final_to = if to.exists() {
+            let stem = to
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("file")
+                .to_string();
+            let ext = to
+                .extension()
+                .map(|e| format!(".{}", e.to_string_lossy()))
+                .unwrap_or_default();
+            let mut n = 1usize;
+            let mut cand = to.with_file_name(format!("{stem} (restored){ext}"));
+            while cand.exists() {
+                n += 1;
+                cand = to.with_file_name(format!("{stem} (restored-{n}){ext}"));
+            }
+            cand
+        } else {
+            to.to_path_buf()
+        };
+        std::fs::rename(from, &final_to)?;
         n += 1;
     }
     Ok(n)

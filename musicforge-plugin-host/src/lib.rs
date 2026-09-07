@@ -17,10 +17,68 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use musicforge_plugin_api::{api_compatible, codes, PluginManifest, Request, Response};
+
+// ---------------------------------------------------------------- 限制三件套 --
+
+/// P6a 限制三件套（handover §6.9）：超时 10–30s / 并发 1–2 / 降级完整性。
+///
+/// 降级完整性（插件全挂/全禁时五域 100% 可用）不落在本 crate——
+/// 它是「默认构建无 host 符号」（D8/T1）+ 「core 零插件依赖」的结构性保证，
+/// 由 CI feature 断言与 `musicforge-cli/tests/p6a_degradation.rs` 验收。
+pub mod limits {
+    /// 单请求超时下限（太短的窗口会把慢模型误杀为超时）
+    pub const TIMEOUT_MIN_MS: u64 = 10_000;
+    /// 单请求超时上限（防插件拖死主流程；超时即 kill，P6a 硬验收）
+    pub const TIMEOUT_MAX_MS: u64 = 30_000;
+    /// 同时存活的插件进程数上限（P6a 限 2：识别 + 歌词/封面各一即够）
+    pub const MAX_CONCURRENT_PLUGINS: usize = 2;
+
+    /// 把调用方给的超时夹取到允许窗口 [`TIMEOUT_MIN_MS`], [`TIMEOUT_MAX_MS`]。
+    pub fn clamp_timeout(ms: u64) -> u64 {
+        ms.clamp(TIMEOUT_MIN_MS, TIMEOUT_MAX_MS)
+    }
+}
+
+// ---- 并发槽位（进程级；RAII 释放，防误配置 spawn 出超限插件进程群）----
+
+static SLOT_USED: Mutex<usize> = Mutex::new(0);
+static SLOT_CV: Condvar = Condvar::new();
+
+/// 一个插件进程占用槽位的 RAII 守卫：Drop 时释放并唤醒等待者。
+#[derive(Debug)]
+pub struct PluginSlotGuard;
+
+impl Drop for PluginSlotGuard {
+    fn drop(&mut self) {
+        let mut used = SLOT_USED.lock().unwrap_or_else(|e| e.into_inner());
+        *used = used.saturating_sub(1);
+        SLOT_CV.notify_one();
+    }
+}
+
+/// 尝试获取一个插件进程槽位（已满 → `None`，调用方显式排队或放弃）。
+pub fn try_acquire_plugin_slot() -> Option<PluginSlotGuard> {
+    let mut used = SLOT_USED.lock().unwrap_or_else(|e| e.into_inner());
+    if *used >= limits::MAX_CONCURRENT_PLUGINS {
+        return None;
+    }
+    *used += 1;
+    Some(PluginSlotGuard)
+}
+
+/// 阻塞获取一个插件进程槽位（有释放即唤醒）。
+pub fn acquire_plugin_slot() -> PluginSlotGuard {
+    let mut used = SLOT_USED.lock().unwrap_or_else(|e| e.into_inner());
+    while *used >= limits::MAX_CONCURRENT_PLUGINS {
+        used = SLOT_CV.wait(used).unwrap_or_else(|e| e.into_inner());
+    }
+    *used += 1;
+    PluginSlotGuard
+}
 
 /// Host 侧错误（独立于 core 的 `NcmError`——D8：core 不依赖 host）。
 #[derive(Debug)]
@@ -212,6 +270,33 @@ impl PluginProcess {
             }
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    /// [`PluginProcess::call`] 的强类型封装：成功响应直接解码为目标类型。
+    ///
+    /// 解码失败 → `MF-PLUGIN-FAILED` 域的 `Protocol` 错误（失败显式可见，不伪装）。
+    pub fn call_typed<T: serde::de::DeserializeOwned>(
+        &mut self,
+        method: &str,
+        params: serde_json::Value,
+        timeout_ms: u64,
+    ) -> Result<T, PluginHostError> {
+        let v = self.call(method, params, timeout_ms)?;
+        serde_json::from_value(v)
+            .map_err(|e| PluginHostError::Protocol(format!("响应解码失败: {e}")))
+    }
+
+    /// 限制三件套合规的调用入口：超时被夹取到 10–30s 窗口。
+    ///
+    /// 生产路径（CLI/GUI AI 流程）一律走本方法；裸 [`PluginProcess::call`]
+    /// 仅供夹具/测试使用（e2e 需要 300ms 级短窗验证 kill 机制本身）。
+    pub fn call_limited(
+        &mut self,
+        method: &str,
+        params: serde_json::Value,
+        timeout_ms: u64,
+    ) -> Result<serde_json::Value, PluginHostError> {
+        self.call(method, params, limits::clamp_timeout(timeout_ms))
     }
 
     /// 子进程状态探测（kill 隔离的验收接口）。

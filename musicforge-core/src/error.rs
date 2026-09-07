@@ -77,6 +77,9 @@ pub enum NcmError {
 
     #[error("目标文件已存在: {path}（转码/切分绝不覆盖既有文件）")]
     OutputExists { path: String },
+
+    #[error("配置错误: {0}")]
+    Config(String),
 }
 
 impl NcmError {
@@ -103,6 +106,7 @@ impl NcmError {
             NcmError::FfmpegMissing { .. } => "FFMPEG-MISSING",
             NcmError::UpgradeBlocked => "UPGRADE-BLOCKED",
             NcmError::OutputExists { .. } => "OUTPUT-EXISTS",
+            NcmError::Config(_) => "MF-CONFIG-INVALID",
         }
     }
 
@@ -133,6 +137,7 @@ impl NcmError {
             NcmError::FfmpegMissing { .. } => "MF-FFMPEG-MISSING",
             NcmError::UpgradeBlocked => "MF-LOSSY-TO-LOSSLESS",
             NcmError::OutputExists { .. } => "MF-OUTPUT-EXISTS",
+            NcmError::Config(_) => "MF-CONFIG-INVALID",
         }
     }
 
@@ -167,6 +172,9 @@ impl NcmError {
             }
             NcmError::OutputExists { .. } => {
                 "目标文件已存在，本工具绝不覆盖。请更换输出目录，或先处理同名产物。"
+            }
+            NcmError::Config(_) => {
+                "配置文件损坏或版本过高。修正内容，或删除 config.json 后由程序以默认配置重建（配置是可再生的）。"
             }
             _ => "请检查文件与目录权限后重试，或使用失败清单导出功能记录该文件。",
         }

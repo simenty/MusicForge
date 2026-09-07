@@ -82,6 +82,36 @@ export async function saveFailures(
   return invoke<string | null>("save_failures", { rows });
 }
 
+// ---- P6a（X37/X36）：插件面板功能态 ----
+
+/** 已安装插件清单（白名单目录内 plugin.json 的解析产物） */
+export interface InstalledPlugin {
+  name: string;
+  apiVersion: string;
+  kind: string;
+  network: boolean;
+  dir: string;
+}
+
+/** plugins_status 返回形状（键名漂移 = 面板静默断裂，Rust 侧契约测试钉住） */
+export interface PluginsStatus {
+  /** 当前构建是否含插件宿主（plugin-host feature；发行版 true） */
+  runtimeAvailable: boolean;
+  configPath: string;
+  pluginDirs: string[];
+  /** config.json `plugins.enabled` 当前值 */
+  enabled: string[];
+  installed: InstalledPlugin[];
+}
+
+export async function pluginsStatus(): Promise<PluginsStatus> {
+  return invoke<PluginsStatus>("plugins_status");
+}
+
+export async function pluginsSetEnabled(enabled: string[]): Promise<{ enabled: string[] }> {
+  return invoke<{ enabled: string[] }>("plugins_set_enabled", { enabled });
+}
+
 /** 计划预览条目（dry-run 的数据形态；target=null 表示规划失败） */
 export interface PlannedItem {
   source: string;

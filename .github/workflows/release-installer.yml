@@ -55,8 +55,8 @@ jobs:
           npm --prefix musicforge-gui/ui ci
           npm --prefix musicforge-gui/ui run build
 
-      - name: Build GUI（release + custom-protocol：前端资产内联必须）
-        run: cargo build --release -p musicforge-gui --features musicforge-gui/custom-protocol
+      - name: Build GUI（release + custom-protocol + plugin-host：前端资产内联必须；P6a D8 发行版默认含插件 host）
+        run: cargo build --release -p musicforge-gui --features musicforge-gui/custom-protocol,musicforge-gui/plugin-host
 
       - name: Build CLI
         run: cargo build --release -p musicforge-cli
