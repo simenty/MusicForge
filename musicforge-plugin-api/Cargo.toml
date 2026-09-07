@@ -1,0 +1,10 @@
+[package]
+name = "musicforge-plugin-api"
+version = "0.6.0"
+edition.workspace = true
+license.workspace = true
+description = "Plugin protocol schemas, permission manifest, and api-version negotiation (P6a 预研)"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
