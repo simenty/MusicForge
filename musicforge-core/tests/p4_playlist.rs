@@ -147,9 +147,23 @@ fn import_repairs_broken_paths_with_duration_disambiguation() {
     .unwrap(); // 0s
 
     let list = root.join("broken.m3u8");
+    // 失效条目用**本平台的**不存在的绝对路径（Linux 上反斜杠不是分隔符，
+    // 写死 Windows 形态会让 file_name 解析成整串——CI ubuntu 实测暴露）
+    let dead_a = if cfg!(windows) {
+        "Q:\\dead\\link\\song.wav"
+    } else {
+        "/dead/link/song.wav"
+    };
+    let dead_b = if cfg!(windows) {
+        "Q:\\dead\\lost.wav"
+    } else {
+        "/dead/lost.wav"
+    };
     std::fs::write(
         &list,
-        "#EXTM3U\n#EXTINF:2,song long\nQ:\\dead\\link\\song.wav\n#EXTINF:1,lost\nQ:\\dead\\lost.wav\n",
+        format!(
+            "#EXTM3U\n#EXTINF:2,song long\n{dead_a}\n#EXTINF:1,lost\n{dead_b}\n"
+        ),
     )
     .unwrap();
 
@@ -173,10 +187,7 @@ fn import_repairs_broken_paths_with_duration_disambiguation() {
 
     // 修复后清单：unresolved 以 # FAIL 注释保留（审计不丢行）
     let fixed_text = std::fs::read_to_string(rep.written.as_ref().unwrap()).unwrap();
-    assert!(
-        fixed_text.contains("# FAIL Q:\\dead\\lost.wav"),
-        "{fixed_text}"
-    );
+    assert!(fixed_text.contains(&format!("# FAIL {dead_b}")), "{fixed_text}");
     assert!(fixed_text.contains("#EXTINF:2,song long"));
     std::fs::remove_dir_all(&root).ok();
 }
