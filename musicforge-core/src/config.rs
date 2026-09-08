@@ -104,7 +104,14 @@ impl AppConfig {
     }
 
     /// 保存到指定路径（原子写：临时文件 + 重命名，绝不写一半）。
+    ///
+    /// 稳定审计 B12（第三轮，2026-09-08）：临时文件名带 pid + 进程内序号——
+    /// 原固定名 `config.json.tmp` 在并发写（GUI 多 IPC 命令 / CLI·GUI 同写）
+    /// 时互相踩踏：A rename 走 tmp 后 B rename 报 NotFound（显式失败，
+    /// 数据不损坏但白白失败）。唯一化后并发写互不干扰。
     pub fn save(&self, path: &Path) -> Result<(), NcmError> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
                 std::fs::create_dir_all(parent)
@@ -112,11 +119,15 @@ impl AppConfig {
             }
         }
         let text = serde_json::to_string_pretty(&self.to_value())?;
-        let tmp = path.with_extension("json.tmp");
+        let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+        let tmp = path.with_extension(format!("json.{}.{}.tmp", std::process::id(), seq));
         std::fs::write(&tmp, text)
             .map_err(|e| NcmError::Config(format!("写入 {}: {e}", tmp.display())))?;
-        std::fs::rename(&tmp, path)
-            .map_err(|e| NcmError::Config(format!("重命名 {}: {e}", path.display())))?;
+        if let Err(e) = std::fs::rename(&tmp, path) {
+            // 失败清理：唯一 tmp 残留无碍重试，但按项目「不留半成品」约定删除
+            let _ = std::fs::remove_file(&tmp);
+            return Err(NcmError::Config(format!("重命名 {}: {e}", path.display())));
+        }
         Ok(())
     }
 
@@ -213,11 +224,48 @@ mod tests {
             ..Default::default()
         };
         cfg.save(&path).unwrap();
-        assert!(
-            !path.with_extension("json.tmp").exists(),
-            "临时文件必须已被重命名"
-        );
+        // 临时文件必须已被重命名（B12 后 tmp 名带 pid+序号——按模式查残留）
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "不得残留 tmp 半成品: {leftovers:?}");
         assert_eq!(AppConfig::load(&path).unwrap(), cfg);
+    }
+
+    /// 稳定审计 B12 回归：并发 save（GUI 多 IPC / 多进程场景）必须全部成功
+    /// 且目录内零 tmp 残留——原固定 tmp 名在并发下互相踩踏（rename NotFound）。
+    #[test]
+    fn concurrent_saves_are_isolated_by_unique_tmp_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::thread::scope(|s| {
+            for i in 0..8u32 {
+                let p = &path;
+                s.spawn(move || {
+                    let cfg = AppConfig {
+                        plugins: PluginsConfig {
+                            enabled: vec![format!("plugin-{i}")],
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    };
+                    cfg.save(p).expect("并发 save 必须全部成功");
+                });
+            }
+        });
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "并发写后不得残留 tmp: {leftovers:?}");
+        // 最终状态 = 某一次完整写入（合法 JSON、schema 1）
+        let final_cfg = AppConfig::load(&path).unwrap();
+        assert_eq!(final_cfg.schema_version, 1);
     }
 
     #[test]

@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use musicforge_plugin_api::{api_compatible, codes, PluginManifest, Request, Response};
@@ -43,12 +43,11 @@ pub mod limits {
     }
 }
 
-// ---- 并发槽位（进程级；RAII 释放，防误配置 spawn 出超限插件进程群）----
+// ---- 并发槽位（进程级；RAII 释放；try 语义——满即显式拒绝，不排队）----
 
 static SLOT_USED: Mutex<usize> = Mutex::new(0);
-static SLOT_CV: Condvar = Condvar::new();
 
-/// 一个插件进程占用槽位的 RAII 守卫：Drop 时释放并唤醒等待者。
+/// 一个插件进程占用槽位的 RAII 守卫：Drop 时释放。
 #[derive(Debug)]
 pub struct PluginSlotGuard;
 
@@ -56,7 +55,6 @@ impl Drop for PluginSlotGuard {
     fn drop(&mut self) {
         let mut used = SLOT_USED.lock().unwrap_or_else(|e| e.into_inner());
         *used = used.saturating_sub(1);
-        SLOT_CV.notify_one();
     }
 }
 
@@ -68,16 +66,6 @@ pub fn try_acquire_plugin_slot() -> Option<PluginSlotGuard> {
     }
     *used += 1;
     Some(PluginSlotGuard)
-}
-
-/// 阻塞获取一个插件进程槽位（有释放即唤醒）。
-pub fn acquire_plugin_slot() -> PluginSlotGuard {
-    let mut used = SLOT_USED.lock().unwrap_or_else(|e| e.into_inner());
-    while *used >= limits::MAX_CONCURRENT_PLUGINS {
-        used = SLOT_CV.wait(used).unwrap_or_else(|e| e.into_inner());
-    }
-    *used += 1;
-    PluginSlotGuard
 }
 
 /// Host 侧错误（独立于 core 的 `NcmError`——D8：core 不依赖 host）。
@@ -143,6 +131,12 @@ pub struct PluginProcess {
 
 impl PluginProcess {
     /// spawn + D20 握手（不兼容即 kill 并返回 `ApiIncompatible`）。
+    ///
+    /// B10（第三轮审计）修正：**并发槽位不在 spawn 内接线**——实测把环境性
+    /// 卡顿（Windows Defender 实时扫描进程启动）放大为测试进程级故障
+    /// （并行 e2e 挂死/栈溢出）。生产并发上限由**桥接层**接线
+    /// （`musicforge-cli` 的 migrate/format_migrate 在 spawn 前取
+    /// [`try_acquire_plugin_slot`]，满即显式拒绝），持有窗口=单次迁移。
     pub fn spawn(program: &Path, host_range: &str) -> Result<Self, PluginHostError> {
         let mut child = Command::new(program)
             .stdin(Stdio::piped())

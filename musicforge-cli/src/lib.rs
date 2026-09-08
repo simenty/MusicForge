@@ -1355,6 +1355,16 @@ pub mod format_bridge {
                     out_dir.display()
                 ))
             })?;
+            // 稳定审计 B10（第三轮，2026-09-08）：并发槽位在**桥接层**接线——
+            // P6a 限制三件套之「同时存活插件 ≤2」此前只有 API 无生产调用点。
+            // try 语义（满即显式拒绝）：阻塞排队会把单个进程启动的环境性卡顿
+            // （Windows Defender 实时扫描，本仓已知高频坑）放大为全局挂死，
+            // 「拒绝优于放行」是本仓既定哲学。持有窗口 = 单次迁移。
+            let _slot = musicforge_plugin_host::try_acquire_plugin_slot().ok_or_else(|| {
+                musicforge_core::NcmError::PluginNotFound(
+                    "并发插件进程已达上限（2）：请等待运行中的迁移完成后再试".to_string(),
+                )
+            })?;
             let mut p = musicforge_plugin_host::PluginProcess::spawn(&self.exe, ">=1,<2")
                 .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
             let params = FormatMigrateParams {
@@ -1367,25 +1377,45 @@ pub mod format_bridge {
                 .call_typed(
                     methods::FORMAT_MIGRATE,
                     serde_json::to_value(&params).unwrap(),
-                    15_000,
+                    // B10 同类接线：生产路径超时必须经 limits 窗口夹取（10–30s）
+                    musicforge_plugin_host::limits::clamp_timeout(15_000),
                 )
                 .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
             Ok(result)
         }
     }
 
+    /// 稳定审计 B11（第三轮，2026-09-08）：同名适配器的 'static 名**进程级去重**。
+    ///
+    /// 根因：`registry_with_plugins` 每批转换重建注册表，原实现对每个适配器
+    /// 直接 `Box::leak`——泄漏按「批次数 × 插件数」累积（原注释声称
+    /// 「每进程只注册一次」与实现不符）。CLI 一次性进程影响微小，但长驻
+    /// 进程（未来 GUI 内嵌）会持续累积。去重后同名只 leak 一次。
+    fn leak_once(name: &str) -> &'static str {
+        use std::collections::HashMap;
+        use std::sync::{Mutex, OnceLock};
+        static LEAKED: OnceLock<Mutex<HashMap<String, &'static str>>> = OnceLock::new();
+        let map = LEAKED.get_or_init(|| Mutex::new(HashMap::new()));
+        let mut m = map.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(s) = m.get(name) {
+            return s;
+        }
+        let leaked: &'static str = Box::leak(name.to_string().into_boxed_str());
+        m.insert(name.to_string(), leaked);
+        leaked
+    }
+
     impl FormatAdapter for PluginFormatAdapter {
         fn id(&self) -> &'static str {
-            // 插件名为运行期字符串，trait 要求 'static——每个适配器进程内只
-            // 注册一次，leak 一个短字符串（有界、可审计；改 trait 签名属核心
-            // 变更，RFC 明确不做）
-            Box::leak(self.name.clone().into_boxed_str())
+            // 插件名为运行期字符串，trait 要求 'static——经 leak_once 去重
+            // （改 trait 签名属核心变更，RFC 明确不做）
+            leak_once(&self.name)
         }
 
         fn probe(&self, input: &ProbeInput<'_>) -> Option<ProbeResult> {
             let ext = input.extension?.to_lowercase();
             self.extensions.contains(&ext).then(|| ProbeResult {
-                format_id: Box::leak(self.name.clone().into_boxed_str()),
+                format_id: leak_once(&self.name),
                 confidence: 0.6, // 扩展名探测：低于一切内置 magic 探测
             })
         }
@@ -1518,6 +1548,13 @@ pub fn format_migrate(
         ))
     })?;
 
+    // 稳定审计 B10：并发槽位接线（与 format_bridge::migrate 同语义——try 满
+    // 即显式拒绝，持有窗口 = 单次迁移；详见桥接处注释）。
+    let _slot = musicforge_plugin_host::try_acquire_plugin_slot().ok_or_else(|| {
+        musicforge_core::NcmError::PluginNotFound(
+            "并发插件进程已达上限（2）：请等待运行中的迁移完成后再试".to_string(),
+        )
+    })?;
     let mut p = musicforge_plugin_host::PluginProcess::spawn(&exe, ">=1,<2")
         .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
     plugins::ack_gate(
@@ -1542,7 +1579,8 @@ pub fn format_migrate(
         .call_typed(
             methods::FORMAT_MIGRATE,
             serde_json::to_value(&params).unwrap(),
-            15_000,
+            // B10 同类接线：生产路径超时必须经 limits 窗口夹取（10–30s）
+            musicforge_plugin_host::limits::clamp_timeout(15_000),
         )
         .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
     Ok(result.output_path)

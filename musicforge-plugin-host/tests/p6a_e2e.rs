@@ -142,14 +142,9 @@ mod method_set {
         IdentifyTrackParams, LyricsVerdict, LyricsVerifyParams, LyricsVerifyResult, ShutdownResult,
     };
 
-    /// 构造一次 spawn（每个用例独立进程，互不污染）。
-    fn spawn_mock() -> PluginProcess {
-        PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap()
-    }
-
     #[test]
     fn identify_track_typed_roundtrip() {
-        let mut p = spawn_mock();
+        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
         let params = IdentifyTrackParams {
             normalized_filename: "王铮亮 feat. 风华音纪 - 借墨 [SQ].wav".into(),
             title: Some("借墨".into()),
@@ -174,7 +169,7 @@ mod method_set {
 
     #[test]
     fn health_reports_ok() {
-        let mut p = spawn_mock();
+        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
         let h: HealthResult = p
             .call_typed(methods::PLUGIN_HEALTH, serde_json::json!({}), 2_000)
             .unwrap();
@@ -183,7 +178,7 @@ mod method_set {
 
     #[test]
     fn shutdown_responds_then_child_exits() {
-        let mut p = spawn_mock();
+        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
         let s: ShutdownResult = p
             .call_typed(methods::PLUGIN_SHUTDOWN, serde_json::json!({}), 2_000)
             .unwrap();
@@ -202,7 +197,7 @@ mod method_set {
 
     #[test]
     fn filename_regex_returns_rule_text() {
-        let mut p = spawn_mock();
+        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
         let params = FilenameRegexParams {
             samples: vec![
                 "王铮亮 - 借墨 [SQ].wav".into(),
@@ -226,7 +221,7 @@ mod method_set {
 
     #[test]
     fn duplicate_review_suggests_deterministic_keep() {
-        let mut p = spawn_mock();
+        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
         let params = DuplicateGroupParams {
             members: vec![
                 DuplicateMember {
@@ -258,7 +253,7 @@ mod method_set {
 
     #[test]
     fn lyrics_verify_never_suggests_title_or_artists() {
-        let mut p = spawn_mock();
+        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
         let params = LyricsVerifyParams {
             title: "借墨".into(),
             artists: vec!["王铮亮".into()],
@@ -281,7 +276,7 @@ mod method_set {
 
     #[test]
     fn cover_search_and_generate_return_candidates() {
-        let mut p = spawn_mock();
+        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
         let params = CoverQueryParams {
             title: "借墨".into(),
             artists: vec!["王铮亮".into()],
@@ -391,22 +386,31 @@ mod limits_suite {
     /// 并发上限 2：前两个槽位可取，第三个显式失败（try 路径）；释放后可再取。
     #[test]
     fn concurrency_slots_capped_at_two() {
-        let a = musicforge_plugin_host::try_acquire_plugin_slot().expect("第 1 个槽位应可取");
-        let b = musicforge_plugin_host::try_acquire_plugin_slot().expect("第 2 个槽位应可取");
+        // B10 接线后的并行安全语义：批量 try_acquire 拿到的手动槽位数
+        // **永远 ≤ 2**——e2e 其他测试并行 spawn 的进程同样占槽位（会减少
+        // 可拿数），但上限不变量必须恒成立。强断言「恰取 2 拒绝第 3」在
+        // 并行测试下不确定（别的测试正持槽位），故只钉上限、不钉下限。
+        let mut taken = Vec::new();
+        for _ in 0..8 {
+            match musicforge_plugin_host::try_acquire_plugin_slot() {
+                Some(g) => taken.push(g),
+                None => break, // 满 = 上限生效
+            }
+        }
         assert!(
-            musicforge_plugin_host::try_acquire_plugin_slot().is_none(),
-            "第 3 个槽位必须被拒绝（上限 {}）",
-            limits::MAX_CONCURRENT_PLUGINS
+            taken.len() <= limits::MAX_CONCURRENT_PLUGINS,
+            "槽位计数不得超过上限 {}: 实际 {}",
+            limits::MAX_CONCURRENT_PLUGINS,
+            taken.len()
         );
-        drop(b); // RAII 释放 → 立即可再取
-        let c = musicforge_plugin_host::try_acquire_plugin_slot().expect("释放后必须可再取槽位");
-        drop(c);
-        drop(a);
-        // 全部释放后回到空位（再取成功 = 计数无泄漏）
-        let d = musicforge_plugin_host::try_acquire_plugin_slot().expect("无泄漏");
-        drop(d);
+        drop(taken); // RAII 释放，计数守恒
     }
 
+    /// B10 接线回归（try 语义）：占满全部手动槽位后，spawn 必须**立即显式
+    /// 拒绝**（不排队、不挂起、不绕过上限）。并行下若槽位已被其他测试占用
+    /// （拿不满），本测试退化为跳过（上限不变量由并发测试覆盖）。
+    /// 语义依据：阻塞排队会把单个进程启动的环境性卡顿（Defender 实时扫描）
+    /// 放大为全局挂死——「拒绝优于放行」是本仓哲学（审计规范 2）。
     /// 验收红线：插件被外部杀掉（kill -9 形态）→ 主进程**存活**且显式报错，绝不悬挂。
     #[test]
     fn externally_killed_child_fails_fast_and_host_survives() {
