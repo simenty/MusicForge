@@ -102,6 +102,10 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             suffix: ""
+          # P7：musl 静态链接（ROADMAP P7 验收：musl 裸容器跑通）
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            suffix: ""
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -115,14 +119,42 @@ jobs:
       - name: Add target std for pinned toolchain
         run: rustup target add ${{ matrix.target }}
 
+      # musl 静态链接需要 musl-gcc（rusqlite bundled 会编译 sqlite3.c）
+      - name: Install musl tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
       - name: Build CLI (release)
         run: cargo build --release -p musicforge-cli --target ${{ matrix.target }}
+
+      # P7：unix 产物统一打包（tar.gz + 独立 .sha256；Windows 安装包由 release-installer 负责）
+      - name: Package CLI（unix：dist 树 + tar.gz + sha256）
+        if: matrix.target != 'x86_64-pc-windows-msvc'
+        run: |
+          VERSION=$(grep '^version' musicforge-core/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          PKG="musicforge-v${VERSION}-${{ matrix.target }}"
+          mkdir -p "dist/$PKG"
+          cp "target/${{ matrix.target }}/release/musicforge" "dist/$PKG/"
+          tar -czf "dist/${PKG}.tar.gz" -C dist "$PKG"
+          ( cd dist && sha256sum "${PKG}.tar.gz" > "${PKG}.tar.gz.sha256" )
+
+      # P7 验收：musl 裸容器跑通（alpine 零 glibc 环境可启动执行）
+      - name: musl 裸容器冒烟（alpine）
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          docker run --rm -v "$PWD/target/x86_64-unknown-linux-musl/release:/mf:ro" alpine sh -c "
+            /mf/musicforge --version &&
+            /mf/musicforge --help | head -15
+          "
 
       - name: Upload CLI artifact
         uses: actions/upload-artifact@v4
         with:
           name: musicforge-cli-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/musicforge${{ matrix.suffix }}
+          path: |
+            target/${{ matrix.target }}/release/musicforge${{ matrix.suffix }}
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
 
       - uses: actions/setup-node@v4
         if: matrix.os != 'ubuntu-latest'
@@ -195,6 +227,14 @@ jobs:
         run: |
           cargo tree -e features -p musicforge-core -p musicforge-cli 2>/dev/null | grep -iE "plugin-host|musicforge-cloud" \
             && exit 1 || echo "默认构建零插件宿主/云层 ✓"
+
+      # P7（ROADMAP）：cfg 只在壳层——业务源码禁平台 cfg attribute（测试模块的
+      # cfg(test)/feature 门控不受限；平台行为差异收敛到运行时 env/路径探测）
+      - name: 平台差异壳层闸（cfg 只在壳层）
+        run: |
+          grep -rnE '#\[cfg\((target_os|windows|unix|not\((windows|unix|target_os)' \
+            musicforge-core/src/ musicforge-cli/src/ musicforge-plugin-api/src/ musicforge-plugin-host/src/ \
+            && exit 1 || echo "core/cli 业务源码零平台 cfg ✓"
 
   # ---- 断网行为测试（P0.5 第 4 层）：有网构建 → iptables 断网 → 跑金标 ----
   offline-behavior:

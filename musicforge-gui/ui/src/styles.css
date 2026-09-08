@@ -1324,6 +1324,17 @@ body {
   font-size: 12.5px;
   margin: 4px 0;
 }
+/* P7 i18n：标题栏语言切换（与 chip 视觉对齐的迷你下拉） */
+.lang-select {
+  margin-left: 6px;
+  padding: 1px 4px;
+  font-size: 11.5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
 .plugin-ack-warn {
   color: #d9480f;
 }

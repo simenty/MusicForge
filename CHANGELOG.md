@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added（P7：v0.8.0 多平台交付 + GUI i18n，发布另行授权）
+- **多平台交付（ROADMAP P7 / D26）**：CI build 矩阵新增 `x86_64-unknown-linux-musl`
+  （musl 静态链接，rusqlite bundled 随 musl-tools 编译）；unix 产物统一打包
+  `musicforge-v{ver}-{target}.tar.gz` + 独立 `.sha256`；
+  **musl 裸容器冒烟**（alpine 零 glibc 环境 `--version`/`--help` 跑通——P7 验收）。
+- **统一发布管线**：release-installer 重构为「构建 ×3（windows NSIS+zip /
+  linux-musl / macos-aarch64）→ assemble job 统一生成全量 `SHA256SUMS.txt`
+  一次上传」（GH Release 唯一事实源，消除分 job 各自建 Release 的资产分裂）。
+- **平台差异壳层闸**：CI 新增 grep 断言——core/cli/plugin-api/plugin-host
+  业务源码禁平台 `cfg` attribute（target_os/windows/unix；测试模块不受限），
+  "cfg 只在壳层" 验收落地为永久防退化闸。
+- **GUI i18n 中英（ROADMAP P7）**：零依赖 i18n 框架（`i18n.tsx` Context +
+  双语字典 `i18n/zh.ts`/`en.ts`；`en: typeof zh` 类型强制两语言形状一致——
+  缺键/多键编译期报错）；App/Dedupe/Scan/Plugin 四面板全文案接入
+  （插值文案用函数值）；标题栏语言切换（跟随系统默认 + localStorage 持久化
+  `mf.lang`）；顺手修正标题栏版本徽标 v0.1.0 → v0.7.0 漂移。
+
 ### Fixed（稳定性审计第二轮：P6b 新增代码面）
 - **B5（严重）**：convert 桥接批量——不同目录下的同名源（`track01.kwm` × N）
   共享同一暂存目录，插件迁移撞名 `MF-OUTPUT-EXISTS` → 批次中断。修复：

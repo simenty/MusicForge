@@ -97,10 +97,23 @@ cargo build --release -p musicforge-gui            # GUI（需先构建前端，
 cargo test --workspace                        # 258 个测试函数（金标 + 对抗 + QA 双轮 + 契约）
 ```
 
-### macOS / Linux
+### macOS / Linux（CLI 先行，P7）
 
-CLI 可直接从源码构建（`cargo build --release -p musicforge-cli`）。
-GUI 安装包尚未提供——Tauri 2 的 macOS（.dmg/.app）与 Linux（AppImage/deb）产物有待补齐。
+从 [Releases](https://github.com/simenty/MusicForge/releases) 下载 CLI 包并解压：
+
+```bash
+# Linux（x86_64，musl 静态链接——任何发行版零依赖运行）
+tar xzf musicforge-v0.7.0-x86_64-unknown-linux-musl.tar.gz
+./musicforge-v0.7.0-x86_64-unknown-linux-musl/musicforge --version
+
+# macOS（Apple Silicon）
+tar xzf musicforge-v0.7.0-aarch64-apple-darwin.tar.gz
+./musicforge-v0.7.0-aarch64-apple-darwin/musicforge --version
+```
+
+- 每个包旁附 `.sha256` 校验文件；`SHA256SUMS.txt` 汇总全部发布资产（D26 唯一事实源）。
+- musl 静态二进制在 Alpine/scratch 等裸容器可直接运行（CI 裸容器冒烟覆盖）。
+- GUI（.dmg/.app 与 AppImage/deb）尚未提供——Tauri 2 多平台打包后续补齐。
 
 ## 使用
 

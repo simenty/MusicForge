@@ -17,6 +17,7 @@ import {
   type UnlistenFn,
 } from "./api";
 import { loadSettings, saveSettings, type Settings } from "./settings";
+import { useLang, type Lang } from "./i18n";
 import DedupePanel from "./DedupePanel";
 import ScanPanel from "./ScanPanel";
 import PluginPanel from "./PluginPanel";
@@ -40,22 +41,17 @@ interface Row {
 
 type FilterKey = "all" | "pending" | "ok" | "skipped" | "failed" | "cancelled";
 
-const STATUS_META: Record<RowStatus, { text: string; cls: string; icon: string }> = {
-  pending: { text: "等待", cls: "s-pending", icon: "●" },
-  ok: { text: "完成", cls: "s-ok", icon: "●" },
-  skipped: { text: "跳过", cls: "s-skipped", icon: "●" },
-  failed: { text: "失败", cls: "s-failed", icon: "●" },
-  cancelled: { text: "已取消", cls: "s-cancelled", icon: "●" },
+/** 状态视觉元数据（文案走 i18n：RowStatus 键与字典 status 命名空间同名） */
+const STATUS_META: Record<RowStatus, { cls: string; icon: string }> = {
+  pending: { cls: "s-pending", icon: "●" },
+  ok: { cls: "s-ok", icon: "●" },
+  skipped: { cls: "s-skipped", icon: "●" },
+  failed: { cls: "s-failed", icon: "●" },
+  cancelled: { cls: "s-cancelled", icon: "●" },
 };
 
-const FILTERS: { key: FilterKey; label: string }[] = [
-  { key: "all", label: "全部" },
-  { key: "pending", label: "等待" },
-  { key: "ok", label: "完成" },
-  { key: "skipped", label: "跳过" },
-  { key: "failed", label: "失败" },
-  { key: "cancelled", label: "已取消" },
-];
+/** 筛选键（label = all → t.filter.all；其余键与 t.status 同名） */
+const FILTERS: FilterKey[] = ["all", "pending", "ok", "skipped", "failed", "cancelled"];
 
 /** 虚拟滚动行高（px）。与 CSS 中 .grid-row 的 height 必须一致 */
 const ROW_H = 36;
@@ -65,6 +61,7 @@ const OVERSCAN = 8;
 const FLUSH_MS = 100;
 
 export default function App() {
+  const { t, lang, setLang } = useLang();
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [rows, setRows] = useState<Row[]>([]);
   const [summary, setSummary] = useState<BatchSummary | null>(null);
@@ -132,14 +129,14 @@ export default function App() {
       if (running || paths.length === 0) return;
       const ncm = await collectFiles(paths, recursive);
       if (ncm.length === 0) {
-        showToast(`这些路径里没有找到 .ncm 文件（共检查 ${paths.length} 个路径）`);
+        showToast(t.app.noNcmFound(paths.length));
         return;
       }
       // 在事件处理里基于当前 rows 计算 next（不在 setState 更新器里改 ref）
       const known = new Set(rows.map((r) => r.source));
       const fresh = ncm.filter((f) => !known.has(f.path));
       if (fresh.length === 0) {
-        showToast(`所选 ${ncm.length} 个文件都已在列表中`);
+        showToast(t.app.alreadyInList(ncm.length));
         return;
       }
       const next = [
@@ -160,12 +157,12 @@ export default function App() {
       if (viewRef.current) viewRef.current.scrollTop = 0;
       const skippedDup = ncm.length - fresh.length;
       const nonNcm = paths.length - ncm.length;
-      const parts: string[] = [`已添加 ${fresh.length} 个 .ncm 文件`];
-      if (skippedDup > 0) parts.push(`去重 ${skippedDup} 个`);
-      if (nonNcm > 0) parts.push(`忽略 ${nonNcm} 个非 ncm 路径`);
-      showToast(parts.join(" · ") + `（列表共 ${next.length} 个）`);
+      const parts: string[] = [t.app.added(fresh.length)];
+      if (skippedDup > 0) parts.push(t.app.deduped(skippedDup));
+      if (nonNcm > 0) parts.push(t.app.ignoredNonNcm(nonNcm));
+      showToast(parts.join(" · ") + t.app.listTotal(next.length));
     },
-    [running, rows, showToast]
+    [running, rows, showToast, t]
   );
 
   // ref 同步：让只订阅一次的事件回调读到最新值
@@ -185,10 +182,7 @@ export default function App() {
         else cleanups.push(un);
       }).catch((e) => {
         if (!cancelled) {
-          setFatal(
-            `事件订阅失败（${name}）：${String(e)}\n` +
-              "进度将无法显示。请截图此提示并反馈。"
-          );
+          setFatal(t.app.eventSubFailed(name, String(e)));
         }
       });
     };
@@ -204,11 +198,11 @@ export default function App() {
           // QA 第二轮：拖放导入的失败此前是 unhandled rejection，
           // 表现为「拖进来什么都没发生」。
           void importRef.current(ev.paths, recursiveRef.current).catch((e) =>
-            setFatal(`导入失败：${String(e)}`)
+            setFatal(t.app.importFailed(String(e)))
           );
         }
       }),
-      "拖拽导入"
+      "drag-drop"
     );
     register(
       onBatchFile((r) => {
@@ -220,14 +214,14 @@ export default function App() {
           reason: r.reason,
         });
       }),
-      "进度"
+      "progress"
     );
     register(
       onBatchDone((s) => {
         setSummary(s);
         setRunning(false);
       }),
-      "汇总"
+      "summary"
     );
 
     return () => {
@@ -316,37 +310,37 @@ export default function App() {
   // 用户完全不知道发生了什么。统一经 `guard` 兜住并提示。
   const guard = useCallback(
     (label: string, p: Promise<unknown>) => {
-      p.catch((e) => showToast(`${label}失败：${String(e)}`));
+      p.catch((e) => showToast(t.app.actionFailed(label, String(e))));
     },
-    [showToast]
+    [showToast, t]
   );
 
   const addFiles = useCallback(() => {
     guard(
-      "添加文件",
+      t.app.labelAddFiles,
       selectNcmFiles(settings.outDir || undefined).then(async (picked) => {
         if (picked.length) await importPaths(picked, false);
       })
     );
-  }, [guard, importPaths, settings.outDir]);
+  }, [guard, importPaths, settings.outDir, t]);
 
   const addFolder = useCallback(() => {
     guard(
-      "添加目录",
-      selectDirectory(settings.outDir || null, "选择包含 .ncm 的文件夹").then(async (dir) => {
+      t.app.labelAddFolder,
+      selectDirectory(settings.outDir || null, t.app.pickFolderTitle).then(async (dir) => {
         if (dir) await importPaths([dir], settings.recursive);
       })
     );
-  }, [guard, importPaths, settings.outDir, settings.recursive]);
+  }, [guard, importPaths, settings.outDir, settings.recursive, t]);
 
   const browseOutDir = useCallback(() => {
     guard(
-      "选择输出目录",
-      selectDirectory(settings.outDir || null, "选择输出目录").then((dir) => {
+      t.app.labelOutDir,
+      selectDirectory(settings.outDir || null, t.app.pickOutDirTitle).then((dir) => {
         if (dir) patch({ outDir: dir });
       })
     );
-  }, [guard, patch, settings.outDir]);
+  }, [guard, patch, settings.outDir, t]);
 
   const clearList = () => {
     if (running) return;
@@ -369,11 +363,11 @@ export default function App() {
   const startRun = async () => {
     if (running) return;
     if (rows.length === 0) {
-      showToast("文件列表为空，请先添加文件，或把 .ncm 文件/文件夹拖进来。");
+      showToast(t.app.emptyList);
       return;
     }
     if (settings.saveTo === "custom" && !settings.outDir.trim()) {
-      showToast("已选择「自定义目录」，请先指定输出目录。");
+      showToast(t.app.needOutDir);
       return;
     }
     // dry-run：不进入执行流，改走计划预览（plan_batch 只规划不落盘）
@@ -391,8 +385,8 @@ export default function App() {
         const failed = items.filter((i) => i.error !== null).length;
         setPlannedRows(items);
         showToast(
-          `已生成计划：${items.length - failed} 项可执行` +
-            (failed > 0 ? `，${failed} 项失败（见预览面板）` : "（未改动任何文件）")
+          t.app.planOk(items.length - failed) +
+            (failed > 0 ? t.app.planFailed(failed) : t.app.planNoChange)
         );
       } catch (e) {
         showToast(String(e));
@@ -430,16 +424,12 @@ export default function App() {
   // 用户点了「取消」却完全不知道请求有没有送到后端。
   const doCancel = useCallback(() => {
     guard(
-      "取消",
+      t.app.labelCancel,
       cancelBatch().then((ok) =>
-        showToast(
-          ok
-            ? "已请求取消：未开始的文件会标记为「已取消」，正在处理的文件会跑完。"
-            : "当前没有正在运行的转换任务，取消请求未生效。"
-        )
+        showToast(ok ? t.app.cancelRequested : t.app.nothingToCancel)
       )
     );
-  }, [guard, showToast]);
+  }, [guard, showToast, t]);
 
   const exportFailures = async () => {
     const failedRows = rows.filter((r) => r.status === "failed");
@@ -448,9 +438,9 @@ export default function App() {
       const path = await saveFailures(
         failedRows.map((r) => ({ source: r.source, status: "failed", reason: r.reason }))
       );
-      if (path) showToast(`失败清单已导出：${path}`);
+      if (path) showToast(t.app.failureExported(path));
     } catch (e) {
-      showToast(`导出失败：${String(e)}`);
+      showToast(t.app.exportFailed(String(e)));
     }
   };
 
@@ -459,11 +449,14 @@ export default function App() {
   const pct = total > 0 ? Math.min(100, Math.round((doneCount / total) * 100)) : 0;
   const finishedMs = summary ? summary.durationMs : elapsedMs;
 
+  const filterLabel = (key: FilterKey): string =>
+    key === "all" ? t.filter.all : t.status[key];
+
   return (
     <div className="window">
       {fatal && (
-        <div className="fatal" onClick={() => setFatal(null)} title="点击关闭">
-          <b>⚠ 应用初始化异常</b>
+        <div className="fatal" onClick={() => setFatal(null)} title={t.app.clickToClose}>
+          <b>{t.app.fatalTitle}</b>
           <pre>{fatal}</pre>
         </div>
       )}
@@ -471,11 +464,13 @@ export default function App() {
         <div className="plan-panel">
           <div className="plan-head">
             <b>
-              计划预览（{plannedRows.length} 项 ·{" "}
-              {plannedRows.filter((i) => i.error === null).length} 可执行 · 未改动任何文件）
+              {t.app.planPreviewTitle(
+                plannedRows.length,
+                plannedRows.filter((i) => i.error === null).length
+              )}
             </b>
             <button className="btn sm" onClick={() => setPlannedRows(null)}>
-              关闭
+              {t.app.close}
             </button>
           </div>
           <div className="plan-body">
@@ -498,12 +493,21 @@ export default function App() {
         <div className="brand">
           <span className="logo">▤</span>
           <strong>MusicForge</strong>
-          <span className="sub">本地音乐格式转换</span>
+          <span className="sub">{t.app.subtitle}</span>
         </div>
         <div className="chips">
-          <span className="chip green">零网络 · 离线运行</span>
+          <span className="chip green">{t.app.offlineChip}</span>
           <span className="chip">MIT</span>
-          <span className="chip">v0.1.0</span>
+          <span className="chip">v0.7.0</span>
+          <select
+            className="lang-select"
+            value={lang}
+            onChange={(e) => setLang(e.target.value as Lang)}
+            aria-label={t.lang.aria}
+          >
+            <option value="zh">中文</option>
+            <option value="en">English</option>
+          </select>
         </div>
       </div>
 
@@ -511,24 +515,28 @@ export default function App() {
       <div className="toolbar">
         <div className="tb-left">
           <button className="btn" onClick={addFiles} disabled={running}>
-            <span className="ico">＋</span>添加文件
+            <span className="ico">＋</span>
+            {t.app.addFiles}
           </button>
           <button className="btn" onClick={addFolder} disabled={running}>
-            <span className="ico">▣</span>添加目录
+            <span className="ico">▣</span>
+            {t.app.addFolder}
           </button>
           <button className="btn" onClick={clearList} disabled={running || rows.length === 0}>
-            <span className="ico">⌫</span>清除列表
+            <span className="ico">⌫</span>
+            {t.app.clearList}
           </button>
         </div>
         <div className="tb-right">
           {running ? (
             <button className="btn danger" onClick={doCancel}>
-              <span className="ico">■</span>取消
+              <span className="ico">■</span>
+              {t.app.cancel}
             </button>
           ) : (
             <button className="btn primary" onClick={startRun} disabled={rows.length === 0}>
               <span className="ico">{settings.dryRun ? "🗎" : "▶"}</span>
-              {settings.dryRun ? "生成计划（不写文件）" : "开始转换"}
+              {settings.dryRun ? t.app.planRun : t.app.start}
             </button>
           )}
         </div>
@@ -538,7 +546,7 @@ export default function App() {
       <div className="settings">
         {/* 保存位置：渐进披露（借鉴竞品，选「自定义目录」才展开路径输入） */}
         <div className="row">
-          <label className="lbl">保存到</label>
+          <label className="lbl">{t.app.saveTo}</label>
           <div className="radios">
             <label className="radio">
               <input
@@ -548,7 +556,7 @@ export default function App() {
                 onChange={() => patch({ saveTo: "source" })}
                 disabled={running}
               />
-              <span>源文件所在目录</span>
+              <span>{t.app.saveSource}</span>
             </label>
             <label className="radio">
               <input
@@ -558,7 +566,7 @@ export default function App() {
                 onChange={() => patch({ saveTo: "custom" })}
                 disabled={running}
               />
-              <span>自定义目录</span>
+              <span>{t.app.saveCustom}</span>
             </label>
             {settings.saveTo === "custom" && (
               <div className="outdir">
@@ -566,11 +574,11 @@ export default function App() {
                   className="val"
                   value={settings.outDir}
                   onChange={(e) => patch({ outDir: e.target.value })}
-                  placeholder="点击右侧「浏览」选择输出目录"
+                  placeholder={t.app.outDirPlaceholder}
                   disabled={running}
                 />
                 <button className="btn sm" onClick={browseOutDir} disabled={running}>
-                  浏览
+                  {t.app.browse}
                 </button>
               </div>
             )}
@@ -579,7 +587,7 @@ export default function App() {
 
         {/* 命名模板 + 实时预览 */}
         <div className="row">
-          <label className="lbl">命名模板</label>
+          <label className="lbl">{t.app.namingTemplate}</label>
           <div className="tpl">
             <input
               className="val mono"
@@ -589,13 +597,14 @@ export default function App() {
               spellCheck={false}
             />
             <div className="tpl-help">
-              {"{title} {artist} {album} {track:02d} {format}"} · <code>/</code> 产生子目录
+              {"{title} {artist} {album} {track:02d} {format}"} · <code>/</code>{" "}
+              {t.app.tplSubdir}
             </div>
             {preview.length > 0 && (
               <div className="preview">
                 {preview.map((p, i) => (
                   <div key={i} className="preview-line">
-                    <span className="preview-label">{i === 0 ? "示例" : "无元数据"}</span>
+                    <span className="preview-label">{i === 0 ? t.app.sample : t.app.noMeta}</span>
                     {p}
                   </div>
                 ))}
@@ -606,7 +615,7 @@ export default function App() {
 
         {/* 其它选项 */}
         <div className="row">
-          <label className="lbl">选项</label>
+          <label className="lbl">{t.app.options}</label>
           <div className="opts">
             <label className="check">
               <input
@@ -615,7 +624,7 @@ export default function App() {
                 onChange={(e) => patch({ skipExisting: e.target.checked })}
                 disabled={running}
               />
-              <span>跳过已存在（带完整性校验）</span>
+              <span>{t.app.skipExisting}</span>
             </label>
             <label className="check">
               <input
@@ -624,7 +633,7 @@ export default function App() {
                 onChange={(e) => patch({ recursive: e.target.checked })}
                 disabled={running}
               />
-              <span>递归子目录（保留目录结构）</span>
+              <span>{t.app.recursive}</span>
             </label>
             <label className="check">
               <input
@@ -633,10 +642,10 @@ export default function App() {
                 onChange={(e) => patch({ dryRun: e.target.checked })}
                 disabled={running}
               />
-              <span>仅规划（dry-run，不写文件）</span>
+              <span>{t.app.dryRun}</span>
             </label>
             <label className="check">
-              <span className="nowrap">并发</span>
+              <span className="nowrap">{t.app.concurrency}</span>
               <input
                 className="num"
                 type="number"
@@ -666,14 +675,14 @@ export default function App() {
             <div className="dz-icon" aria-hidden="true">
               ▤
             </div>
-            <div className="dz-title">把 .ncm 文件或整个文件夹拖到这里</div>
-            <div className="dz-sub">也可以用上方「添加文件 / 添加目录」按钮</div>
+            <div className="dz-title">{t.app.dropTitle}</div>
+            <div className="dz-sub">{t.app.dropSub}</div>
           </>
         ) : (
           <div className="dz-inline">
-            <span>已导入 {total} 个文件</span>
+            <span>{t.app.imported(total)}</span>
             <span className="dot">·</span>
-            <span>拖动更多文件到窗口可继续添加</span>
+            <span>{t.app.dropMore}</span>
           </div>
         )}
       </div>
@@ -683,28 +692,26 @@ export default function App() {
         <div className="filters">
           {FILTERS.map((f) => (
             <button
-              key={f.key}
-              className={"fchip" + (filter === f.key ? " on" : "")}
-              onClick={() => setFilter(f.key)}
+              key={f}
+              className={"fchip" + (filter === f ? " on" : "")}
+              onClick={() => setFilter(f)}
             >
-              {f.label}
-              <span className="fnum">{filterCounts[f.key]}</span>
+              {filterLabel(f)}
+              <span className="fnum">{filterCounts[f]}</span>
             </button>
           ))}
         </div>
         {filtered.length !== rows.length && (
-          <span className="filter-note">
-            已筛选 {filtered.length} / {rows.length}
-          </span>
+          <span className="filter-note">{t.app.filtered(filtered.length, rows.length)}</span>
         )}
       </div>
 
       {/* ---------- 表头 ---------- */}
       <div className="grid-head">
-        <span>状态</span>
-        <span>文件</span>
-        <span>输出 / 失败原因</span>
-        <span className="ta-c">操作</span>
+        <span>{t.app.colStatus}</span>
+        <span>{t.app.colFile}</span>
+        <span>{t.app.colOutput}</span>
+        <span className="ta-c">{t.app.colAction}</span>
       </div>
 
       {/* ---------- 虚拟滚动列表 ---------- */}
@@ -715,9 +722,7 @@ export default function App() {
       >
         {filtered.length === 0 ? (
           <div className="empty">
-            {rows.length === 0
-              ? "还没有文件"
-              : `没有「${FILTERS.find((f) => f.key === filter)?.label}」状态的记录`}
+            {rows.length === 0 ? t.app.noFiles : t.app.emptyFiltered(filterLabel(filter))}
           </div>
         ) : (
           <div style={{ height: filtered.length * ROW_H, position: "relative" }}>
@@ -728,7 +733,7 @@ export default function App() {
                   <div className="grid-row" key={r.source} style={{ height: ROW_H }}>
                     <span className={"st " + meta.cls}>
                       <span className="st-ico">{meta.icon}</span>
-                      {meta.text}
+                      {t.status[r.status]}
                     </span>
                     <span className="fp" title={r.source}>
                       {fileName(r.source)}
@@ -738,7 +743,7 @@ export default function App() {
                       title={r.reason ?? r.output ?? ""}
                     >
                       {r.status === "failed" ? (
-                        <span className="reason">{r.reason ?? "未知错误"}</span>
+                        <span className="reason">{r.reason ?? t.app.unknownError}</span>
                       ) : (
                         <span className="mono">{r.output ? relOutput(r.output) : "—"}</span>
                       )}
@@ -748,9 +753,9 @@ export default function App() {
                         className="btn-mini"
                         onClick={() => removeRow(r.source)}
                         disabled={running}
-                        title="从列表移除（不会删除磁盘上的文件）"
+                        title={t.app.removeTip}
                       >
-                        移除
+                        {t.app.remove}
                       </button>
                     </span>
                   </div>
@@ -782,30 +787,27 @@ export default function App() {
           <span className="sep">|</span>
           <span className="muted">{formatDuration(finishedMs)}</span>
           {summary && summary.planned > 0 && (
-            <span className="muted">🗎 已规划 {summary.planned}（未落盘）</span>
+            <span className="muted">{t.app.plannedBadge(summary.planned)}</span>
           )}
-          {summary?.isCancelled && <span className="badge-cancel">已取消</span>}
+          {summary?.isCancelled && <span className="badge-cancel">{t.status.cancelled}</span>}
         </div>
         <button
           className="btn sm"
           onClick={exportFailures}
           disabled={counts.failed === 0}
-          title={counts.failed === 0 ? "没有失败项" : "导出失败清单 CSV"}
+          title={counts.failed === 0 ? t.app.noFailures : t.app.exportTip}
         >
-          导出失败清单
+          {t.app.exportFailures}
         </button>
       </div>
 
       {/* ---------- 曲库治理面板（去重 / 扫描，均只读入口） ---------- */}
       <DedupePanel />
       <ScanPanel />
-      {/* ---------- 插件占位态（X37：零请求，P6a 前置） ---------- */}
+      {/* ---------- 插件面板（X37：零请求） ---------- */}
       <PluginPanel />
 
-      <div className="legal">
-        MusicForge 仅用于处理你已合法获得的文件的个人本地格式转换 · 不联网 · 不上传 · 不收集任何数据 ·
-        MIT License
-      </div>
+      <div className="legal">{t.app.legal}</div>
 
       {toast && (
         <div className="toast" onClick={() => setToast(null)}>

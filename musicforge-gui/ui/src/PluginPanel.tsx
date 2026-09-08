@@ -18,8 +18,10 @@ import {
   type InstalledPlugin,
   type PluginsStatus,
 } from "./api";
+import { useLang } from "./i18n";
 
 export default function PluginPanel() {
+  const { t } = useLang();
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<PluginsStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,11 +56,7 @@ export default function PluginPanel() {
 
   // P6b.2：高风险插件（格式迁移类）ACK 确认——面板内展示风险提示后确认
   const acknowledge = async (name: string) => {
-    const ok = window.confirm(
-      `确认启用高风险插件「${name}」？\n\n` +
-        "格式迁移类插件将在授权工作根内读写你合法持有的文件。\n" +
-        "确认后写入 config.json plugins.acked（可随时删除该记录撤销）。"
-    );
+    const ok = window.confirm(t.plugin.ackConfirm(name));
     if (!ok) return;
     setError(null);
     try {
@@ -111,7 +109,7 @@ export default function PluginPanel() {
   if (!open) {
     return (
       <button className="scan-toggle" onClick={() => setOpen(true)}>
-        ▍AI 与插件
+        {t.plugin.toggle}
       </button>
     );
   }
@@ -124,9 +122,9 @@ export default function PluginPanel() {
   return (
     <div className="scan-panel">
       <div className="scan-head">
-        <b>AI 与插件</b>
+        <b>{t.plugin.head}</b>
         <button className="btn sm" onClick={() => setOpen(false)}>
-          收起
+          {t.plugin.collapse}
         </button>
       </div>
 
@@ -137,26 +135,19 @@ export default function PluginPanel() {
       )}
 
       <p>
-        插件运行时：<b>{runtime ? "已解锁" : "未安装"}</b>
-        {status && (
-          <span className="plugin-note">
-            {" "}
-            （构建{runtime ? "含" : "不含"} plugin-host；发行版默认含）
-          </span>
-        )}
+        {t.plugin.runtime}
+        <b>{runtime ? t.plugin.runtimeOn : t.plugin.runtimeOff}</b>
+        {status && <span className="plugin-note"> {t.plugin.runtimeNote(runtime)}</span>}
       </p>
 
       <p>
-        本地功能（扫描 / 清洗 / 去重 / 转换 / 整轨切分）
-        <b>无需任何插件即可完整使用</b>。
+        {t.plugin.localSufficientA}
+        <b>{t.plugin.localSufficientB}</b>
       </p>
 
-      <h4>已安装插件</h4>
+      <h4>{t.plugin.installedHead}</h4>
       {installed.length === 0 ? (
-        <p className="plugin-note">
-          白名单目录内暂无插件。AI 识别、歌词/封面在线补全等能力由可选插件提供——
-          插件默认禁用、独立分发，且永远不获得删除/移动/覆盖文件的权限。
-        </p>
+        <p className="plugin-note">{t.plugin.noneInstalled}</p>
       ) : (
         <ul className="plugin-list">
           {installed.map((p) => {
@@ -170,14 +161,15 @@ export default function PluginPanel() {
                     onChange={() => toggle(p.name)}
                     disabled={!runtime || needsAck}
                   />{" "}
-                  <b>{p.name}</b>（{p.kind}，api {p.apiVersion}，
-                  {p.network ? "声明联网" : "离线"}
-                  {p.extensions.length > 0 && <>，迁移 {p.extensions.join("/")}</>})
-                  {needsAck && <b className="plugin-ack-warn">［需确认］</b>}
+                  <b>{p.name}</b>
+                  {t.plugin.meta(p.kind, p.apiVersion, p.network)}
+                  {p.extensions.length > 0 && <>{t.plugin.extensions(p.extensions.join("/"))}</>}
+                  {t.plugin.metaClose}
+                  {needsAck && <b className="plugin-ack-warn">{t.plugin.needAck}</b>}
                 </label>
                 {needsAck && (
                   <button className="btn sm" onClick={() => void acknowledge(p.name)}>
-                    确认启用（高风险）
+                    {t.plugin.ackButton}
                   </button>
                 )}
                 {p.extensions.length > 0 && runtime && enabled.has(p.name) && (
@@ -187,7 +179,7 @@ export default function PluginPanel() {
                       onClick={() => void migrateFiles(p)}
                       disabled={migBusy !== null}
                     >
-                      {migBusy === p.name ? "迁移中…" : "选择文件并迁移"}
+                      {migBusy === p.name ? t.plugin.migrating : t.plugin.migrateButton}
                     </button>
                     {(migResults[p.name] ?? []).map((line, i) => (
                       <div key={i} className="plugin-note">
@@ -208,23 +200,21 @@ export default function PluginPanel() {
           onClick={() => void save()}
           disabled={!dirty || saving || !runtime}
         >
-          {saving ? "保存中…" : "保存启用列表"}
+          {saving ? t.plugin.saving : t.plugin.saveEnabled}
         </button>
         <button className="btn sm" onClick={() => void load()} disabled={saving}>
-          刷新
+          {t.plugin.refresh}
         </button>
       </div>
 
-      <h4>插件目录（白名单）</h4>
+      <h4>{t.plugin.dirsHead}</h4>
       <ul className="plugin-note">
         {(status?.pluginDirs ?? []).map((d) => (
           <li key={d}>{d}</li>
         ))}
       </ul>
 
-      <p className="plugin-url">
-        了解插件：github.com/simenty/MusicForge/blob/master/PLUGIN_POLICY.md
-      </p>
+      <p className="plugin-url">{t.plugin.learnMore}</p>
     </div>
   );
 }

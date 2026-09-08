@@ -15,6 +15,7 @@ import {
   type DedupeReport,
   type DupGroup,
 } from "./api";
+import { useLang } from "./i18n";
 
 function fmtSize(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -30,6 +31,7 @@ function shortPath(p: string): string {
 }
 
 export default function DedupePanel() {
+  const { t } = useLang();
   const [open, setOpen] = useState(false);
   const [dir, setDir] = useState("");
   const [scanning, setScanning] = useState(false);
@@ -41,7 +43,7 @@ export default function DedupePanel() {
   const [keeps, setKeeps] = useState<Map<string, string>>(new Map());
 
   const browse = async () => {
-    const d = await selectDirectory(dir.trim() || null, "选择要去重的曲库目录");
+    const d = await selectDirectory(dir.trim() || null, t.dedupe.pickDirTitle);
     if (d) setDir(d);
   };
 
@@ -65,7 +67,7 @@ export default function DedupePanel() {
   if (!open) {
     return (
       <button className="scan-toggle" onClick={() => setOpen(true)}>
-        ▍重复文件去重（组内对比 · 建议保留 · 可改选）
+        {t.dedupe.toggle}
       </button>
     );
   }
@@ -87,17 +89,14 @@ export default function DedupePanel() {
   const execute = async () => {
     if (!report || applying || finalSacrifices.length === 0) return;
     const ok = window.confirm(
-      `把 ${finalSacrifices.length} 个重复文件移入回收站（可整体还原）？\n\n` +
-        finalSacrifices.map(shortPath).join("\n")
+      t.dedupe.confirmSacrifice(finalSacrifices.length, finalSacrifices.map(shortPath).join("\n"))
     );
     if (!ok) return;
     setApplying(true);
     setError(null);
     try {
       const r = await dedupeApply(report.dir, finalSacrifices);
-      setResult(
-        `已移入回收站 ${r.moved} 项（保留项原位未动）· 回滚清单: ${r.rollback ?? "—"}`
-      );
+      setResult(t.dedupe.movedResult(r.moved, r.rollback ?? "—"));
       // 重新扫描刷新视图
       setReport(await dedupeScan(report.dir));
       setKeeps(new Map());
@@ -111,9 +110,9 @@ export default function DedupePanel() {
   return (
     <div className="scan-panel">
       <div className="scan-head">
-        <b>重复文件去重（内容完全相同的文件，牺牲项进回收站）</b>
+        <b>{t.dedupe.head}</b>
         <button className="btn sm" onClick={() => setOpen(false)}>
-          收起
+          {t.dedupe.collapse}
         </button>
       </div>
       <div className="scan-bar">
@@ -121,19 +120,19 @@ export default function DedupePanel() {
           className="val mono"
           value={dir}
           onChange={(e) => setDir(e.target.value)}
-          placeholder="输入或选择要去重的曲库目录"
+          placeholder={t.dedupe.dirPlaceholder}
           spellCheck={false}
           disabled={scanning || applying}
         />
         <button className="btn sm" onClick={browse} disabled={scanning || applying}>
-          浏览
+          {t.dedupe.browse}
         </button>
         <button
           className="btn sm primary"
           onClick={run}
           disabled={scanning || applying || !dir.trim()}
         >
-          {scanning ? "扫描中…" : "扫描"}
+          {scanning ? t.dedupe.scanning : t.dedupe.scan}
         </button>
       </div>
 
@@ -143,11 +142,11 @@ export default function DedupePanel() {
       {report && (
         <>
           <div className="scan-summary">
-            <span>文件 {report.filesSeen}</span>
-            <span>重复组 {report.groups.length}</span>
-            <span>同名候选 {report.sameName.length} 组（仅报告）</span>
+            <span>{t.dedupe.filesSeen(report.filesSeen)}</span>
+            <span>{t.dedupe.groups(report.groups.length)}</span>
+            <span>{t.dedupe.sameNameGroups(report.sameName.length)}</span>
             <span className="sc-junk">
-              将牺牲 {finalSacrifices.length} 项 · 可回收 {fmtSize(savedBytes)}
+              {t.dedupe.willSacrifice(finalSacrifices.length, fmtSize(savedBytes))}
             </span>
           </div>
 
@@ -156,8 +155,7 @@ export default function DedupePanel() {
             return (
               <div key={g.sha256} className="dup-group">
                 <div className="dup-group-head">
-                  组 {gi + 1}/{report.groups.length} · sha256 {g.sha256.slice(0, 8)}… ·{" "}
-                  {fmtSize(g.size)}
+                  {t.dedupe.groupHead(gi + 1, report.groups.length, g.sha256.slice(0, 8), fmtSize(g.size))}
                 </div>
                 {g.all.map((f) => {
                   const isKeep = f.path === cur;
@@ -177,12 +175,12 @@ export default function DedupePanel() {
                         disabled={applying}
                       />
                       <span className={"sc-cat " + (isKeep ? "sc-audio" : "sc-junk")}>
-                        {isKeep ? "保留" : "牺牲"}
+                        {isKeep ? t.dedupe.keep : t.dedupe.sacrifice}
                       </span>
                       <span className="sc-path" title={f.path}>
                         {shortPath(f.path)}
                       </span>
-                      <span className="sc-size mono">{f.score} 分</span>
+                      <span className="sc-size mono">{t.dedupe.score(f.score)}</span>
                     </label>
                   );
                 })}
@@ -190,9 +188,7 @@ export default function DedupePanel() {
                   .filter((f) => f.path !== cur)
                   .map((f) => {
                     const sac = g.sacrifices.find((s) => s.path === f.path);
-                    const reason =
-                      sac?.reason ??
-                      "改选为牺牲（原建议保留）——按当前选择移入回收站";
+                    const reason = sac?.reason ?? t.dedupe.overriddenReason;
                     return (
                       <div key={f.path + "-r"} className="dup-reason">
                         {reason}
@@ -205,17 +201,21 @@ export default function DedupePanel() {
 
           {report.sameName.length > 0 && (
             <div className="dup-samename">
-              <b>同名候选（同名≠同歌，默认仅报告）</b>
+              <b>{t.dedupe.sameNameHead}</b>
               {report.sameName.map((g) => (
                 <div key={g.stem} className="dup-row dup-row-plain">
-                  <span className="sc-cat sc-other">候选</span>
+                  <span className="sc-cat sc-other">{t.dedupe.candidate}</span>
                   <span className="sc-path" title={g.keep.path}>
-                    "{g.stem}": 建议保留 {shortPath(g.keep.path)}（{g.keep.score} 分），
-                    另有 {g.candidates.length} 个候选
+                    {t.dedupe.sameNameLine(
+                      g.stem,
+                      shortPath(g.keep.path),
+                      g.keep.score,
+                      g.candidates.length
+                    )}
                   </span>
                 </div>
               ))}
-              <div className="scan-note">候选执行请走 CLI：dedupe --include-same-name</div>
+              <div className="scan-note">{t.dedupe.sameNameCli}</div>
             </div>
           )}
 
@@ -226,15 +226,13 @@ export default function DedupePanel() {
                 onClick={execute}
                 disabled={applying || finalSacrifices.length === 0}
               >
-                {applying
-                  ? "执行中…"
-                  : `🗑 把 ${finalSacrifices.length} 个牺牲项移入回收站`}
+                {applying ? t.dedupe.executing : t.dedupe.execute(finalSacrifices.length)}
               </button>
-              <span className="scan-note">执行前会二次确认 · 回收站可整体还原</span>
+              <span className="scan-note">{t.dedupe.executeHint}</span>
             </div>
           )}
           {report.groups.length === 0 && (
-            <div className="scan-note scan-clean">✓ 未发现内容重复的文件</div>
+            <div className="scan-note scan-clean">{t.dedupe.noDuplicates}</div>
           )}
         </>
       )}

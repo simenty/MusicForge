@@ -7,13 +7,14 @@
 // - **明示截断**：异常项最多展示 MAX_ROWS 条，超出部分给出口（CLI --json），不谎报「全部」。
 import { useState } from "react";
 import { scanLibrary, selectDirectory, type ScanItem, type ScanReport } from "./api";
+import { useLang } from "./i18n";
 
-const CAT_META: Record<ScanItem["category"], { text: string; cls: string }> = {
-  audio: { text: "音频", cls: "sc-audio" },
-  lyrics: { text: "歌词", cls: "sc-lyrics" },
-  cover: { text: "封面", cls: "sc-cover" },
-  junk: { text: "垃圾", cls: "sc-junk" },
-  other: { text: "其他", cls: "sc-other" },
+const CAT_CLS: Record<ScanItem["category"], string> = {
+  audio: "sc-audio",
+  lyrics: "sc-lyrics",
+  cover: "sc-cover",
+  junk: "sc-junk",
+  other: "sc-other",
 };
 
 /** 异常项展示上限（完整清单走 CLI `scan <目录> --json`） */
@@ -34,6 +35,7 @@ function shortPath(p: string): string {
 }
 
 export default function ScanPanel() {
+  const { t } = useLang();
   const [open, setOpen] = useState(false);
   const [dir, setDir] = useState("");
   const [recursive, setRecursive] = useState(true);
@@ -42,7 +44,7 @@ export default function ScanPanel() {
   const [error, setError] = useState<string | null>(null);
 
   const browse = async () => {
-    const d = await selectDirectory(dir.trim() || null, "选择要扫描的曲库目录");
+    const d = await selectDirectory(dir.trim() || null, t.scan.pickDirTitle);
     if (d) setDir(d);
   };
 
@@ -64,7 +66,7 @@ export default function ScanPanel() {
   if (!open) {
     return (
       <button className="scan-toggle" onClick={() => setOpen(true)}>
-        ▍曲库扫描（垃圾 / 孤立文件 / 命名异常）
+        {t.scan.toggle}
       </button>
     );
   }
@@ -75,9 +77,9 @@ export default function ScanPanel() {
   return (
     <div className="scan-panel">
       <div className="scan-head">
-        <b>曲库扫描（只读，不改动任何文件）</b>
+        <b>{t.scan.head}</b>
         <button className="btn sm" onClick={() => setOpen(false)}>
-          收起
+          {t.scan.collapse}
         </button>
       </div>
       <div className="scan-bar">
@@ -85,12 +87,12 @@ export default function ScanPanel() {
           className="val mono"
           value={dir}
           onChange={(e) => setDir(e.target.value)}
-          placeholder="输入或选择要扫描的曲库目录"
+          placeholder={t.scan.dirPlaceholder}
           spellCheck={false}
           disabled={scanning}
         />
         <button className="btn sm" onClick={browse} disabled={scanning}>
-          浏览
+          {t.scan.browse}
         </button>
         <label className="check">
           <input
@@ -99,26 +101,26 @@ export default function ScanPanel() {
             onChange={(e) => setRecursive(e.target.checked)}
             disabled={scanning}
           />
-          <span>递归子目录</span>
+          <span>{t.scan.recursive}</span>
         </label>
         <button className="btn sm primary" onClick={run} disabled={scanning || !dir.trim()}>
-          {scanning ? "扫描中…" : "扫描"}
+          {scanning ? t.scan.scanning : t.scan.scan}
         </button>
       </div>
 
-      {error && <div className="scan-error">✕ 扫描失败：{error}</div>}
+      {error && <div className="scan-error">{t.scan.scanFailed(error)}</div>}
 
       {report && (
         <>
           <div className="scan-summary">
-            <span>文件 {report.scannedFiles}</span>
-            <span>目录 {report.scannedDirs}</span>
-            <span className="sc-audio">音频 {report.summary.audio}</span>
-            <span className="sc-lyrics">歌词 {report.summary.lyrics}</span>
-            <span className="sc-cover">封面 {report.summary.covers}</span>
-            <span className="sc-junk">垃圾 {report.summary.junk}</span>
-            <span className="sc-other">其他 {report.summary.other}</span>
-            <span>空目录 {report.summary.emptyDirs}</span>
+            <span>{t.scan.filesSeen(report.scannedFiles)}</span>
+            <span>{t.scan.dirsSeen(report.scannedDirs)}</span>
+            <span className="sc-audio">{t.scan.audio(report.summary.audio)}</span>
+            <span className="sc-lyrics">{t.scan.lyrics(report.summary.lyrics)}</span>
+            <span className="sc-cover">{t.scan.covers(report.summary.covers)}</span>
+            <span className="sc-junk">{t.scan.junk(report.summary.junk)}</span>
+            <span className="sc-other">{t.scan.other(report.summary.other)}</span>
+            <span>{t.scan.emptyDirs(report.summary.emptyDirs)}</span>
           </div>
 
           {report.ruleHits.length > 0 && (
@@ -136,16 +138,16 @@ export default function ScanPanel() {
           {flagged.length > 0 ? (
             <div className="scan-table-wrap">
               <div className="scan-thead">
-                <span>类别</span>
-                <span>规则</span>
-                <span>文件</span>
-                <span className="ta-c">大小</span>
+                <span>{t.scan.colCategory}</span>
+                <span>{t.scan.colRule}</span>
+                <span>{t.scan.colFile}</span>
+                <span className="ta-c">{t.scan.colSize}</span>
               </div>
               <div className="scan-table">
                 {shown.map((i) => (
                   <div className="scan-row" key={i.path}>
-                    <span className={"sc-cat " + (CAT_META[i.category]?.cls ?? "")}>
-                      {CAT_META[i.category]?.text ?? i.category}
+                    <span className={"sc-cat " + (CAT_CLS[i.category] ?? "")}>
+                      {t.scan.cat[i.category]}
                     </span>
                     <code className="sc-rule-id" title={i.rule ?? ""}>
                       {i.rule}
@@ -159,13 +161,13 @@ export default function ScanPanel() {
               </div>
               {flagged.length > shown.length && (
                 <div className="scan-note">
-                  共 {flagged.length} 条异常，仅显示前 {MAX_ROWS} 条 · 完整清单可用 CLI：
+                  {t.scan.truncated(flagged.length, MAX_ROWS)}
                   <code>musicforge scan {report.dir} --json</code>
                 </div>
               )}
             </div>
           ) : (
-            <div className="scan-note scan-clean">✓ 未发现可清洗项（垃圾 / 孤立文件 / 命名异常）</div>
+            <div className="scan-note scan-clean">{t.scan.nothingToClean}</div>
           )}
         </>
       )}
