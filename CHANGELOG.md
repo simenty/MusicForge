@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-09
+
+### Added（P6a-R：插件协议 v0.1 改装，跨仓协同 R26）
+- **`plugin.init` 双向握手**（X39）：首个调用协商协议版本 + work_dir 授权 +
+  Host 能力声明；**legacy 降级**——旧插件拒 init 时自动回退基础信封模式
+  （向后兼容，不 bump api_version major）。
+- **事件通道**（X39）：`event.progress`/`event.log`（无 id 消息路由 + in-flight
+  校验——无请求期间乱发事件计违规）；长任务可观测性落地。
+- **出站资源约定**（X41）：migrate 产物经 `artifacts` 相对 work_dir 路径回传，
+  Host resolve 后校验边界（拒绝 `../`/绝对路径/符号链接逃逸，含最近存在
+  祖先 canonical 化——防 symlink TOCTOU）。
+- **错误双层模型**（X42）：`error.source_code` 透传插件业务码（如
+  `QMC-EKEY-INVALID`），UI 可展示原码与引导。
+- **崩溃禁用**（§4.2）：连续 3 次崩溃（Handshake/Timeout/Protocol/Gone）本会话
+  禁用（`MF-PLUGIN-DISABLED`）；`plugin.json` 权限清单三禁位（delete/move/
+  upload）任一为 true 拒载（§4.10）。
+- **16MB 单行上限**（P2）+ **stderr 日志通道**（P1-2：捕获脱敏入环形尾部）。
+- **ekey 协议字段**（X38/RFC-0002 前置）：`format.probe` 增 `tail_hex`
+  （首尾 4KB 双采样）+ `requires_ekey`/`ekey_hint`；`format.migrate` 增
+  `options.ekey`——QMC 插件（v0.9.0）的协议基础就绪。
+- **格式迁移 v0.1 形状**：`{job_id, input_path, output_path, work_dir,
+  options}`（与双插件仓 kwm-migration 协同发版；产物经 artifacts 出站）。
+- mock 插件同步 v0.1 + 7 种对抗行为开关；e2e 对抗套件（事件路由/legacy 降级/
+  stderr 脱敏/3 崩溃禁用/artifacts 逃逸拒绝/双源不一致拒绝）。
+
+### Fixed（稳定性审计第三轮 + 第四轮）
+- **B10（严重）**：并发插件槽位（P6a 限制三件套「≤2」）只有 API 无生产调用点
+  → 桥接层 try 语义接线（满即显式拒绝，持有窗口 = 单次迁移）。
+- **B11**：插件名 `Box::leak` 按批次数累积 → 进程级去重。
+- **B12**：config 原子写固定 tmp 名并发碰撞 → pid+序号唯一化（含 8 线程并发回归）。
+- **C13（严重·内存）**：事件队列无界堆积——桥接 call 后显式取走 progress 事件。
+- **C14（高·安全）**：artifacts 出站校验对不存在路径的 symlink 祖先逃逸
+  （TOCTOU）→ 最近存在祖先 canonical 化 + 逐级回挂校验。
+- **C15**：stderr 脱敏多命中区间未合并导致拼接错乱 → 排序合并；保守脱敏口径
+  （连写密钥名宁多杀不漏杀）。
+- **C16**：init 双源 api_version 不一致未检测 → 拒绝并记崩溃。
+
 ## [0.8.0] - 2026-09-09
 
 ### Added（P7：v0.8.0 多平台交付 + GUI i18n）

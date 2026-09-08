@@ -64,7 +64,7 @@ beets 会整理但不碰加密格式、没有图形化任务安全；Picard 识�
 
 ### Windows（推荐：NSIS 安装包）
 
-1. 下载 `MusicForge-0.8.0-setup.exe`（约 1.3 MB）。
+1. 下载 `MusicForge-0.8.1-setup.exe`（约 1.3 MB）。
 2. 双击运行 —— **无需管理员权限**，默认安装到 `%LOCALAPPDATA%\Programs\MusicForge`。
 3. 安装向导会先展示[法律须知](#法律须知)，同意后选择组件：
    - 主程序（必需）：`musicforge-gui.exe` + `musicforge.exe`
@@ -78,13 +78,13 @@ beets 会整理但不碰加密格式、没有图形化任务安全；Picard 识�
 静默安装（企业部署 / 脚本）：
 
 ```bat
-MusicForge-0.8.0-setup.exe /S
+MusicForge-0.8.1-setup.exe /S
 "%LOCALAPPDATA%\Programs\MusicForge\Uninstall.exe" /S
 ```
 
 ### 免安装版
 
-解压 `musicforge-v0.8.0-windows-x64.zip`（约 1.8 MB）到任意目录，直接运行其中的 `musicforge-gui.exe`。
+解压 `musicforge-v0.8.1-windows-x64.zip`（约 1.8 MB）到任意目录，直接运行其中的 `musicforge-gui.exe`。
 
 ### 从源码构建
 
@@ -103,12 +103,12 @@ cargo test --workspace                        # 258 个测试函数（金标 + �
 
 ```bash
 # Linux（x86_64，musl 静态链接——任何发行版零依赖运行）
-tar xzf musicforge-v0.8.0-x86_64-unknown-linux-musl.tar.gz
-./musicforge-v0.8.0-x86_64-unknown-linux-musl/musicforge --version
+tar xzf musicforge-v0.8.1-x86_64-unknown-linux-musl.tar.gz
+./musicforge-v0.8.1-x86_64-unknown-linux-musl/musicforge --version
 
 # macOS（Apple Silicon）
-tar xzf musicforge-v0.8.0-aarch64-apple-darwin.tar.gz
-./musicforge-v0.8.0-aarch64-apple-darwin/musicforge --version
+tar xzf musicforge-v0.8.1-aarch64-apple-darwin.tar.gz
+./musicforge-v0.8.1-aarch64-apple-darwin/musicforge --version
 ```
 
 - 每个包旁附 `.sha256` 校验文件；`SHA256SUMS.txt` 汇总全部发布资产（D26 唯一事实源）。
