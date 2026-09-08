@@ -210,25 +210,27 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: musicforge-windows-${{ steps.ver.outputs.version }}
-          path: assets
+          path: assets/win
 
       - name: Download linux-musl assets
         uses: actions/download-artifact@v4
         with:
           name: musicforge-unix-x86_64-unknown-linux-musl-${{ steps.ver.outputs.version }}
-          path: assets
+          path: assets/linux
 
       - name: Download macos assets
         uses: actions/download-artifact@v4
         with:
           name: musicforge-unix-aarch64-apple-darwin-${{ steps.ver.outputs.version }}
-          path: assets
+          path: assets/macos
 
-      - name: 统一 SHA256SUMS（D26：GH Release 唯一事实源）
+      # v0.8.0 首跑教训：download-artifact 保留 artifact 内部子路径（installer/、
+      # dist/）——直连 glob 匹配不到。先按来源分目录下载，再展平到 assets 根。
+      - name: 展平资产 + 统一 SHA256SUMS（D26：GH Release 唯一事实源）
         shell: bash
         working-directory: assets
         run: |
-          rm -f SHA256SUMS.txt
+          find win linux macos -type f \( -name "*.exe" -o -name "*.zip" -o -name "*.tar.gz" \) -exec mv {} . \;
           sha256sum MusicForge-*.exe *.zip *.tar.gz > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
