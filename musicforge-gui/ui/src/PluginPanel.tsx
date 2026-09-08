@@ -10,9 +10,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  formatMigrate,
   pluginsAcknowledge,
   pluginsSetEnabled,
   pluginsStatus,
+  selectMigrationFiles,
+  type InstalledPlugin,
   type PluginsStatus,
 } from "./api";
 
@@ -23,6 +26,8 @@ export default function PluginPanel() {
   const [selected, setSelected] = useState<string[]>([]);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [migBusy, setMigBusy] = useState<string | null>(null);
+  const [migResults, setMigResults] = useState<Record<string, string[]>>({});
 
   const load = useCallback(async () => {
     setError(null);
@@ -61,6 +66,30 @@ export default function PluginPanel() {
       await load();
     } catch (e) {
       setError(String(e));
+    }
+  };
+
+  // P6b.4：格式迁移入口——选文件 → 逐个经插件迁移（产物与源同目录，源不动）
+  const migrateFiles = async (p: InstalledPlugin) => {
+    setError(null);
+    try {
+      const files = await selectMigrationFiles(p.extensions);
+      if (files.length === 0) return;
+      setMigBusy(p.name);
+      const lines: string[] = [];
+      for (const f of files) {
+        try {
+          const r = await formatMigrate(p.name, f);
+          lines.push(`✓ ${f} → ${r.outputPath}`);
+        } catch (e) {
+          lines.push(`✗ ${f}: ${String(e)}`);
+        }
+      }
+      setMigResults((prev) => ({ ...prev, [p.name]: lines }));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setMigBusy(null);
     }
   };
 
@@ -150,6 +179,22 @@ export default function PluginPanel() {
                   <button className="btn sm" onClick={() => void acknowledge(p.name)}>
                     确认启用（高风险）
                   </button>
+                )}
+                {p.extensions.length > 0 && runtime && enabled.has(p.name) && (
+                  <div className="plugin-migrate">
+                    <button
+                      className="btn sm"
+                      onClick={() => void migrateFiles(p)}
+                      disabled={migBusy !== null}
+                    >
+                      {migBusy === p.name ? "迁移中…" : "选择文件并迁移"}
+                    </button>
+                    {(migResults[p.name] ?? []).map((line, i) => (
+                      <div key={i} className="plugin-note">
+                        {line}
+                      </div>
+                    ))}
+                  </div>
                 )}
               </li>
             );

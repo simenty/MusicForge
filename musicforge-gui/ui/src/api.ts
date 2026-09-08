@@ -123,6 +123,35 @@ export async function pluginsAcknowledge(name: string): Promise<void> {
   return invoke<void>("plugins_acknowledge", { name });
 }
 
+/** P6b.4：按插件能力声明选择待迁移源文件（未选择 → 空数组） */
+export async function selectMigrationFiles(
+  extensions: string[],
+  startDir?: string
+): Promise<string[]> {
+  return invoke<string[]>("select_migration_files", {
+    extensions,
+    startDir: startDir ?? null,
+  });
+}
+
+/** format.migrate 结果（outputPath = 已双验产物） */
+export interface FormatMigrateResponse {
+  outputPath: string;
+}
+
+/** P6b.4：经插件执行本地格式迁移（outputDir 缺省 = 源父目录） */
+export async function formatMigrate(
+  plugin: string,
+  source: string,
+  outputDir?: string
+): Promise<FormatMigrateResponse> {
+  return invoke<FormatMigrateResponse>("format_migrate", {
+    plugin,
+    source,
+    outputDir: outputDir ?? null,
+  });
+}
+
 /** 计划预览条目（dry-run 的数据形态；target=null 表示规划失败） */
 export interface PlannedItem {
   source: string;

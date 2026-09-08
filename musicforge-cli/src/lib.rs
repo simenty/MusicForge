@@ -386,6 +386,15 @@ struct Plan {
     adapter: &'static str,
 }
 
+/// manifest 行 `actions` 标签（稳定审计 O7：桥接条目语义化）。
+fn manifest_actions(plan: &Plan) -> Vec<&'static str> {
+    if plan.staged.is_some() {
+        vec!["format.migrate"]
+    } else {
+        vec!["unpack", "write_tags"]
+    }
+}
+
 /// 目标名收敛（模板渲染/扩展名补全/去重）——NCM 直连与插件桥接两条规划路径共用。
 #[allow(clippy::too_many_arguments)]
 fn finalize_plan(
@@ -855,7 +864,7 @@ fn run_inner(
                             task_id: task_id.clone(),
                             source: p.source.display().to_string(),
                             target: Some(p.target.display().to_string()),
-                            actions: vec!["unpack", "write_tags"],
+                            actions: manifest_actions(p),
                             source_sha256: None,
                             target_sha256: None,
                             result: "planned",
@@ -934,7 +943,7 @@ fn run_inner(
                         task_id: mf.task_id().to_string(),
                         source: plan.source.display().to_string(),
                         target: Some(plan.target.display().to_string()),
-                        actions: vec!["unpack", "write_tags"],
+                        actions: manifest_actions(&plan),
                         source_sha256: None,
                         target_sha256: sha256_of_sidecar(&plan.target),
                         result,
@@ -1702,6 +1711,12 @@ mod bridge_flow_tests {
         assert!(staged.exists(), "迁移产物应落在暂存区");
         assert_eq!(plan.target, root.path().join("out").join("song.flac"));
         assert!(source.exists(), "源文件绝不被修改");
+        // O7：桥接条目 manifest actions 语义化
+        assert_eq!(
+            manifest_actions(&plan),
+            vec!["format.migrate"],
+            "桥接条目 actions 必须语义化"
+        );
     }
 
     /// 稳定审计 B5 回归：不同目录下的同名桥接源（track01.kwm × 2）必须各自
@@ -1790,6 +1805,41 @@ mod bridge_flow_tests {
         );
         assert!(!staged.exists(), "暂存产物必须已改名入位");
         assert!(source.exists(), "源文件始终原位");
+    }
+
+    /// NCM 直连路径 actions 保持不变（对照断言，防语义化误伤）。
+    #[test]
+    fn ncm_plan_keeps_legacy_actions() {
+        let root = tempfile::tempdir().unwrap();
+        let lib = root.path().join("lib");
+        std::fs::create_dir_all(&lib).unwrap();
+        let source = lib.join("song.ncm");
+        std::fs::write(&source, b"not-really-ncm").unwrap();
+
+        let registry = musicforge_core::formats::registry::builtin_registry();
+        let mut used = HashSet::new();
+        let plan = plan_one_with(
+            (source.clone(), Some(lib.clone())),
+            &cfg(&lib),
+            &mut used,
+            registry,
+            None,
+        );
+        // 非法 ncm 内容 → BadMagic（规划失败路径与 actions 无关，仅验证不 panic）
+        assert!(plan.is_err());
+        // NCM 直连语义以既有 qa 契约为准；此处仅断言 helper 对 staged=None 的输出
+        let plan_ncm = Plan {
+            source: source.clone(),
+            staged: None,
+            target: lib.join("song.flac"),
+            fmt: musicforge_core::Format::Flac,
+            adapter: "ncm",
+        };
+        assert_eq!(
+            manifest_actions(&plan_ncm),
+            vec!["unpack", "write_tags"],
+            "NCM 直连 actions 不得被桥接语义化误伤"
+        );
     }
 
     /// 覆盖重转（桥接形态）：目标已存在但 sidecar 缺失 → 重转走备份/回滚语义。

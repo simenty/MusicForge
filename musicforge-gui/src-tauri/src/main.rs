@@ -566,7 +566,9 @@ fn main() {
             save_failures,
             plugins_status,
             plugins_set_enabled,
-            plugins_acknowledge
+            plugins_acknowledge,
+            select_migration_files,
+            format_migrate
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -718,6 +720,65 @@ fn plugins_acknowledge_inner(config_path: &Path, name: &str) -> Result<(), Strin
 #[tauri::command]
 fn plugins_acknowledge(name: String) -> Result<(), String> {
     plugins_acknowledge_inner(&musicforge_core::config::AppConfig::default_path(), &name)
+}
+
+/// P6b.4：按插件能力声明选择迁移源文件（对话框仅 Rust 侧可调）。
+#[tauri::command]
+async fn select_migration_files(
+    app: AppHandle,
+    extensions: Vec<String>,
+    start_dir: Option<String>,
+) -> Vec<String> {
+    let exts: Vec<&str> = extensions.iter().map(|s| s.as_str()).collect();
+    let mut d = app
+        .dialog()
+        .file()
+        .add_filter("音频容器（待迁移）", &exts)
+        .set_title("选择待迁移文件（可多选）");
+    if let Some(dir) = start_dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        d = d.set_directory(dir);
+    }
+    match d.blocking_pick_files() {
+        Some(paths) => paths
+            .into_iter()
+            .filter_map(|p| p.into_path().ok())
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect(),
+        None => Vec::new(),
+    }
+}
+
+/// P6b.4：格式迁移执行核心（同步；命令层薄封装）。
+fn format_migrate_core(
+    plugin: &str,
+    source: &str,
+    output_dir: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    let out_dir = match output_dir.map(str::trim) {
+        Some(o) if !o.is_empty() => o.to_string(),
+        _ => Path::new(source)
+            .parent()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default(),
+    };
+    let output_path = musicforge_cli::format_migrate(plugin, source, &out_dir, None, None)
+        .map_err(|e| format!("{}: {e} | 建议: {}", e.code(), e.suggestion()))?;
+    Ok(serde_json::json!({ "outputPath": output_path }))
+}
+
+/// P6b.4：格式迁移执行（经 musicforge-cli 桥接；output_dir 缺省 = 源父目录；
+/// 默认构建响亮报 MF-PLUGIN-NOT-FOUND）。
+#[tauri::command]
+async fn format_migrate(
+    plugin: String,
+    source: String,
+    output_dir: Option<String>,
+) -> Result<serde_json::Value, String> {
+    format_migrate_core(&plugin, &source, output_dir.as_deref())
 }
 
 // ============ P1a 保护网：GUI ↔ 前端 IPC 契约测试 ============
@@ -955,6 +1016,42 @@ mod tests {
     }
 
     // ---- P6a（X37/X36）：插件面板命令契约 ----
+
+    /// P6b.4：format_migrate 核心在默认构建（无 plugin-host）下响亮降级
+    /// （MF-PLUGIN-NOT-FOUND），绝不静默装作执行过。
+    #[test]
+    fn format_migrate_command_loud_without_runtime() {
+        let err = format_migrate_core("kwm-migration", "C:/music/song.kwm", None).unwrap_err();
+        assert!(err.contains("MF-PLUGIN-NOT-FOUND"), "{err}");
+        assert!(err.contains("建议"), "必须带可操作建议: {err}");
+        // output_dir 缺省 → 源父目录语义（不 panic）
+        let err2 = format_migrate_core("kwm-migration", "C:/music/song.kwm", Some("C:/music/out"))
+            .unwrap_err();
+        assert!(err2.contains("MF-PLUGIN-NOT-FOUND"), "{err2}");
+    }
+
+    /// P6b.2 既有语义的命令层回归：acknowledge 幂等追加 + 空名拒绝。
+    #[test]
+    fn plugins_acknowledge_inner_roundtrip() {
+        let dir = std::env::temp_dir().join(format!(
+            "mf-gui-ack-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let cfg_path = dir.join("config.json");
+        plugins_acknowledge_inner(&cfg_path, "kwm-migration").unwrap();
+        plugins_acknowledge_inner(&cfg_path, "kwm-migration").unwrap();
+        let cfg = musicforge_core::config::AppConfig::load(&cfg_path).unwrap();
+        assert_eq!(cfg.plugins.acked, vec!["kwm-migration".to_string()]);
+        assert!(
+            plugins_acknowledge_inner(&cfg_path, "  ").is_err(),
+            "空名必须拒绝"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     /// plugins_status：形状契约 + 白名单目录扫描 + config 启用列表透传。
     #[test]
