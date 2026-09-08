@@ -23,5 +23,8 @@ tmp-out/
 # ROADMAP.md 自 2026-09-08 起由主理人本地维护，不再入库（主理人指示）
 ROADMAP.md
 
+# CODEBUDDY.md 自 2026-09-08 起由主理人本地维护，不再入库（主理人指示）
+CODEBUDDY.md
+
 # CodeBuddy 代理本地数据（记忆/配置）不入库
 .codebuddy/
