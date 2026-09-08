@@ -158,6 +158,12 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # rust-toolchain.toml 会把工具链切到 pinned 1.98.0，其 std 需单独为交叉目标补装
+      # （与 ci.yml build job 相同处理；dtolnay 的 targets 只作用于它装的 stable——
+      #  v0.8.0 首跑 E0463 教训：musl crate 解析报 can't find crate for `core`）
+      - name: Add target std for pinned toolchain
+        run: rustup target add ${{ matrix.target }}
+
       - name: Install musl tools
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
