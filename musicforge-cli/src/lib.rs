@@ -816,13 +816,17 @@ fn run_inner(
         .as_ref()
         .map(|o| o.join(".musicforge/staging").join(manifest::new_task_id()));
 
-    for item in sources {
+    for (idx, item) in sources.into_iter().enumerate() {
+        // 稳定审计 B5（第二轮）：暂存子目录按输入序号隔离——共享同一暂存目录时，
+        // 不同目录下的同名文件（track01.kwm × N 张专辑）会在插件迁移阶段
+        // 撞名（MF-OUTPUT-EXISTS）甚至互相覆盖。
+        let staging_dir = staging_root.as_ref().map(|r| r.join(idx.to_string()));
         match plan_one_with(
             item.clone(),
             &cfg,
             &mut used,
             &registry,
-            staging_root.as_deref(),
+            staging_dir.as_deref(),
         ) {
             Ok(p) => plans.push(p),
             Err(e) => {
@@ -1231,20 +1235,28 @@ pub mod plugins {
         Ok(())
     }
 
-    /// 设置启用列表（整表覆盖语义；空名拒绝，显式可见）。
+    /// 设置启用列表（整表覆盖语义；trim + 拒绝空名 + 去重——与 GUI
+    /// `plugins_set_enabled_inner` 校验语义对齐，稳定审计 B6）。
     pub fn set_enabled(
         config_path: &Path,
         names: &[String],
     ) -> Result<(), musicforge_core::NcmError> {
+        let mut seen = std::collections::BTreeSet::new();
         for name in names {
-            if name.trim().is_empty() {
+            let name = name.trim();
+            if name.is_empty() {
                 return Err(musicforge_core::NcmError::Config(
                     "插件名不得为空".to_string(),
                 ));
             }
+            if !seen.insert(name.to_string()) {
+                return Err(musicforge_core::NcmError::Config(format!(
+                    "重复的插件名: {name}"
+                )));
+            }
         }
         let mut cfg = musicforge_core::config::AppConfig::load(config_path)?;
-        cfg.plugins.enabled = names.to_vec();
+        cfg.plugins.enabled = seen.into_iter().collect();
         cfg.save(config_path)
     }
 
@@ -1674,7 +1686,7 @@ mod bridge_flow_tests {
         registry.register(Box::new(FakeKwmAdapter {
             payload: b"migrated".to_vec(),
         }));
-        let staging = root.path().join("out/.musicforge/staging/st-1");
+        let staging = root.path().join("out/.musicforge/staging/st-1/0");
         let mut used = HashSet::new();
         let plan = plan_one_with(
             (source.clone(), Some(lib.clone())),
@@ -1690,6 +1702,62 @@ mod bridge_flow_tests {
         assert!(staged.exists(), "迁移产物应落在暂存区");
         assert_eq!(plan.target, root.path().join("out").join("song.flac"));
         assert!(source.exists(), "源文件绝不被修改");
+    }
+
+    /// 稳定审计 B5 回归：不同目录下的同名桥接源（track01.kwm × 2）必须各自
+    /// 独立暂存——共享暂存目录会让第二份撞名（MF-OUTPUT-EXISTS）或覆盖第一份。
+    #[test]
+    fn same_stem_sources_get_isolated_staging_slots() {
+        let root = tempfile::tempdir().unwrap();
+        let mut registry = musicforge_core::formats::registry::FormatRegistry::new();
+        registry.register(Box::new(FakeKwmAdapter {
+            payload: b"migrated".to_vec(),
+        }));
+        let staging_root = root.path().join("out/.musicforge/staging/st-x");
+        let mut used = HashSet::new();
+
+        let mk = |dir: &Path, content: &[u8]| {
+            std::fs::create_dir_all(dir).unwrap();
+            let p = dir.join("track01.kwm");
+            std::fs::write(&p, b"encrypted").unwrap();
+            (p, content.to_vec())
+        };
+        let (p1, c1) = mk(&root.path().join("lib/a"), b"content-a");
+        let (p2, c2) = mk(&root.path().join("lib/b"), b"content-b");
+
+        let s1 = plan_one_with(
+            (p1.clone(), Some(root.path().join("lib/a"))),
+            &cfg(&root.path().join("out")),
+            &mut used,
+            &registry,
+            Some(&staging_root.join("0")),
+        )
+        .unwrap();
+        let s2 = plan_one_with(
+            (p2.clone(), Some(root.path().join("lib/b"))),
+            &cfg(&root.path().join("out")),
+            &mut used,
+            &registry,
+            Some(&staging_root.join("1")),
+        )
+        .unwrap();
+
+        assert_ne!(s1.staged, s2.staged, "暂存路径必须按序号隔离");
+        assert_eq!(
+            std::fs::read(s1.staged.as_ref().unwrap()).unwrap(),
+            b"migrated",
+            "第一份暂存产物不得被第二份覆盖（FakeAdapter 同 payload，以路径隔离断言为准）"
+        );
+        assert!(s1.staged.as_ref().unwrap().exists());
+        assert!(s2.staged.as_ref().unwrap().exists());
+        assert_ne!(s1.staged.as_ref().unwrap(), s2.staged.as_ref().unwrap());
+
+        // 两份桥接计划都能独立执行入位（内容经夹具 payload 区分）
+        let r1 = execute_one(&s1, &cfg(&root.path().join("out")));
+        let r2 = execute_one(&s2, &cfg(&root.path().join("out")));
+        assert_eq!(r1.status, Status::Ok, "{r1:?}");
+        assert_eq!(r2.status, Status::Ok, "{r2:?}");
+        let _ = (c1, c2, p2);
     }
 
     /// 桥接执行：暂存产物改名入位 + sidecar 写入 + 源不动。

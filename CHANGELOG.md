@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed（稳定性审计第二轮：P6b 新增代码面）
+- **B5（严重）**：convert 桥接批量——不同目录下的同名源（`track01.kwm` × N）
+  共享同一暂存目录，插件迁移撞名 `MF-OUTPUT-EXISTS` → 批次中断。修复：
+  暂存子目录按输入序号隔离（`staging/<task>/<idx>/`）。
+- **B9（严重·独立仓）**：format 插件服务环清单名取自未设置的环境变量 →
+  默认 `"format-plugin"` ≠ ACK 记录的真名 → ACK 闸永远失败。修复：
+  `serve(name, handler)` 显式接名（与 plugin.json 逐字节一致），进程级
+  测试钉住。已在 `musicforge-format-plugins` 同步。
+- **B7（一般·独立仓）**：HTTP 错误摘要按字节切片，多字节字符（CJK 错误体）
+  中间截断 → 插件进程 panic。修复：按字符边界截断（`utf8_truncate`）。
+- **B6（一般）**：CLI `plugins enable` 与 GUI 校验语义不一致（不 trim、
+  静默保留重复名）。修复：对齐 GUI——trim、拒空名、重复名显式拒绝且
+  不改写既有配置。
+- **B8（一般·独立仓）**：隔离区 task 目录毫秒+pid 命名在同进程连续失败时
+  撞名 → 改名失败掩盖原始错误。修复：纳秒精度。
+
 ### Added（P6b.1：格式迁移插件 Host 桥接框架）
 - **plugin-api**：`FORMAT_MIGRATE` 方法常量 + `FormatMigrateParams` /
   `FormatMigrateResult` / `MigrateVerification` / `MigrateAudit` 强类型契约；

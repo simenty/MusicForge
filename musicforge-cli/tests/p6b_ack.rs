@@ -38,13 +38,31 @@ fn set_enabled_overrides_whole_table() {
     let dir = tempfile::tempdir().unwrap();
     let cfg_path = dir.path().join("config.json");
 
-    plugins::set_enabled(&cfg_path, &["a".into(), "b".into()]).unwrap();
+    // B6：trim 生效 + 重复名拒绝（GUI 同款语义：显式失败优于静默去重）
+    plugins::set_enabled(&cfg_path, &["  a  ".into(), "b".into()]).unwrap();
     let cfg = musicforge_core::config::AppConfig::load(&cfg_path).unwrap();
-    assert_eq!(cfg.plugins.enabled.len(), 2);
+    assert_eq!(
+        cfg.plugins.enabled,
+        vec!["a".to_string(), "b".to_string()],
+        "trim 后按序写入"
+    );
+
+    let err = plugins::set_enabled(&cfg_path, &["c".into(), "c".into()]).unwrap_err();
+    assert!(
+        err.to_string().contains("重复的插件名"),
+        "重复名必须显式拒绝: {err}"
+    );
 
     plugins::set_enabled(&cfg_path, &[]).unwrap();
     let cfg = musicforge_core::config::AppConfig::load(&cfg_path).unwrap();
     assert!(cfg.plugins.enabled.is_empty(), "全禁 = 离线铁律恢复");
+
+    // 空名拒绝 + 被拒调用不改写既有配置
+    plugins::set_enabled(&cfg_path, &["x".into(), "y".into()]).unwrap();
+    let err = plugins::set_enabled(&cfg_path, &["  ".into()]).unwrap_err();
+    assert_eq!(err.mf_code(), "MF-CONFIG-INVALID");
+    let cfg2 = musicforge_core::config::AppConfig::load(&cfg_path).unwrap();
+    assert_eq!(cfg2.plugins.enabled.len(), 2, "被拒调用不得改写配置");
 }
 
 /// status：config 状态 + 白名单清单装配（坏清单跳过，与 GUI 同源语义）。
