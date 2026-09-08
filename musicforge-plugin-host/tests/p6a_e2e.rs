@@ -559,13 +559,19 @@ mod adversarial {
     }
 
     /// X41 出站资源：artifacts 逃逸（../ / 绝对路径）全部拒绝。
+    /// 绝对路径形态随平台不同（Unix `/` 前缀；Windows 盘符 Prefix）——分平台断言。
     #[test]
     fn resolve_artifact_rejects_escape() {
         let wd = std::env::temp_dir();
         assert!(PluginProcess::resolve_artifact_in(&wd, "../evil.txt").is_err());
         assert!(PluginProcess::resolve_artifact_in(&wd, "a/../../evil.txt").is_err());
+        #[cfg(windows)]
+        {
+            assert!(PluginProcess::resolve_artifact_in(&wd, "C:/evil").is_err());
+            assert!(PluginProcess::resolve_artifact_in(&wd, "\\evil").is_err());
+        }
+        #[cfg(not(windows))]
         assert!(PluginProcess::resolve_artifact_in(&wd, "/etc/passwd").is_err());
-        assert!(PluginProcess::resolve_artifact_in(&wd, "C:/evil").is_err());
         assert!(PluginProcess::resolve_artifact_in(&wd, "sub/ok.txt").is_ok());
     }
 
