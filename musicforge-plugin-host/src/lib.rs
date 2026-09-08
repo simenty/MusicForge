@@ -13,14 +13,18 @@
 //! feature 隔离（D8）：CLI/GUI 在正式 P6a 才以 `plugin-host` feature 可选接入
 //! ——预研阶段它们不依赖本 crate（默认构建天然无 host 符号）。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use musicforge_plugin_api::{api_compatible, codes, PluginManifest, Request, Response};
+use musicforge_plugin_api::{
+    api_compatible, codes, methods, HostCapabilities, InitParams, InitResult, PluginManifest,
+    Request, Response,
+};
 
 // ---------------------------------------------------------------- 限制三件套 --
 
@@ -119,29 +123,60 @@ impl PluginHostError {
     }
 }
 
+/// 协议模式（P6a-R：init 握手成功 = V1；legacy 插件拒 init → 降级基础信封）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProtocolMode {
+    /// v0.1：init 已协商（事件/16MB/artifacts 语义可用）
+    V1,
+    /// v0.7.0–v0.8.0 基础信封（无 init/无事件）
+    Legacy,
+}
+
 /// 运行中的插件子进程（持久 + 行协议）。
 pub struct PluginProcess {
     child: Child,
     stdin: ChildStdin,
     responses: Arc<Mutex<HashMap<String, Response>>>,
+    /// X39：插件主动事件（无 id 消息）队列；调用方 `drain_events()` 消费
+    events: Arc<Mutex<VecDeque<(String, serde_json::Value)>>>,
+    /// 协议违规计数（乱发 event/超 16MB 等——观测用，不中断连接）
+    violations: Arc<AtomicU64>,
+    /// 是否存在进行中请求（X39：无请求时的 event 属违规）
+    inflight: Arc<AtomicBool>,
+    /// P1-2：stderr 日志尾部（脱敏后环形缓冲，最近 64 条）
+    stderr_tail: Arc<Mutex<VecDeque<String>>>,
+    last_used: Instant,
+    /// P6a-R：协议模式（init 协商结果）
+    pub protocol: ProtocolMode,
+    pub work_dir: PathBuf,
     reader: Option<std::thread::JoinHandle<()>>,
     pub manifest: PluginManifest,
     pub program: PathBuf,
 }
 
 impl PluginProcess {
-    /// spawn + D20 握手（不兼容即 kill 并返回 `ApiIncompatible`）。
+    /// spawn + 协议握手（P6a-R v0.1，X39）：
+    /// 1. 首调 `plugin.init`（协议协商 + work_dir 授权 + Host 能力声明）；
+    /// 2. 插件回 `METHOD-UNKNOWN`（legacy）→ 降级基础信封模式（发 plugin.manifest）；
+    /// 3. api_version 区间不兼容 → kill 并返回 `ApiIncompatible`。
     ///
-    /// B10（第三轮审计）修正：**并发槽位不在 spawn 内接线**——实测把环境性
-    /// 卡顿（Windows Defender 实时扫描进程启动）放大为测试进程级故障
-    /// （并行 e2e 挂死/栈溢出）。生产并发上限由**桥接层**接线
-    /// （`musicforge-cli` 的 migrate/format_migrate 在 spawn 前取
-    /// [`try_acquire_plugin_slot`]，满即显式拒绝），持有窗口=单次迁移。
-    pub fn spawn(program: &Path, host_range: &str) -> Result<Self, PluginHostError> {
+    /// `work_dir` = 插件唯一可写目录（X41 出站资源边界；Host 保证存在）。
+    ///
+    /// 崩溃计数（§4.2）：Handshake/Timeout/Protocol/Gone 记连续崩溃；ApiIncompatible
+    /// 属版本问题不计；成功 spawn 清零——`is_disabled()` 供宿主调用方闸门。
+    ///
+    /// B10（第三轮审计）：并发槽位在**桥接层**接线（try 语义），本函数不管并发。
+    pub fn spawn(
+        program: &Path,
+        host_range: &str,
+        work_dir: &Path,
+    ) -> Result<Self, PluginHostError> {
+        std::fs::create_dir_all(work_dir)
+            .map_err(|e| PluginHostError::Spawn(format!("work_dir 创建失败: {e}")))?;
         let mut child = Command::new(program)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| PluginHostError::Spawn(e.to_string()))?;
 
@@ -153,26 +188,93 @@ impl PluginProcess {
             .stdout
             .take()
             .ok_or_else(|| PluginHostError::Spawn("stdout 不可用".into()))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| PluginHostError::Spawn("stderr 不可用".into()))?;
 
         let responses: Arc<Mutex<HashMap<String, Response>>> = Arc::new(Mutex::new(HashMap::new()));
-        let reader_map = Arc::clone(&responses);
-        let reader = std::thread::spawn(move || {
-            let mut lines = BufReader::new(stdout).lines();
-            while let Some(Ok(line)) = lines.next() {
-                let Ok(resp) = serde_json::from_str::<Response>(&line) else {
-                    continue; // 非协议行（如插件误打 stderr 内容）宽容跳过
-                };
-                reader_map
-                    .lock()
-                    .map(|mut m| m.insert(resp.id.clone(), resp))
-                    .ok();
-            }
-        });
+        let events: Arc<Mutex<VecDeque<(String, serde_json::Value)>>> =
+            Arc::new(Mutex::new(VecDeque::new()));
+        let violations = Arc::new(AtomicU64::new(0));
+        let inflight = Arc::new(AtomicBool::new(false));
+        let stderr_tail: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
+
+        // ---- P1-2：stderr = 日志通道（捕获 + 脱敏 + 环形尾部 64 条）----
+        {
+            let tail = Arc::clone(&stderr_tail);
+            std::thread::spawn(move || {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Some(Ok(l)) = lines.next() {
+                    let mut guard = tail.lock().unwrap_or_else(|e| e.into_inner());
+                    if guard.len() >= 64 {
+                        guard.pop_front();
+                    }
+                    guard.push_back(redact_secrets(&l));
+                }
+            });
+        }
+
+        // ---- stdout 协议线程：响应分派 / 事件路由（X39）/ 16MB 违规（P2）----
+        let reader = {
+            let rm = Arc::clone(&responses);
+            let ev = Arc::clone(&events);
+            let vio = Arc::clone(&violations);
+            let infl = Arc::clone(&inflight);
+            std::thread::spawn(move || {
+                let mut r = BufReader::new(stdout);
+                let mut buf: Vec<u8> = Vec::with_capacity(4096);
+                loop {
+                    buf.clear();
+                    match r.read_until(b'\n', &mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {}
+                    }
+                    if buf.len() > musicforge_plugin_api::v1::MAX_MESSAGE_BYTES {
+                        vio.fetch_add(1, Ordering::Relaxed); // 超限：丢该行（P9 沙箱再做流式强化）
+                        continue;
+                    }
+                    let line = String::from_utf8_lossy(&buf);
+                    let line = line.trim_end_matches(['\n', '\r']);
+                    if line.is_empty() {
+                        continue;
+                    }
+                    let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+                        continue; // 非协议行宽容跳过
+                    };
+                    if v.get("id").is_some() {
+                        let Ok(resp) = serde_json::from_value::<Response>(v) else {
+                            continue;
+                        };
+                        rm.lock().map(|mut m| m.insert(resp.id.clone(), resp)).ok();
+                    } else if let Some(m) = v.get("method").and_then(|m| m.as_str()) {
+                        // X39：无进行中请求时的 event = 协议违规（丢消息，不断连）
+                        if !infl.load(Ordering::Relaxed) {
+                            vio.fetch_add(1, Ordering::Relaxed);
+                            continue;
+                        }
+                        let params = v.get("params").cloned().unwrap_or_default();
+                        ev.lock()
+                            .map(|mut q| q.push_back((m.to_string(), params)))
+                            .ok();
+                    } else {
+                        vio.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            })
+        };
 
         let mut proc = Self {
             child,
             stdin,
             responses,
+            events,
+            violations,
+            inflight,
+            stderr_tail,
+            last_used: Instant::now(),
+            protocol: ProtocolMode::V1,
+            work_dir: work_dir.to_path_buf(),
             reader: Some(reader),
             // manifest 先占位，握手后填充
             manifest: PluginManifest {
@@ -184,14 +286,84 @@ impl PluginProcess {
                 data_not_sent: vec![],
                 ack_required: false,
                 extensions: vec![],
+                permissions: Default::default(),
             },
             program: program.to_path_buf(),
         };
 
-        // ---- D20 握手 ----
+        // ---- P6a-R v0.1 握手（X39）；legacy 降级见 match 分支 ----
+        let init_params = InitParams {
+            protocol_version: musicforge_plugin_api::v1::PROTOCOL_VERSION,
+            work_dir: work_dir.display().to_string(),
+            locale: std::env::var("LANG").unwrap_or_else(|_| "zh-CN".into()),
+            host_capabilities: HostCapabilities::default(),
+        };
+        let manifest: PluginManifest = match proc.call(
+            methods::PLUGIN_INIT,
+            serde_json::to_value(&init_params)
+                .map_err(|e| PluginHostError::Protocol(e.to_string()))?,
+            musicforge_plugin_api::v1::INIT_TIMEOUT_MS,
+        ) {
+            Ok(v) => {
+                let ir: InitResult = match serde_json::from_value(v) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        proc.kill();
+                        Self::note_crash(program);
+                        return Err(PluginHostError::Handshake(format!("init 响应畸形: {e}")));
+                    }
+                };
+                let m = match ir.manifest {
+                    Some(m) => m,
+                    None => {
+                        proc.kill();
+                        Self::note_crash(program);
+                        return Err(PluginHostError::Handshake(
+                            "init 成功但未随行 manifest".into(),
+                        ));
+                    }
+                };
+                if !api_compatible(&m.api_version, host_range) {
+                    proc.kill();
+                    return Err(PluginHostError::ApiIncompatible {
+                        plugin: m.api_version.clone(),
+                        host_range: host_range.to_string(),
+                    });
+                }
+                proc.protocol = ProtocolMode::V1;
+                m
+            }
+            // legacy 降级（R26 向后兼容）：旧插件不认识 init → 基础信封 manifest 握手
+            Err(PluginHostError::Protocol(m)) if m.contains(codes::METHOD_UNKNOWN) => {
+                Self::legacy_handshake(&mut proc, host_range)?
+            }
+            Err(e) => {
+                proc.kill();
+                Self::note_crash(program);
+                return Err(e);
+            }
+        };
+        Self::note_success(program);
+        proc.manifest = manifest;
+        Ok(proc)
+    }
+
+    /// legacy（v0.7.0–v0.8.0 基础信封）握手：发 manifest → D20 校验 → 标记 Legacy。
+    fn legacy_handshake(
+        proc: &mut PluginProcess,
+        host_range: &str,
+    ) -> Result<PluginManifest, PluginHostError> {
+        proc.protocol = ProtocolMode::Legacy;
         let resp = proc
-            .call("plugin.manifest", serde_json::json!({}), 5_000)
-            .inspect_err(|_| proc.kill())?;
+            .call(
+                methods::PLUGIN_MANIFEST,
+                serde_json::json!({}),
+                musicforge_plugin_api::v1::INIT_TIMEOUT_MS,
+            )
+            .inspect_err(|_| {
+                proc.kill();
+                Self::note_crash(&proc.program);
+            })?;
         let manifest: PluginManifest = serde_json::from_value(resp)
             .inspect_err(|_| proc.kill())
             .map_err(|e| PluginHostError::Handshake(e.to_string()))?;
@@ -202,8 +374,7 @@ impl PluginProcess {
                 host_range: host_range.to_string(),
             });
         }
-        proc.manifest = manifest;
-        Ok(proc)
+        Ok(manifest)
     }
 
     /// 发起一次调用：写请求行 → 等待同 id 响应 → 超时 kill。
@@ -213,6 +384,16 @@ impl PluginProcess {
         params: serde_json::Value,
         timeout_ms: u64,
     ) -> Result<serde_json::Value, PluginHostError> {
+        // X39：in-flight 标记（Drop 兜底复位）——无请求期间的 event 属协议违规
+        self.inflight.store(true, Ordering::Relaxed);
+        self.last_used = Instant::now();
+        struct InflightGuard(Arc<AtomicBool>);
+        impl Drop for InflightGuard {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::Relaxed);
+            }
+        }
+        let _inflight = InflightGuard(Arc::clone(&self.inflight));
         let id = format!("req-{}", self.next_id());
         let req = Request {
             id: id.clone(),
@@ -311,6 +492,168 @@ impl PluginProcess {
         static SEQ: AtomicU64 = AtomicU64::new(1);
         SEQ.fetch_add(1, Ordering::SeqCst)
     }
+
+    // ------------------------------------------------------------ P6a-R v0.1 --
+
+    /// 取走插件主动事件（X39：progress/log；调用方在长任务轮询间隙消费）。
+    pub fn drain_events(&self) -> Vec<(String, serde_json::Value)> {
+        self.events
+            .lock()
+            .map(|mut q| q.drain(..).collect())
+            .unwrap_or_default()
+    }
+
+    /// 协议违规计数（乱发事件/超 16MB/畸形消息；观测用，不中断连接）。
+    pub fn violations(&self) -> u64 {
+        self.violations.load(Ordering::Relaxed)
+    }
+
+    /// stderr 日志尾部（P1-2：已脱敏，最近 ≤64 行）——错误报告随行带出。
+    pub fn stderr_tail(&self) -> Vec<String> {
+        self.stderr_tail
+            .lock()
+            .map(|q| q.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// 空闲时长（Host 空闲回收策略 [`v1::IDLE_RECYCLE_MS`] 的判定输入）。
+    pub fn idle_ms(&self) -> u64 {
+        self.last_used.elapsed().as_millis() as u64
+    }
+
+    /// X41 出站资源校验：`rel` 必须是 work_dir 内的相对路径
+    /// （拒绝对路径/`..` 逃逸/符号链接逃逸）——校验失败 = 协议违规，产物不取用。
+    pub fn resolve_artifact(&self, rel: &str) -> Result<PathBuf, PluginHostError> {
+        Self::resolve_artifact_in(&self.work_dir, rel)
+    }
+
+    /// [`Self::resolve_artifact`] 的可测形态（注入 work_dir）。
+    pub fn resolve_artifact_in(work_dir: &Path, rel: &str) -> Result<PathBuf, PluginHostError> {
+        use std::path::Component;
+        let p = Path::new(rel);
+        if p.is_absolute() {
+            return Err(PluginHostError::Protocol(format!(
+                "artifacts 逃逸（绝对路径）: {rel}"
+            )));
+        }
+        for comp in p.components() {
+            match comp {
+                Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                    return Err(PluginHostError::Protocol(format!(
+                        "artifacts 逃逸（{comp:?} 组件）: {rel}"
+                    )));
+                }
+                _ => {}
+            }
+        }
+        let resolved = work_dir.join(p);
+        // 符号链接/真实路径逃逸：canon 后仍须落在 work_dir 内
+        if let Ok(canon) = resolved.canonicalize() {
+            let wd = work_dir
+                .canonicalize()
+                .unwrap_or_else(|_| work_dir.to_path_buf());
+            if !canon.starts_with(&wd) {
+                return Err(PluginHostError::Protocol(format!(
+                    "artifacts 逃逸（符号链接）: {rel}"
+                )));
+            }
+            return Ok(canon);
+        }
+        Ok(resolved) // 尚不存在（待创建）——组件级已拒 ../
+    }
+
+    /// §4.2：连续崩溃计数（Handshake/Timeout/Protocol/Gone 记一次；成功清零）。
+    pub fn crash_count(program: &Path) -> u32 {
+        crash_counts()
+            .lock()
+            .map(|m| *m.get(&crash_key(program)).unwrap_or(&0))
+            .unwrap_or(0)
+    }
+
+    /// §4.2：达到 [`v1::CRASH_DISABLE_THRESHOLD`] 的插件本会话禁用判定。
+    pub fn is_disabled(program: &Path) -> bool {
+        Self::crash_count(program) >= musicforge_plugin_api::v1::CRASH_DISABLE_THRESHOLD
+    }
+
+    fn note_crash(program: &Path) {
+        if let Ok(mut m) = crash_counts().lock() {
+            *m.entry(crash_key(program)).or_insert(0) += 1;
+        }
+    }
+
+    fn note_success(program: &Path) {
+        if let Ok(mut m) = crash_counts().lock() {
+            m.remove(&crash_key(program));
+        }
+    }
+}
+
+/// P1-2：stderr 脱敏（key/token/secret/password 类赋值掩码为 `***`）。
+///
+/// 零依赖实现：扫描 `<marker>`（大小写不敏感）后跟 `=` 或 `": "`/`: ` 的位置，
+/// 把到值结束（空白/引号/行尾）的内容替换为 `***`。这是**审计级最小约定**
+/// （防日志明文泄密），非密码学承诺——真正敏感进程隔离属 P9 沙箱阶段。
+fn redact_secrets(line: &str) -> String {
+    const MARKERS: [&str; 4] = ["key", "token", "secret", "password"];
+    let lower = line.to_lowercase();
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+    for m in MARKERS {
+        let mut from = 0usize;
+        while let Some(rel) = lower[from..].find(m) {
+            let start = from + rel;
+            // 仅在 marker 处于赋值位（其后是 = 或 : ）时视为密钥位
+            let after = &lower[start + m.len()..];
+            let (sep_len, is_sep) = if let Some(r) = after.strip_prefix("=\"") {
+                (2 + r.find('"').map(|i| i + 1).unwrap_or(r.len()), true)
+            } else if let Some(r) = after.strip_prefix('=').map(|x| {
+                x.find(|c: char| c.is_whitespace() || c == '&' || c == ';' || c == ',')
+                    .unwrap_or(x.len())
+            }) {
+                (1 + r, true)
+            } else if let Some(r) = after.strip_prefix("\": \"") {
+                (4 + r.find('"').map(|i| i + 1).unwrap_or(r.len()), true)
+            } else if let Some(r) = after
+                .strip_prefix("\":")
+                .map(|x| x.find(|c: char| c.is_whitespace()).unwrap_or(x.len()))
+            {
+                (2 + r, true)
+            } else {
+                (0, false)
+            };
+            if is_sep && sep_len > 1 {
+                ranges.push((start, start + m.len() + sep_len));
+            }
+            from = start + m.len();
+        }
+    }
+    if ranges.is_empty() {
+        return line.to_string();
+    }
+    let mut out = String::with_capacity(line.len());
+    let mut pos = 0usize;
+    for (s, e) in ranges {
+        if s < pos {
+            continue;
+        }
+        out.push_str(&line[pos..s]);
+        out.push_str("***");
+        pos = e;
+    }
+    out.push_str(&line[pos..]);
+    out
+}
+
+/// 崩溃计数存储（§4.2；进程级会话语义）。
+fn crash_counts() -> &'static Mutex<HashMap<String, u32>> {
+    use std::sync::OnceLock;
+    static M: OnceLock<Mutex<HashMap<String, u32>>> = OnceLock::new();
+    M.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn crash_key(program: &Path) -> String {
+    // 按完整路径区分插件实例（不同 shim 目录 = 不同 key；并行测试互不干扰）。
+    // Windows 路径大小写不敏感 → 归一小写。
+    program.display().to_string().to_lowercase()
 }
 
 impl std::fmt::Debug for PluginProcess {

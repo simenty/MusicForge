@@ -1,37 +1,91 @@
-//! mock-ai-plugin（P6a 夹具）：冻结方法集全量实现的最小 NDJSON AI 插件。
+//! mock-ai-plugin（P6a 夹具）：协议 v0.1 全方法实现 + 对抗行为开关。
 //!
-//! 行为（方法集冻结于 `docs/p6a-ai-interface.md` §2）：
-//! - `plugin.manifest` → 自我声明（api_version 1.0.0 / kind=ai / network=false）；
-//!   环境变量 `MOCK_API_VERSION` 可覆盖（D20 不兼容路径的测试钩子）；
-//! - `plugin.health` → `{"status":"ok"}`；
-//! - `plugin.shutdown` → `{"accepted":true}` 后进程退出；
-//! - `ai.identify_track` → 固定 Suggestion（confidence 0.93 + field_confidence）；
-//! - `ai.generate_filename_regex` → 由样例确定性生成规则文本（执行权在 core）；
-//! - `ai.review_duplicate_group` → 确定性保留建议（按码率/体积取最优成员）；
-//! - `lyrics.verify` → 固定核验结论（红线：绝不产出歌手/歌名替换）；
-//! - `cover.search` / `cover.generate` → mock 候选（D22：来源优先级最末）；
-//! - `test.sleep` → 按 `params.ms` 睡眠后 ok（超时 kill 契约测试用）；
+//! 正常行为（方法集：`docs/plugin-protocol.md` §5）：
+//! - `plugin.init` → `InitResult{api_version, manifest}`（P6a-R 握手）；
+//! - `plugin.manifest` → 自我声明（`MOCK_API_VERSION` 可覆盖，D20 测试钩子）；
+//! - `plugin.health` / `plugin.shutdown`（应答后退出）；
+//! - `ai.identify_track` / `ai.generate_filename_regex` / `ai.review_duplicate_group`
+//!   / `lyrics.verify`（红线：绝不产出歌手/歌名替换）/ `cover.search` / `cover.generate`；
+//! - `format.migrate`（demo）：写 work_dir 产物 + 发 event.progress + artifacts 出站；
+//! - `test.sleep` / `test.progress` / `test.emit-event`（协议测试钩子）；
 //! - 其他方法 → `MF-PLUGIN-METHOD-UNKNOWN`。
 //!
-//! 逐行 NDJSON：一行请求 → 一行响应。stderr 不写协议内容。
+//! 对抗开关（`MOCK_BEHAVIOR`，e2e 对抗套件用）：
+//! - `legacy`：init 回 METHOD-UNKNOWN（Host 降级基础信封）；
+//! - `no-response`：读请求但不响应（init 10s 超时）；
+//! - `bad-init-response`：init 返回畸形 result（Handshake 失败 → 崩溃计数）；
+//! - `id-mismatch`：响应 id 错位；
+//! - `spurious-event`：每次响应后（无进行中请求时）发 event → Host 违规计数；
+//! - `stderr-log`：启动时向 stderr 打印含密钥形态的行（P1-2 脱敏断言）；
+//! - `escape-artifacts`：migrate artifacts 返回 `../evil.txt`（X41 逃逸拒绝）。
 
 use std::io::{BufRead, Write};
+use std::path::PathBuf;
 
 use musicforge_plugin_api::{
-    methods, CoverCandidate, CoverResult, DuplicateGroupParams, DuplicateReviewResult,
-    FilenameRegexParams, FilenameRegexResult, HealthResult, IdentifySuggestion, LyricsVerdict,
-    LyricsVerifyResult, PluginError, PluginKind, PluginManifest, Request, Response, ShutdownResult,
+    events, methods, v1, CoverCandidate, CoverResult, DuplicateGroupParams, DuplicateReviewResult,
+    FilenameRegexParams, FilenameRegexResult, FormatMigrateParams, FormatMigrateResult,
+    HealthResult, IdentifySuggestion, InitParams, InitResult, LyricsVerdict, LyricsVerifyResult,
+    MigrateVerification, PluginError, PluginKind, PluginManifest, Request, Response,
+    ShutdownResult,
 };
+
+fn manifest_for(api_version: &str) -> PluginManifest {
+    PluginManifest {
+        name: "mock-ai".into(),
+        api_version: api_version.to_string(),
+        kind: PluginKind::Ai,
+        network: false,
+        data_sent: vec![
+            "normalized_filename".into(),
+            "title".into(),
+            "artists".into(),
+            "album".into(),
+            "duration_ms".into(),
+            "format".into(),
+            "language_hint".into(),
+            "header_hex".into(),
+            "tail_hex".into(),
+        ],
+        data_not_sent: vec![
+            "absolute_path".into(),
+            "audio_bytes".into(),
+            "cover_bytes".into(),
+        ],
+        ack_required: false,
+        extensions: vec![],
+        permissions: Default::default(),
+    }
+}
+
+/// 对抗/演示：发一条无 id 事件（progress）。
+fn emit_progress(out: &mut impl Write, job_id: &str, percent: u8, stage: &str) {
+    let line = serde_json::json!({
+        "method": events::PROGRESS,
+        "params": {"job_id": job_id, "percent": percent, "stage": stage}
+    });
+    let _ = writeln!(out, "{line}");
+    let _ = out.flush();
+}
 
 fn main() {
     let api_version = std::env::var("MOCK_API_VERSION").unwrap_or_else(|_| "1.0.0".into());
+    let behavior = std::env::var("MOCK_BEHAVIOR").unwrap_or_default();
     let started = std::time::Instant::now();
     let stdin = std::io::stdin();
     let mut out = std::io::stdout();
+
+    if behavior == "stderr-log" {
+        eprintln!("apikey=SECRET12345 token=ABCDEF client_password=hunter2");
+    }
+
     for line in stdin.lock().lines() {
         let Ok(line) = line else { break };
         if line.trim().is_empty() {
             continue;
+        }
+        if behavior == "no-response" {
+            continue; // 读请求永不响应（超时路径）
         }
         let Ok(req) = serde_json::from_str::<Request>(&line) else {
             let resp = Response::err("unknown", "MF-PLUGIN-MANIFEST-INVALID", "请求行无法解析");
@@ -40,31 +94,39 @@ fn main() {
             continue;
         };
         let resp = match req.method.as_str() {
-            methods::PLUGIN_MANIFEST => {
-                let manifest = PluginManifest {
-                    name: "mock-ai".into(),
-                    api_version: api_version.clone(),
-                    kind: PluginKind::Ai,
-                    network: false,
-                    data_sent: vec![
-                        "normalized_filename".into(),
-                        "title".into(),
-                        "artists".into(),
-                        "album".into(),
-                        "duration_ms".into(),
-                        "format".into(),
-                        "language_hint".into(),
-                    ],
-                    data_not_sent: vec![
-                        "absolute_path".into(),
-                        "audio_bytes".into(),
-                        "cover_bytes".into(),
-                    ],
-                    ack_required: false,
-                    extensions: vec![],
-                };
-                Response::ok(&req.id, serde_json::to_value(&manifest).unwrap())
+            methods::PLUGIN_INIT => {
+                if behavior == "legacy" {
+                    // 对抗：旧插件不认识 init → Host 降级基础信封
+                    Response::err(
+                        &req.id,
+                        "MF-PLUGIN-METHOD-UNKNOWN",
+                        "legacy mock: no plugin.init",
+                    )
+                } else if behavior == "bad-init-response" {
+                    // 对抗：init 成功但 result 畸形 → Host Handshake 失败（崩溃计数）
+                    Response::ok(&req.id, serde_json::json!({"answer": 42}))
+                } else {
+                    let init: InitParams =
+                        serde_json::from_value(req.params.clone()).unwrap_or(InitParams {
+                            protocol_version: 1,
+                            work_dir: String::new(),
+                            locale: String::new(),
+                            host_capabilities: Default::default(),
+                        });
+                    // P6a-R：声明 v1 能力（events/artifacts 依赖 work_dir 已授权）
+                    let _ = v1::PROTOCOL_VERSION;
+                    let result = InitResult {
+                        api_version: api_version.clone(),
+                        manifest: Some(manifest_for(&api_version)),
+                    };
+                    let _ = init;
+                    Response::ok(&req.id, serde_json::to_value(&result).unwrap())
+                }
             }
+            methods::PLUGIN_MANIFEST => Response::ok(
+                &req.id,
+                serde_json::to_value(manifest_for(&api_version)).unwrap(),
+            ),
             methods::PLUGIN_HEALTH => {
                 let health = HealthResult {
                     status: "ok".into(),
@@ -77,7 +139,6 @@ fn main() {
                 let resp = Response::ok(&req.id, serde_json::to_value(&accepted).unwrap());
                 let _ = writeln!(out, "{}", serde_json::to_string(&resp).unwrap());
                 let _ = out.flush();
-                // 已应答即退出——host 侧子进程探测应在短窗内观察到退出
                 std::process::exit(0);
             }
             methods::AI_IDENTIFY_TRACK => {
@@ -101,7 +162,6 @@ fn main() {
                 let rule = if params.samples.is_empty() {
                     "^(?P<artist>.+) - (?P<title>.+)$".to_string()
                 } else {
-                    // 确定性规则：统一 `艺人 - 标题 [修饰].扩展` 形状
                     "^(?P<artist>.+) - (?P<title>.+?)\\s*\\[[^\\]]+\\]\\.[^.]+$".to_string()
                 };
                 let result = FilenameRegexResult {
@@ -114,7 +174,6 @@ fn main() {
             methods::AI_REVIEW_DUPLICATE_GROUP => {
                 let params: DuplicateGroupParams =
                     serde_json::from_value(req.params).unwrap_or_default();
-                // 确定性语义判断：码率优先，其次体积（与 core 质量画像互为补充，D24）
                 let keep = params
                     .members
                     .iter()
@@ -160,19 +219,81 @@ fn main() {
                 };
                 Response::ok(&req.id, serde_json::to_value(&result).unwrap())
             }
+            // ---- P6a-R demo：format.migrate（写 work_dir + progress + artifacts）----
+            methods::FORMAT_MIGRATE => {
+                let params: FormatMigrateParams =
+                    serde_json::from_value(req.params).unwrap_or(FormatMigrateParams {
+                        job_id: "job-0".into(),
+                        input_path: String::new(),
+                        output_path: String::new(),
+                        work_dir: String::new(),
+                        options: Default::default(),
+                    });
+                let wd = PathBuf::from(&params.work_dir);
+                let artifact_rel = "out.flac";
+                let _ = std::fs::create_dir_all(&wd);
+                let _ = std::fs::write(wd.join(artifact_rel), b"MOCK-FLAC-BYTES");
+                emit_progress(&mut out, params.job_id.as_str(), 50, "decrypt");
+                let artifacts: Vec<String> = if behavior == "escape-artifacts" {
+                    vec!["../evil.txt".into()] // X41 逃逸（Host 必须拒绝）
+                } else {
+                    vec![artifact_rel.to_string()]
+                };
+                let result = FormatMigrateResult {
+                    status: "success".into(),
+                    output_format: "flac".into(),
+                    artifacts: artifacts.clone(),
+                    output_path: wd.join(artifact_rel).display().to_string(),
+                    verification: MigrateVerification {
+                        magic: "fLaC".into(),
+                        sample_rate: Some(44100),
+                        channels: Some(2),
+                        duration_s: Some(1.0),
+                    },
+                    audit: musicforge_plugin_api::MigrateAudit {
+                        source_sha256: "a".repeat(64),
+                        output_sha256: "b".repeat(64),
+                        quarantined: false,
+                    },
+                    warnings: vec![],
+                };
+                Response::ok(&req.id, serde_json::to_value(&result).unwrap())
+            }
+            // ---- 协议测试钩子 ----
             "test.sleep" => {
                 let ms = req.params.get("ms").and_then(|v| v.as_u64()).unwrap_or(0);
                 std::thread::sleep(std::time::Duration::from_millis(ms));
                 Response::ok(&req.id, serde_json::json!({"sleptMs": ms}))
             }
-            other => Response::err(
-                &req.id,
-                "MF-PLUGIN-METHOD-UNKNOWN",
-                format!("未知方法: {other}"),
-            ),
+            "test.progress" => {
+                // 请求进行中发事件（合法路径）→ Host drain_events 应收到
+                emit_progress(&mut out, "job-test", 42, "demo");
+                Response::ok(&req.id, serde_json::json!({"emitted": true}))
+            }
+            other => {
+                let resp = Response::err(
+                    &req.id,
+                    "MF-PLUGIN-METHOD-UNKNOWN",
+                    format!("未知方法: {other}"),
+                );
+                resp
+            }
+        };
+        let resp = if behavior == "id-mismatch" {
+            let mut r = resp;
+            r.id = "wrong-id".into();
+            r
+        } else {
+            resp
         };
         let _ = writeln!(out, "{}", serde_json::to_string(&resp).unwrap());
         let _ = out.flush();
+        // 对抗：响应**之后**（无进行中请求）乱发事件 → Host 违规计数 +1。
+        // 先睡 200ms 确保 Host 已 poll 到响应并清除 in-flight（消除事件/响应竞态）。
+        if behavior == "spurious-event" {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            emit_progress(&mut out, "job-spurious", 1, "violation");
+        }
     }
 }
 

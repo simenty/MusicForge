@@ -1348,7 +1348,8 @@ pub mod format_bridge {
             source: &Path,
             out_dir: &Path,
         ) -> Result<FormatMigrateResult, musicforge_core::NcmError> {
-            let work_root = Self::common_work_root(source, out_dir).ok_or_else(|| {
+            // 授权根前置校验（值不再传递——v0.1 的边界由 work_dir 承担）
+            let _work_root = Self::common_work_root(source, out_dir).ok_or_else(|| {
                 musicforge_core::NcmError::PluginNotFound(format!(
                     "无法确定授权工作根：源 {} 与输出 {} 无公共前缀",
                     source.display(),
@@ -1365,13 +1366,22 @@ pub mod format_bridge {
                     "并发插件进程已达上限（2）：请等待运行中的迁移完成后再试".to_string(),
                 )
             })?;
-            let mut p = musicforge_plugin_host::PluginProcess::spawn(&self.exe, ">=1,<2")
+            // P6a-R（§4.2）：连续崩溃 3 次 → 本会话禁用（MF-PLUGIN-DISABLED）
+            if musicforge_plugin_host::PluginProcess::is_disabled(&self.exe) {
+                return Err(musicforge_core::NcmError::PluginDisabled(format!(
+                    "插件 {} 连续崩溃已达阈值，本会话禁用",
+                    self.name
+                )));
+            }
+            let mut p = musicforge_plugin_host::PluginProcess::spawn(&self.exe, ">=1,<2", out_dir)
                 .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
+            // P6a-R（v0.1 形状）：job_id 关联 progress 事件；work_dir = 迁移暂存目录
             let params = FormatMigrateParams {
-                work_root: work_root.display().to_string(),
-                source_path: source.display().to_string(),
-                output_dir: out_dir.display().to_string(),
-                ekey: None,
+                job_id: format!("job-{}", std::process::id()),
+                input_path: source.display().to_string(),
+                output_path: out_dir.join("output").display().to_string(),
+                work_dir: out_dir.display().to_string(),
+                options: Default::default(),
             };
             let result: FormatMigrateResult = p
                 .call_typed(
@@ -1381,6 +1391,15 @@ pub mod format_bridge {
                     musicforge_plugin_host::limits::clamp_timeout(15_000),
                 )
                 .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
+            // X41：artifacts 出站校验（v1 模式）；legacy 插件沿用 output_path
+            if p.protocol == musicforge_plugin_host::ProtocolMode::V1
+                && !result.artifacts.is_empty()
+            {
+                for a in &result.artifacts {
+                    p.resolve_artifact(a)
+                        .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
+                }
+            }
             Ok(result)
         }
     }
@@ -1529,7 +1548,7 @@ pub fn format_migrate(
     plugin: &str,
     source: &str,
     output_dir: &str,
-    work_root: Option<&str>,
+    _work_root: Option<&str>,
     ekey: Option<&str>,
 ) -> Result<String, musicforge_core::NcmError> {
     use musicforge_plugin_api::{methods, FormatMigrateParams, FormatMigrateResult};
@@ -1548,6 +1567,12 @@ pub fn format_migrate(
         ))
     })?;
 
+    // P6a-R（§4.2）：连续崩溃 3 次 → 本会话禁用
+    if musicforge_plugin_host::PluginProcess::is_disabled(&exe) {
+        return Err(musicforge_core::NcmError::PluginDisabled(format!(
+            "插件 {plugin} 连续崩溃已达阈值，本会话禁用"
+        )));
+    }
     // 稳定审计 B10：并发槽位接线（与 format_bridge::migrate 同语义——try 满
     // 即显式拒绝，持有窗口 = 单次迁移；详见桥接处注释）。
     let _slot = musicforge_plugin_host::try_acquire_plugin_slot().ok_or_else(|| {
@@ -1555,7 +1580,13 @@ pub fn format_migrate(
             "并发插件进程已达上限（2）：请等待运行中的迁移完成后再试".to_string(),
         )
     })?;
-    let mut p = musicforge_plugin_host::PluginProcess::spawn(&exe, ">=1,<2")
+    // P6a-R（v0.1）：work_dir = 插件唯一可写目录（X41 边界）——单文件迁移
+    // 无暂存树，用 `<output_dir>/.musicforge/work/<plugin>/` 隔离
+    let work_dir = Path::new(output_dir)
+        .join(".musicforge")
+        .join("work")
+        .join(plugin);
+    let mut p = musicforge_plugin_host::PluginProcess::spawn(&exe, ">=1,<2", &work_dir)
         .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
     plugins::ack_gate(
         p.manifest.ack_required,
@@ -1564,16 +1595,14 @@ pub fn format_migrate(
     )?;
 
     let params = FormatMigrateParams {
-        work_root: match work_root {
-            Some(w) => w.to_string(),
-            None => Path::new(source)
-                .parent()
-                .map(|p| p.display().to_string())
-                .unwrap_or_default(),
+        job_id: format!("job-{}", std::process::id()),
+        input_path: source.to_string(),
+        output_path: work_dir.join("output").display().to_string(),
+        work_dir: work_dir.display().to_string(),
+        options: musicforge_plugin_api::MigrateOptions {
+            ekey: ekey.map(|s| s.to_string()),
+            ..Default::default()
         },
-        source_path: source.to_string(),
-        output_dir: output_dir.to_string(),
-        ekey: ekey.map(|s| s.to_string()),
     };
     let result: FormatMigrateResult = p
         .call_typed(
@@ -1583,6 +1612,13 @@ pub fn format_migrate(
             musicforge_plugin_host::limits::clamp_timeout(15_000),
         )
         .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
+    // X41：artifacts 出站校验（v1 模式）
+    if p.protocol == musicforge_plugin_host::ProtocolMode::V1 && !result.artifacts.is_empty() {
+        for a in &result.artifacts {
+            p.resolve_artifact(a)
+                .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
+        }
+    }
     Ok(result.output_path)
 }
 

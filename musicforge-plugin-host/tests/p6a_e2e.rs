@@ -3,15 +3,27 @@
 //! 夹具 = `mock-ai-plugin` 二进制（同 crate [[bin]]，`CARGO_BIN_EXE` 定位）。
 
 use musicforge_plugin_api::{codes, IdentifySuggestion, Request};
-use musicforge_plugin_host::{PluginHostError, PluginProcess};
+use musicforge_plugin_host::{PluginHostError, PluginProcess, ProtocolMode};
 
 fn mock_exe() -> &'static str {
     env!("CARGO_BIN_EXE_mock-ai-plugin")
 }
 
+/// P6a-R：插件 work_dir（X41 出站边界；e2e 共享临时目录，mock 仅 demo 写入）。
+fn wd() -> std::path::PathBuf {
+    use std::sync::OnceLock;
+    static WD: OnceLock<std::path::PathBuf> = OnceLock::new();
+    WD.get_or_init(|| {
+        let d = std::env::temp_dir().join(format!("mf-e2e-wd-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    })
+    .clone()
+}
+
 #[test]
 fn handshake_and_identify_roundtrip() {
-    let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
+    let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2", &wd()).unwrap();
     // D20 握手产物
     assert_eq!(p.manifest.name, "mock-ai");
     assert_eq!(p.manifest.api_version, "1.0.0");
@@ -56,7 +68,7 @@ fn d20_incompatible_version_is_rejected() {
     // 进程级不兼容路径：MOCK_API_VERSION 覆盖 → spawn 握手拒绝 + 子进程被 kill。
     // 通过 shim 脚本转发环境变量（spawn 接口只收路径，不收环境）。
     let shim = root_shim();
-    let err = PluginProcess::spawn(shim.as_path(), ">=1,<2").unwrap_err();
+    let err = PluginProcess::spawn(shim.as_path(), ">=1,<2", &wd()).unwrap_err();
     assert!(
         matches!(err, PluginHostError::ApiIncompatible { .. }),
         "0.9.0 必须被 D20 拒绝: {err}"
@@ -97,7 +109,7 @@ fn write_shim(ext: &str, body: &str) -> std::path::PathBuf {
 
 #[test]
 fn timeout_kills_child_and_returns_stable_error() {
-    let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
+    let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2", &wd()).unwrap();
     let err = p
         .call("test.sleep", serde_json::json!({"ms": 5_000}), 300)
         .unwrap_err();
@@ -115,7 +127,7 @@ fn timeout_kills_child_and_returns_stable_error() {
 
 #[test]
 fn unknown_method_returns_stable_error_code() {
-    let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
+    let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2", &wd()).unwrap();
     let err = p
         .call("ai.nonexistent", serde_json::json!({}), 2_000)
         .unwrap_err();
@@ -124,11 +136,11 @@ fn unknown_method_returns_stable_error_code() {
 
 #[test]
 fn drop_terminates_child() {
-    let p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
+    let p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2", &wd()).unwrap();
     let _ = p; // Drop 在此结束
                // 无泄漏断言：Drop kill 幂等且不 panic——真泄漏需 OS 级探测，
                // 预研以「Drop 不 panic + 后续 spawn 正常」为充分信号
-    let _ = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
+    let _ = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2", &wd()).unwrap();
 }
 
 // ============================== T2 方法集落地 ==============================
@@ -144,7 +156,7 @@ mod method_set {
 
     #[test]
     fn identify_track_typed_roundtrip() {
-        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
+        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2", &wd()).unwrap();
         let params = IdentifyTrackParams {
             normalized_filename: "王铮亮 feat. 风华音纪 - 借墨 [SQ].wav".into(),
             title: Some("借墨".into()),
@@ -169,7 +181,7 @@ mod method_set {
 
     #[test]
     fn health_reports_ok() {
-        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
+        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2", &wd()).unwrap();
         let h: HealthResult = p
             .call_typed(methods::PLUGIN_HEALTH, serde_json::json!({}), 2_000)
             .unwrap();
@@ -178,7 +190,7 @@ mod method_set {
 
     #[test]
     fn shutdown_responds_then_child_exits() {
-        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
+        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2", &wd()).unwrap();
         let s: ShutdownResult = p
             .call_typed(methods::PLUGIN_SHUTDOWN, serde_json::json!({}), 2_000)
             .unwrap();
@@ -197,7 +209,7 @@ mod method_set {
 
     #[test]
     fn filename_regex_returns_rule_text() {
-        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
+        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2", &wd()).unwrap();
         let params = FilenameRegexParams {
             samples: vec![
                 "王铮亮 - 借墨 [SQ].wav".into(),
@@ -221,7 +233,7 @@ mod method_set {
 
     #[test]
     fn duplicate_review_suggests_deterministic_keep() {
-        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
+        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2", &wd()).unwrap();
         let params = DuplicateGroupParams {
             members: vec![
                 DuplicateMember {
@@ -253,7 +265,7 @@ mod method_set {
 
     #[test]
     fn lyrics_verify_never_suggests_title_or_artists() {
-        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
+        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2", &wd()).unwrap();
         let params = LyricsVerifyParams {
             title: "借墨".into(),
             artists: vec!["王铮亮".into()],
@@ -276,7 +288,7 @@ mod method_set {
 
     #[test]
     fn cover_search_and_generate_return_candidates() {
-        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
+        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2", &wd()).unwrap();
         let params = CoverQueryParams {
             title: "借墨".into(),
             artists: vec!["王铮亮".into()],
@@ -414,7 +426,7 @@ mod limits_suite {
     /// 验收红线：插件被外部杀掉（kill -9 形态）→ 主进程**存活**且显式报错，绝不悬挂。
     #[test]
     fn externally_killed_child_fails_fast_and_host_survives() {
-        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
+        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2", &wd()).unwrap();
         // 模拟外部 kill -9：进程直接死亡，管道破裂
         p.kill();
         let err = p
@@ -426,10 +438,178 @@ mod limits_suite {
             "必须显式失败（Gone/Io），不得悬挂: {err}"
         );
         // 主进程存活验证：随后仍能正常 spawn 新插件并完成一次调用
-        let mut p2 = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2").unwrap();
+        let mut p2 = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2", &wd()).unwrap();
         let h: musicforge_plugin_api::HealthResult = p2
             .call_typed("plugin.health", serde_json::json!({}), 2_000)
             .unwrap();
         assert_eq!(h.status, "ok", "kill 后主进程必须可继续服务");
+    }
+}
+
+// ============================== P6a-R：对抗测试套件（规格 §12） ==============================
+
+mod adversarial {
+    use super::*;
+
+    /// 对抗注入：写一个 set 环境变量后调 mock 的平台 shim（复用 d20 的机制）。
+    fn behavior_shim(behavior: &str) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static SEQ: AtomicU32 = AtomicU32::new(0);
+        let n = SEQ.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!("mf-adv-{}-{}", std::process::id(), n));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mock = mock_exe();
+        #[cfg(windows)]
+        {
+            let p = dir.join("adv-mock.cmd");
+            std::fs::write(
+                &p,
+                format!("@echo off\r\nset MOCK_BEHAVIOR={behavior}\r\n\"{mock}\"\r\n"),
+            )
+            .unwrap();
+            p
+        }
+        #[cfg(not(windows))]
+        {
+            let p = dir.join("adv-mock.sh");
+            std::fs::write(
+                &p,
+                format!("#!/bin/sh\nexport MOCK_BEHAVIOR={behavior}\nexec \"{mock}\"\n"),
+            )
+            .unwrap();
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            p
+        }
+    }
+
+    /// X39：v1 握手成功 → 事件路由（请求进行中发事件 = 合法，可 drain）。
+    #[test]
+    fn v1_handshake_and_event_drain() {
+        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2", &wd()).unwrap();
+        assert_eq!(p.protocol, ProtocolMode::V1, "现代 mock 应协商为 v0.1");
+        let _ = p
+            .call("test.progress", serde_json::json!({}), 2_000)
+            .unwrap();
+        let events = p.drain_events();
+        assert_eq!(
+            events.len(),
+            1,
+            "应收到一条进行中事件的 progress: {events:?}"
+        );
+        assert_eq!(events[0].0, "event.progress");
+        assert_eq!(events[0].1["percent"], 42);
+    }
+
+    /// R26 向后兼容：legacy 插件（拒 init）→ Host 降级基础信封且 manifest 可用。
+    #[test]
+    fn legacy_plugin_downgrades_to_envelope() {
+        let shim = behavior_shim("legacy");
+        let p = PluginProcess::spawn(shim.as_path(), ">=1,<2", &wd()).unwrap();
+        assert_eq!(p.protocol, ProtocolMode::Legacy, "拒 init 的插件应降级");
+        assert_eq!(p.manifest.name, "mock-ai");
+    }
+
+    /// X39：无进行中请求时乱发事件 = 协议违规（丢弃消息 + 违规计数，不断连）。
+    #[test]
+    fn spurious_event_counts_as_violation() {
+        let shim = behavior_shim("spurious-event");
+        let mut p = PluginProcess::spawn(shim.as_path(), ">=1,<2", &wd()).unwrap();
+        let _ = p
+            .call("plugin.health", serde_json::json!({}), 2_000)
+            .unwrap();
+        // mock 响应后睡 200ms 才乱发事件（消除事件/响应竞态）——测试等 500ms
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert!(p.violations() >= 1, "乱发事件必须计入违规");
+    }
+
+    /// P1-2：stderr 捕获 + 密钥脱敏（apikey/token/password 值掩码）。
+    #[test]
+    fn stderr_captured_and_redacted() {
+        let shim = behavior_shim("stderr-log");
+        let p = PluginProcess::spawn(shim.as_path(), ">=1,<2", &wd()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let tail = p.stderr_tail();
+        assert!(!tail.is_empty(), "stderr 日志应被捕获");
+        let joined = tail.join("\n");
+        assert!(!joined.contains("SECRET12345"), "密钥必须脱敏: {joined}");
+        assert!(joined.contains("***"), "脱敏标记应存在");
+    }
+
+    /// §4.2：init 成功但 result 畸形 = 崩溃 → 连续 3 次后会话禁用。
+    /// 三次使用**同一 shim 路径**（crash key = 完整路径；并行下其他测试的
+    /// 成功 spawn 只清零它们自己的 key，互不干扰）。
+    #[test]
+    fn three_crashes_disable_plugin_for_session() {
+        let shim = behavior_shim("bad-init-response");
+        let program = shim.as_path();
+        for i in 0..3 {
+            let err = PluginProcess::spawn(program, ">=1,<2", &wd()).unwrap_err();
+            assert!(
+                matches!(err, PluginHostError::Handshake(_)),
+                "第 {} 次应为 Handshake 失败: {err}",
+                i + 1
+            );
+            assert_eq!(PluginProcess::crash_count(program), i + 1);
+        }
+        assert!(
+            PluginProcess::is_disabled(program),
+            "连续 3 次崩溃 → 本会话禁用"
+        );
+    }
+
+    /// X41 出站资源：artifacts 逃逸（../ / 绝对路径）全部拒绝。
+    #[test]
+    fn resolve_artifact_rejects_escape() {
+        let wd = std::env::temp_dir();
+        assert!(PluginProcess::resolve_artifact_in(&wd, "../evil.txt").is_err());
+        assert!(PluginProcess::resolve_artifact_in(&wd, "a/../../evil.txt").is_err());
+        assert!(PluginProcess::resolve_artifact_in(&wd, "/etc/passwd").is_err());
+        assert!(PluginProcess::resolve_artifact_in(&wd, "C:/evil").is_err());
+        assert!(PluginProcess::resolve_artifact_in(&wd, "sub/ok.txt").is_ok());
+    }
+
+    /// X41 端到端：migrate 产物经 artifacts 出站 → resolve 命中真实文件；
+    /// 逃逸开关下 Host 拒绝取用（绝不落盘到边界外）。
+    #[test]
+    fn migrate_artifacts_resolved_and_escape_rejected() {
+        // 正常路径
+        let mut p = PluginProcess::spawn(mock_exe().as_ref(), ">=1,<2", &wd()).unwrap();
+        let params = musicforge_plugin_api::FormatMigrateParams {
+            job_id: "job-e2e".into(),
+            input_path: "x.kwm".into(),
+            output_path: wd().join("out.flac").display().to_string(),
+            work_dir: wd().display().to_string(),
+            options: Default::default(),
+        };
+        let r: musicforge_plugin_api::FormatMigrateResult = p
+            .call_typed(
+                musicforge_plugin_api::methods::FORMAT_MIGRATE,
+                serde_json::to_value(&params).unwrap(),
+                5_000,
+            )
+            .unwrap();
+        assert_eq!(r.artifacts, vec!["out.flac".to_string()]);
+        let resolved = p.resolve_artifact(&r.artifacts[0]).unwrap();
+        assert!(resolved.exists(), "产物应在 work_dir 内真实存在");
+        // 事件：migrate 应发过 progress（进行中合法）
+        let events = p.drain_events();
+        assert!(events.iter().any(|(m, _)| m == "event.progress"));
+
+        // 对抗：artifacts 逃逸 → resolve 拒绝
+        let shim = behavior_shim("escape-artifacts");
+        let mut p2 = PluginProcess::spawn(shim.as_path(), ">=1,<2", &wd()).unwrap();
+        let r2: musicforge_plugin_api::FormatMigrateResult = p2
+            .call_typed(
+                musicforge_plugin_api::methods::FORMAT_MIGRATE,
+                serde_json::to_value(&params).unwrap(),
+                5_000,
+            )
+            .unwrap();
+        assert_eq!(r2.artifacts, vec!["../evil.txt".to_string()]);
+        assert!(
+            p2.resolve_artifact(&r2.artifacts[0]).is_err(),
+            "逃逸 artifacts 必须被拒绝"
+        );
     }
 }

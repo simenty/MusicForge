@@ -84,6 +84,10 @@ pub enum NcmError {
     #[error("需要用户确认: {0}")]
     PluginAckRequired(String),
 
+    /// P6a-R：插件连续崩溃 3 次（§4.2）本会话禁用；或清单三禁位拒载（§4.10）
+    #[error("插件被禁用: {0}")]
+    PluginDisabled(String),
+
     #[error("插件不可用: {0}")]
     PluginNotFound(String),
 }
@@ -115,6 +119,7 @@ impl NcmError {
             NcmError::Config(_) => "MF-CONFIG-INVALID",
             NcmError::PluginAckRequired(_) => "MF-PLUGIN-ACK-REQUIRED",
             NcmError::PluginNotFound(_) => "MF-PLUGIN-NOT-FOUND",
+            NcmError::PluginDisabled(_) => "MF-PLUGIN-DISABLED",
         }
     }
 
@@ -148,6 +153,7 @@ impl NcmError {
             NcmError::Config(_) => "MF-CONFIG-INVALID",
             NcmError::PluginAckRequired(_) => "MF-PLUGIN-ACK-REQUIRED",
             NcmError::PluginNotFound(_) => "MF-PLUGIN-NOT-FOUND",
+            NcmError::PluginDisabled(_) => "MF-PLUGIN-DISABLED",
         }
     }
 
@@ -185,6 +191,9 @@ impl NcmError {
             }
             NcmError::Config(_) => {
                 "配置文件损坏或版本过高。修正内容，或删除 config.json 后由程序以默认配置重建（配置是可再生的）。"
+            }
+            NcmError::PluginDisabled(_) => {
+                "插件因连续崩溃已被本会话禁用，或清单含禁止权限被拒载。重启程序或检查插件清单。"
             }
             NcmError::PluginAckRequired(_) => {
                 "该插件属高风险类（如本地格式迁移），需先显式确认：musicforge plugins acknowledge <插件名>（或 GUI 等价操作）。"
