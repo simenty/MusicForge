@@ -28,3 +28,11 @@ CODEBUDDY.md
 
 # CodeBuddy 代理本地数据（记忆/配置）不入库
 .codebuddy/
+
+# docs/ 白名单（主理人指示 2026-09-08）：仅以下三个公开面文档入库，
+# 其余（交接/审计/RFC/接口契约/错误码等内部文档）一律本地维护
+docs/*
+!docs/threat-model.md
+!docs/architecture.md
+!docs/dependency-policy.md
+!docs/assets/
