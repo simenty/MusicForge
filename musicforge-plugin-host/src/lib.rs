@@ -313,6 +313,26 @@ impl PluginProcess {
                         return Err(PluginHostError::Handshake(format!("init 响应畸形: {e}")));
                     }
                 };
+                // 稳定审计 C16（第四轮）：init 双源一致性——顶层 api_version 与
+                // 随行 manifest.api_version 必须一致（不一致 = 清单不可信，拒绝）
+                if ir.api_version.is_empty()
+                    || ir
+                        .manifest
+                        .as_ref()
+                        .map(|m| m.api_version != ir.api_version)
+                        .unwrap_or(false)
+                {
+                    proc.kill();
+                    Self::note_crash(program);
+                    return Err(PluginHostError::Handshake(format!(
+                        "init 双源 api_version 不一致: 顶层 {} / manifest {}",
+                        ir.api_version,
+                        ir.manifest
+                            .as_ref()
+                            .map(|m| m.api_version.as_str())
+                            .unwrap_or("?")
+                    )));
+                }
                 let m = match ir.manifest {
                     Some(m) => m,
                     None => {
@@ -528,6 +548,13 @@ impl PluginProcess {
     }
 
     /// [`Self::resolve_artifact`] 的可测形态（注入 work_dir）。
+    ///
+    /// 稳定审计 C14（第四轮，2026-09-09）：原实现只对**已存在**的 resolved 做
+    /// canonical 校验——不存在时直接放行 join 结果。攻击：work_dir 内预置
+    /// symlink 目录（`sub -> /etc`）+ 请求不存在的 `sub/passwd`（组件检查通过）
+    /// → Host 后续读取时经 symlink 解析逃逸（TOCTOU）。修复：对**最近存在的
+    /// 祖先** canonical 化后逐级回挂缺失段再校验（与 format-plugins `guard_path`
+    /// 同款思路——同类问题举一反三）。
     pub fn resolve_artifact_in(work_dir: &Path, rel: &str) -> Result<PathBuf, PluginHostError> {
         use std::path::Component;
         let p = Path::new(rel);
@@ -547,19 +574,42 @@ impl PluginProcess {
             }
         }
         let resolved = work_dir.join(p);
-        // 符号链接/真实路径逃逸：canon 后仍须落在 work_dir 内
-        if let Ok(canon) = resolved.canonicalize() {
-            let wd = work_dir
-                .canonicalize()
-                .unwrap_or_else(|_| work_dir.to_path_buf());
-            if !canon.starts_with(&wd) {
-                return Err(PluginHostError::Protocol(format!(
-                    "artifacts 逃逸（符号链接）: {rel}"
-                )));
+        // 最近存在祖先 canonical 化 + 逐级回挂缺失段（缺段丢弃 = 穿越漏洞）
+        let mut missing_rev: Vec<std::ffi::OsString> = Vec::new();
+        let mut acc = resolved.clone();
+        let existing = loop {
+            match acc.canonicalize() {
+                Ok(c) => break c,
+                Err(_) => match acc.file_name().map(|f| f.to_os_string()) {
+                    Some(n) => {
+                        missing_rev.push(n);
+                        if !acc.pop() {
+                            return Err(PluginHostError::Protocol(format!(
+                                "artifacts 逃逸（无法定位 work_dir 内路径）: {rel}"
+                            )));
+                        }
+                    }
+                    None => {
+                        return Err(PluginHostError::Protocol(format!(
+                            "artifacts 逃逸（无法定位 work_dir 内路径）: {rel}"
+                        )));
+                    }
+                },
             }
-            return Ok(canon);
+        };
+        let mut canon = existing;
+        for n in missing_rev.iter().rev() {
+            canon.push(n);
         }
-        Ok(resolved) // 尚不存在（待创建）——组件级已拒 ../
+        let wd = work_dir
+            .canonicalize()
+            .unwrap_or_else(|_| work_dir.to_path_buf());
+        if !canon.starts_with(&wd) {
+            return Err(PluginHostError::Protocol(format!(
+                "artifacts 逃逸（符号链接/边界外）: {rel}"
+            )));
+        }
+        Ok(canon)
     }
 
     /// §4.2：连续崩溃计数（Handshake/Timeout/Protocol/Gone 记一次；成功清零）。
@@ -601,6 +651,9 @@ fn redact_secrets(line: &str) -> String {
         let mut from = 0usize;
         while let Some(rel) = lower[from..].find(m) {
             let start = from + rel;
+            // C15-1 取舍说明：**不加词边界**——真实密钥名多为连写
+            // （apikey/access_token），词边界会把它们拒之门外；宁可多杀
+            // （"monkey=1" 被误脱敏无功能影响）。仅处理赋值位命中。
             // 仅在 marker 处于赋值位（其后是 = 或 : ）时视为密钥位
             let after = &lower[start + m.len()..];
             let (sep_len, is_sep) = if let Some(r) = after.strip_prefix("=\"") {
@@ -629,12 +682,18 @@ fn redact_secrets(line: &str) -> String {
     if ranges.is_empty() {
         return line.to_string();
     }
+    // C15-2：排序 + 合并重叠区间（"apikey=x token=y" 的 key/token 相邻命中）
+    ranges.sort_unstable();
+    let mut merged: Vec<(usize, usize)> = Vec::with_capacity(ranges.len());
+    for (s, e) in ranges {
+        match merged.last_mut() {
+            Some(last) if s <= last.1 => last.1 = last.1.max(e),
+            _ => merged.push((s, e)),
+        }
+    }
     let mut out = String::with_capacity(line.len());
     let mut pos = 0usize;
-    for (s, e) in ranges {
-        if s < pos {
-            continue;
-        }
+    for (s, e) in merged {
         out.push_str(&line[pos..s]);
         out.push_str("***");
         pos = e;
@@ -674,5 +733,59 @@ impl Drop for PluginProcess {
         if let Some(h) = self.reader.take() {
             std::mem::forget(h);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 稳定审计 C15 回归：redact_secrets 的**区间排序合并**（核心修复）+
+    /// 保守脱敏语义（无词边界——真实密钥名多为连写，宁多杀不漏杀）。
+    /// 断言口径 = **有效性**（密钥值不得泄露 + `***` 标记存在）而非精确
+    /// 字符串（掩码覆盖 marker 自身，精确形态随实现演进）。
+    #[test]
+    fn redact_secrets_word_boundary_and_merged_ranges() {
+        // 连写密钥名（apikey=）必须脱敏——真实世界主形态
+        let out = redact_secrets("apikey=SECRET123 ok");
+        assert!(!out.contains("SECRET123"), "密钥值不得泄露: {out}");
+        assert!(out.contains("***"));
+        // C15-2 核心：相邻/重叠区间合并（key 子串命中 + token 命中），
+        // 旧实现拼接错乱（片段重复/缺失）
+        let out = redact_secrets("apikey=x token=y");
+        assert!(!out.contains("x token"), "重叠区间必须合并: {out}");
+        assert!(out.contains("***"));
+        // JSON 形态
+        let out = redact_secrets("{\"api_key\": \"s3cret\", \"n\": 1}");
+        assert!(!out.contains("s3cret"), "JSON 值不得泄露: {out}");
+        // 无密钥行原样
+        assert_eq!(redact_secrets("plain log line"), "plain log line");
+    }
+
+    /// 稳定审计 C14 回归：不存在路径的**符号链接祖先**逃逸被拒（TOCTOU）。
+    /// Unix 直接建 symlink；Windows 建目录 symlink 需特权——创建失败则跳过
+    /// （守卫逻辑已由组件级 + canonical 祖先校验覆盖）。
+    #[test]
+    fn resolve_artifact_rejects_symlinked_missing_ancestor() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let link = dir.path().join("sub");
+        #[cfg(unix)]
+        {
+            if std::os::unix::fs::symlink(outside.path(), &link).is_err() {
+                return; // 环境不支持 → 跳过（守卫逻辑由 canonical 祖先覆盖）
+            }
+        }
+        #[cfg(windows)]
+        {
+            if std::os::windows::fs::symlink_dir(outside.path(), &link).is_err() {
+                return; // 非管理员/开发者模式 → 跳过
+            }
+        }
+        // `sub/secret.txt` 不存在，但祖先 `sub` 是指向外部目录的 symlink
+        let r = PluginProcess::resolve_artifact_in(dir.path(), "sub/secret.txt");
+        assert!(r.is_err(), "symlink 祖先逃逸必须被拒绝: {r:?}");
+        // 边界内不存在路径仍放行（正常功能）
+        assert!(PluginProcess::resolve_artifact_in(dir.path(), "ok/new.txt").is_ok());
     }
 }

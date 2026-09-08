@@ -105,6 +105,16 @@ fn main() {
                 } else if behavior == "bad-init-response" {
                     // 对抗：init 成功但 result 畸形 → Host Handshake 失败（崩溃计数）
                     Response::ok(&req.id, serde_json::json!({"answer": 42}))
+                } else if behavior == "init-mismatch" {
+                    // 对抗（C16）：init 双源不一致（顶层 vs manifest）→ Host 拒绝
+                    Response::ok(
+                        &req.id,
+                        serde_json::json!({
+                            "api_version": "9.9.9",
+                            "manifest": { "name": "mock-ai", "api_version": "1.0.0",
+                                "kind": "ai", "network": false }
+                        }),
+                    )
                 } else {
                     let init: InitParams =
                         serde_json::from_value(req.params.clone()).unwrap_or(InitParams {

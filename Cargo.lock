@@ -2271,6 +2271,7 @@ dependencies = [
  "musicforge-plugin-api",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

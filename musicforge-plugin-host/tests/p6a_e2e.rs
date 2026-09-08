@@ -558,6 +558,18 @@ mod adversarial {
         );
     }
 
+    /// 稳定审计 C16 回归：init 双源 api_version 不一致 → Handshake 拒绝
+    /// （顶层说 9.9.9 / manifest 说 1.0.0 = 清单不可信）。
+    #[test]
+    fn init_mismatched_dual_source_api_version_is_rejected() {
+        let shim = behavior_shim("init-mismatch");
+        let err = PluginProcess::spawn(shim.as_path(), ">=1,<2", &wd()).unwrap_err();
+        assert!(
+            matches!(err, PluginHostError::Handshake(ref m) if m.contains("不一致")),
+            "双源不一致必须被拒绝: {err}"
+        );
+    }
+
     /// X41 出站资源：artifacts 逃逸（../ / 绝对路径）全部拒绝。
     /// 绝对路径形态随平台不同（Unix `/` 前缀；Windows 盘符 Prefix）——分平台断言。
     #[test]

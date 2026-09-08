@@ -1391,6 +1391,10 @@ pub mod format_bridge {
                     musicforge_plugin_host::limits::clamp_timeout(15_000),
                 )
                 .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
+            // 稳定审计 C13（第四轮）：migrate 期间插件发的 progress 事件当前无
+            // UI 消费者（CLI 同步流程）——**必须显式取走**，否则事件队列随
+            // 迁移任务无界堆积（内存泄漏）。P6a-R 后续接 GUI 任务中心时改投递。
+            let _progress = p.drain_events();
             // X41：artifacts 出站校验（v1 模式）；legacy 插件沿用 output_path
             if p.protocol == musicforge_plugin_host::ProtocolMode::V1
                 && !result.artifacts.is_empty()
@@ -1612,6 +1616,8 @@ pub fn format_migrate(
             musicforge_plugin_host::limits::clamp_timeout(15_000),
         )
         .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
+    // 稳定审计 C13（第四轮）：显式取走 progress 事件（防队列无界堆积，同桥接处注释）
+    let _progress = p.drain_events();
     // X41：artifacts 出站校验（v1 模式）
     if p.protocol == musicforge_plugin_host::ProtocolMode::V1 && !result.artifacts.is_empty() {
         for a in &result.artifacts {
