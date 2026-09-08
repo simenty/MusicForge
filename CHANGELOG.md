@@ -22,6 +22,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 独立仓同步：`musicforge-plugins` ×3 清单 + `musicforge-format-plugins`
   `kwm-migration` 清单/服务环声明 `ack_required`（防漂移测试覆盖）。
 
+### Added（P6b.2/P6b.3：extensions 能力声明 + convert 管线自动分派）
+- **plugin-api**：`PluginManifest.extensions` 能力声明（X35 缺键兼容）——
+  加密容器无明文魔数，Host 按扩展名探测（逐格式兼容性申报）。
+- **cli（plugin-host feature）**：`PluginFormatAdapter` 桥接组件——
+  `probe` 按扩展名（置信度 0.6，低于内置 magic）/ `decode` 委托插件迁移 →
+  产物读回构造 `DecodedAudio`；`common_work_root`（源+输出最小公共祖先，
+  跨盘显式报错）；`registry_with_plugins()` 装配（门槛三连：启用+ACK+exe，
+  缺一静默缺席=降级铁律）。
+- **convert 自动分派（staging 设计）**：`plan_one_with` 注册表感知规划——
+  非内置适配器在规划期迁移到 `.musicforge/staging/<task>/` 暂存区，
+  `execute_one` 桥接分支改名入位 + sidecar（覆盖重转走 B1 备份/回滚语义）；
+  dry-run 暂存树计划后整体清理；源文件全程不动。
+- **回归测试**：feature 门控 3 项（桥接规划/执行/覆盖重转）+ 公开 API
+  `common_work_root` 收敛断言；注册表装配门槛三连测试。
+- 独立仓同步：`musicforge-plugins`（extensions 空声明）+
+  `musicforge-format-plugins`（kwm 申报 `.kwm`）。
+
 ## [0.7.0] - 2026-09-08
 
 ### Added（P6a：插件系统 + AI，★曲库管家完整形态）

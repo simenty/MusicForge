@@ -378,36 +378,35 @@ fn dedup_key(p: &Path) -> String {
 /// 规划阶段产物：源文件 + 已去重的目标路径 + 格式
 struct Plan {
     source: PathBuf,
+    /// P6b.2 桥接：插件迁移产物暂存路径（Some = 执行期改名入位，无需再解码）
+    staged: Option<PathBuf>,
     target: PathBuf,
     fmt: musicforge_core::Format,
     /// 处理该文件的格式适配器 id（P1d 起由 FormatRegistry 分派得出）
     adapter: &'static str,
 }
 
-fn plan_one(
-    (source, root): (PathBuf, Option<PathBuf>),
+/// 目标名收敛（模板渲染/扩展名补全/去重）——NCM 直连与插件桥接两条规划路径共用。
+#[allow(clippy::too_many_arguments)]
+fn finalize_plan(
+    source: &Path,
+    root: Option<&Path>,
     cfg: &BatchConfig,
     used: &mut HashSet<String>,
+    fmt: musicforge_core::Format,
+    meta: Option<&musicforge_core::Metadata>,
+    adapter: &'static str,
+    staged: Option<PathBuf>,
 ) -> Result<Plan, NcmError> {
-    // P1d：CLI 内部经 FormatRegistry 分派（外部 API 与退出码不变）。
-    // 认领不了的文件直接给明确错误，不再交给 Decoder 兜底猜测（G5 教训）。
-    let adapter = musicforge_core::formats::registry::builtin_registry()
-        .detect_file(&source)
-        .ok_or(NcmError::BadMagic)?;
-    let adapter: &'static str = adapter.id();
-
-    let mut dec = Decoder::open(&source)?;
-    let fmt = dec.detect_format()?;
-    let meta = dec.metadata().cloned();
     let stem = source
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("output")
         .to_string();
 
-    let rendered = musicforge_core::template::render_filename(&cfg.template, meta.as_ref(), &stem);
+    let rendered = musicforge_core::template::render_filename(&cfg.template, meta, &stem);
     let rel = PathBuf::from(&rendered);
-    let dir = target_dir_for(root.as_deref(), &source, cfg.out_dir.as_deref())
+    let dir = target_dir_for(root, source, cfg.out_dir.as_deref())
         .join(rel.parent().unwrap_or(Path::new("")));
     let file_name = rel
         .file_name()
@@ -445,11 +444,88 @@ fn plan_one(
         n += 1;
     };
     Ok(Plan {
-        source,
+        source: source.to_path_buf(),
+        staged,
         target,
         fmt,
         adapter,
     })
+}
+
+fn plan_one(
+    item: (PathBuf, Option<PathBuf>),
+    cfg: &BatchConfig,
+    used: &mut HashSet<String>,
+) -> Result<Plan, NcmError> {
+    // P1d：CLI 内部经 FormatRegistry 分派（外部 API 与退出码不变）。
+    // 认领不了的文件直接给明确错误，不再交给 Decoder 兜底猜测（G5 教训）。
+    let registry = musicforge_core::formats::registry::builtin_registry();
+    let adapter = registry.detect_file(&item.0).ok_or(NcmError::BadMagic)?;
+    let adapter: &'static str = adapter.id();
+
+    let mut dec = Decoder::open(&item.0)?;
+    let fmt = dec.detect_format()?;
+    let meta = dec.metadata().cloned();
+    finalize_plan(
+        &item.0,
+        item.1.as_deref(),
+        cfg,
+        used,
+        fmt,
+        meta.as_ref(),
+        adapter,
+        None,
+    )
+}
+
+/// P6b.2：注册表感知规划——非内置适配器（格式迁移插件）在规划期迁移到暂存区，
+/// 执行期仅改名入位。dry-run 同样产生暂存文件（不入正式输出目录），计划完成后
+/// 暂存树整体清理。
+#[allow(clippy::too_many_arguments)]
+fn plan_one_with(
+    item: (PathBuf, Option<PathBuf>),
+    cfg: &BatchConfig,
+    used: &mut HashSet<String>,
+    registry: &musicforge_core::formats::registry::FormatRegistry,
+    staging_dir: Option<&Path>,
+) -> Result<Plan, NcmError> {
+    let (source, root) = &item;
+    let adapter_obj = registry.detect_file(source).ok_or(NcmError::BadMagic)?;
+    let adapter_id: &'static str = adapter_obj.id();
+
+    if adapter_id == "ncm" {
+        // 内置路径：Decoder 直连（行为与 v0.6.0 起完全一致）
+        let mut dec = Decoder::open(source)?;
+        let fmt = dec.detect_format()?;
+        let meta = dec.metadata().cloned();
+        return finalize_plan(
+            source,
+            root.as_deref(),
+            cfg,
+            used,
+            fmt,
+            meta.as_ref(),
+            adapter_id,
+            None,
+        );
+    }
+    // 桥接路径：插件迁移到暂存区（路径边界/双验/隔离/审计由插件框架承担）
+    let staging_dir = staging_dir.ok_or_else(|| {
+        NcmError::PluginNotFound(format!(
+            "文件 {source:?} 需格式迁移插件（{adapter_id}）：请指定 --out 输出目录以建立迁移暂存区"
+        ))
+    })?;
+    let decoded = adapter_obj.decode(source, staging_dir)?;
+    finalize_plan(
+        source,
+        root.as_deref(),
+        cfg,
+        used,
+        decoded.format,
+        None,
+        adapter_id,
+        Some(decoded.path),
+    )
 }
 
 fn execute_one(plan: &Plan, cfg: &BatchConfig) -> FileResult {
@@ -471,6 +547,66 @@ fn execute_one(plan: &Plan, cfg: &BatchConfig) -> FileResult {
             status: Status::Skipped,
             output: Some(plan.target.clone()),
             reason: Some("输出已存在且通过完整性标记校验".to_string()),
+            tags_written: 0,
+        };
+    }
+
+    // P6b.2 桥接路径：插件已在规划期完成迁移 + 双验 + 审计——执行期仅改名入位
+    // + 写完整性标记（元数据沿用迁移产物自带标签，不重写）。
+    if let Some(staged) = &plan.staged {
+        let outcome = (|| -> Result<(), NcmError> {
+            if let Some(parent) = plan.target.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            atomic_rename(staged, &plan.target)?;
+            Ok(())
+        })();
+        if let Err(e) = outcome {
+            return FileResult {
+                source: plan.source.clone(),
+                status: Status::Failed,
+                output: None,
+                reason: Some(format!("{}: {e} | 建议: {}", e.code(), e.suggestion())),
+                tags_written: 0,
+            };
+        }
+        // 完整性标记（与 NCM 路径同一语义；sidecar 被目录占用 → 显式失败）
+        let marker = (|| -> Result<serde_json::Value, NcmError> {
+            use sha2::{Digest, Sha256};
+            let mut f = std::fs::File::open(&plan.target)?;
+            let mut h = Sha256::new();
+            std::io::copy(&mut f, &mut h)?;
+            let size = std::fs::metadata(&plan.target)?.len();
+            Ok(serde_json::json!({
+                "sha256": hex(h.finalize()),
+                "size": size,
+                "adapter": plan.adapter,
+            }))
+        })()
+        .and_then(|v| {
+            let tmp = temp_path_for(&sidecar);
+            std::fs::write(&tmp, serde_json::to_string_pretty(&v)?).map_err(NcmError::from)?;
+            atomic_rename(&tmp, &sidecar)
+        });
+        if let Err(e) = marker {
+            return FileResult {
+                source: plan.source.clone(),
+                status: Status::Failed,
+                output: Some(plan.target.clone()),
+                reason: Some(format!(
+                    "{}: {e} | 音频已迁移但完整性标记写入失败（下次运行会重转）：{} | 建议: {}",
+                    e.code(),
+                    plan.target.display(),
+                    e.suggestion()
+                )),
+                tags_written: 0,
+            };
+        }
+        return FileResult {
+            source: plan.source.clone(),
+            status: Status::Ok,
+            output: Some(plan.target.clone()),
+            reason: None,
             tags_written: 0,
         };
     }
@@ -668,8 +804,26 @@ fn run_inner(
     let mut used: HashSet<String> = reserved;
     let mut plans: Vec<Plan> = Vec::new();
     let mut results: Vec<FileResult> = Vec::new();
+
+    // P6b.2：桥接注册表（feature）+ 迁移暂存区（仅指定 --out 时可用；
+    // `.musicforge/` 对扫描器剪枝，暂存不回流）
+    #[cfg(not(feature = "plugin-host"))]
+    let registry = musicforge_core::formats::registry::FormatRegistry::with_builtins();
+    #[cfg(feature = "plugin-host")]
+    let registry = format_bridge::registry_with_plugins();
+    let staging_root = cfg
+        .out_dir
+        .as_ref()
+        .map(|o| o.join(".musicforge/staging").join(manifest::new_task_id()));
+
     for item in sources {
-        match plan_one(item.clone(), &cfg, &mut used) {
+        match plan_one_with(
+            item.clone(),
+            &cfg,
+            &mut used,
+            &registry,
+            staging_root.as_deref(),
+        ) {
             Ok(p) => plans.push(p),
             Err(e) => {
                 let fr = FileResult {
@@ -712,6 +866,10 @@ fn run_inner(
                 }
                 Err(e) => eprintln!("⚠ manifest 创建失败，跳过留痕: {e}"),
             }
+        }
+        // P6b.2：dry-run 的桥接暂存树整体清理（暂存不入正式输出目录）
+        if let Some(sr) = &staging_root {
+            let _ = std::fs::remove_dir_all(sr);
         }
         return BatchSummary {
             results: Vec::new(),
@@ -802,6 +960,10 @@ fn run_inner(
         .iter()
         .filter(|r| r.status == Status::Failed)
         .count();
+    // P6b.2：桥接暂存树收尾（产物已改名入位；Cancelled/失败残留一并清理）
+    if let Some(sr) = &staging_root {
+        let _ = std::fs::remove_dir_all(sr);
+    }
     BatchSummary {
         results,
         planned: 0,
@@ -1416,6 +1578,176 @@ mod atomic_rename_tests {
         assert_eq!(std::fs::read(&target).unwrap(), b"NEW");
         assert!(!tmp.exists());
         let residue: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".musicforge-bak-"))
+            .collect();
+        assert!(residue.is_empty(), "备份必须已清理: {residue:?}");
+    }
+}
+
+/// P6b.2 桥接管线单元测试（feature 门控；私有路径：plan_one_with → execute_one）。
+#[cfg(all(test, feature = "plugin-host"))]
+mod bridge_flow_tests {
+    use super::*;
+    use musicforge_core::formats::registry::{
+        DecodedAudio, FormatAdapter, ProbeInput, ProbeResult,
+    };
+
+    fn wav_bytes(sample_rate: u32, bits: u16) -> Vec<u8> {
+        let data = vec![0u8; 512];
+        let byte_rate = sample_rate * bits as u32 / 8;
+        let block_align = bits / 8;
+        let mut v = Vec::new();
+        v.extend_from_slice(b"RIFF");
+        v.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+        v.extend_from_slice(b"WAVE");
+        v.extend_from_slice(b"fmt ");
+        v.extend_from_slice(&16u32.to_le_bytes());
+        v.extend_from_slice(&1u16.to_le_bytes());
+        v.extend_from_slice(&1u16.to_le_bytes());
+        v.extend_from_slice(&sample_rate.to_le_bytes());
+        v.extend_from_slice(&byte_rate.to_le_bytes());
+        v.extend_from_slice(&block_align.to_le_bytes());
+        v.extend_from_slice(&bits.to_le_bytes());
+        v.extend_from_slice(b"data");
+        v.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        v.extend_from_slice(&data);
+        v
+    }
+
+    /// 夹具适配器：认领 .kwm，decode = 写预置明文到 out_dir（模拟迁移产物）。
+    struct FakeKwmAdapter {
+        payload: Vec<u8>,
+    }
+
+    impl FormatAdapter for FakeKwmAdapter {
+        fn id(&self) -> &'static str {
+            "kwm-migration"
+        }
+
+        fn probe(&self, input: &ProbeInput<'_>) -> Option<ProbeResult> {
+            (input.extension? == "kwm").then_some(ProbeResult {
+                format_id: "kwm-migration",
+                confidence: 0.6,
+            })
+        }
+
+        fn decode(&self, input: &Path, out_dir: &Path) -> Result<DecodedAudio, NcmError> {
+            std::fs::create_dir_all(out_dir)?;
+            let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("out");
+            let product = out_dir.join(format!("{stem}.flac"));
+            std::fs::write(&product, &self.payload)?;
+            Ok(DecodedAudio {
+                path: product,
+                format: musicforge_core::Format::Flac,
+                audio_len: self.payload.len() as u64,
+                metadata: None,
+            })
+        }
+    }
+
+    fn cfg(out: &Path) -> BatchConfig {
+        BatchConfig {
+            inputs: Vec::new(),
+            out_dir: Some(out.to_path_buf()),
+            recursive: false,
+            skip_existing: false,
+            jobs: 1,
+            template: "{title}".to_string(),
+            cancel: None,
+            dry_run: false,
+            manifest: None,
+        }
+    }
+
+    /// 桥接规划：迁移进暂存区 + 目标按迁移产物格式收敛 + 源不动。
+    #[test]
+    fn plan_one_with_stages_migration_and_names_target() {
+        let root = tempfile::tempdir().unwrap();
+        let lib = root.path().join("lib");
+        std::fs::create_dir_all(&lib).unwrap();
+        let source = lib.join("song.kwm");
+        std::fs::write(&source, b"encrypted").unwrap();
+
+        let mut registry = musicforge_core::formats::registry::FormatRegistry::new();
+        registry.register(Box::new(FakeKwmAdapter {
+            payload: b"migrated".to_vec(),
+        }));
+        let staging = root.path().join("out/.musicforge/staging/st-1");
+        let mut used = HashSet::new();
+        let plan = plan_one_with(
+            (source.clone(), Some(lib.clone())),
+            &cfg(&root.path().join("out")),
+            &mut used,
+            &registry,
+            Some(&staging),
+        )
+        .unwrap();
+
+        assert_eq!(plan.fmt, musicforge_core::Format::Flac);
+        let staged = plan.staged.as_ref().expect("桥接规划必须产出暂存路径");
+        assert!(staged.exists(), "迁移产物应落在暂存区");
+        assert_eq!(plan.target, root.path().join("out").join("song.flac"));
+        assert!(source.exists(), "源文件绝不被修改");
+    }
+
+    /// 桥接执行：暂存产物改名入位 + sidecar 写入 + 源不动。
+    #[test]
+    fn execute_one_places_staged_product_and_writes_sidecar() {
+        let root = tempfile::tempdir().unwrap();
+        let lib = root.path().join("lib");
+        let out = root.path().join("out");
+        std::fs::create_dir_all(&lib).unwrap();
+        let payload = wav_bytes(44100, 16);
+        let source = lib.join("song.kwm");
+        std::fs::write(&source, b"encrypted").unwrap();
+        let staged = out.join(".musicforge/staging/st-1/song.flac");
+        std::fs::create_dir_all(staged.parent().unwrap()).unwrap();
+        std::fs::write(&staged, &payload).unwrap();
+
+        let plan = Plan {
+            source: source.clone(),
+            staged: Some(staged.clone()),
+            target: out.join("song.flac"),
+            fmt: musicforge_core::Format::Flac,
+            adapter: "kwm-migration",
+        };
+        let r = execute_one(&plan, &cfg(&out));
+        assert_eq!(r.status, Status::Ok, "{r:?}");
+        assert_eq!(std::fs::read(out.join("song.flac")).unwrap(), payload);
+        assert!(
+            out.join("song.flac.musicforge.json").exists(),
+            "sidecar 必须写入"
+        );
+        assert!(!staged.exists(), "暂存产物必须已改名入位");
+        assert!(source.exists(), "源文件始终原位");
+    }
+
+    /// 覆盖重转（桥接形态）：目标已存在但 sidecar 缺失 → 重转走备份/回滚语义。
+    #[test]
+    fn bridged_reconvert_overwrites_via_backup_semantics() {
+        let root = tempfile::tempdir().unwrap();
+        let out = root.path().join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let source = root.path().join("song.kwm");
+        std::fs::write(&source, b"encrypted").unwrap();
+        let staged = out.join(".musicforge/staging/st-1/song.flac");
+        std::fs::create_dir_all(staged.parent().unwrap()).unwrap();
+        std::fs::write(&staged, b"NEW").unwrap();
+        std::fs::write(out.join("song.flac"), b"OLD-CORRUPT").unwrap(); // 无 sidecar → 重转
+
+        let plan = Plan {
+            source,
+            staged: Some(staged),
+            target: out.join("song.flac"),
+            fmt: musicforge_core::Format::Flac,
+            adapter: "kwm-migration",
+        };
+        let r = execute_one(&plan, &cfg(&out));
+        assert_eq!(r.status, Status::Ok, "{r:?}");
+        assert_eq!(std::fs::read(out.join("song.flac")).unwrap(), b"NEW");
+        let residue: Vec<_> = std::fs::read_dir(&out)
             .unwrap()
             .filter_map(|e| e.ok())
             .filter(|e| e.file_name().to_string_lossy().contains(".musicforge-bak-"))
