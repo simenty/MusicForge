@@ -2205,7 +2205,7 @@ dependencies = [
 
 [[package]]
 name = "musicforge-cli"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "aes",
  "base64 0.22.1",
@@ -2224,7 +2224,7 @@ dependencies = [
 
 [[package]]
 name = "musicforge-core"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "aes",
  "base64 0.22.1",
@@ -2245,7 +2245,7 @@ dependencies = [
 
 [[package]]
 name = "musicforge-gui"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "musicforge-cli",
  "musicforge-core",
@@ -2258,7 +2258,7 @@ dependencies = [
 
 [[package]]
 name = "musicforge-plugin-api"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2266,7 +2266,7 @@ dependencies = [
 
 [[package]]
 name = "musicforge-plugin-host"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "musicforge-plugin-api",
  "serde",

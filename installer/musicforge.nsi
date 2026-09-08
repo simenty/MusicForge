@@ -1,4 +1,4 @@
-﻿; ============================================================================
+; ============================================================================
 ;  MusicForge (MusicForge) v0.1.0 — Windows 安装脚本
 ;
 ;  设计约束（与项目 11 条硬约束一致）：
@@ -17,10 +17,10 @@ Unicode true
 !define APPNAME    "MusicForge"
 !define APPDESC    "本地 NCM 转换器（离线 · 不联网 · 不上传）"
 
-; 版本号：默认 0.7.0，可由命令行覆盖
-;   makensis /DVERSION=0.7.0 musicforge.nsi
+; 版本号：默认 0.8.0，可由命令行覆盖
+;   makensis /DVERSION=0.8.0 musicforge.nsi
 !ifndef VERSION
-  !define VERSION  "0.7.0"
+  !define VERSION  "0.8.0"
 !endif
 
 !define PUBLISHER  "MusicForge contributors"

@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added（P7：v0.8.0 多平台交付 + GUI i18n，发布另行授权）
+## [0.8.0] - 2026-09-09
+
+### Added（P7：v0.8.0 多平台交付 + GUI i18n）
 - **多平台交付（ROADMAP P7 / D26）**：CI build 矩阵新增 `x86_64-unknown-linux-musl`
   （musl 静态链接，rusqlite bundled 随 musl-tools 编译）；unix 产物统一打包
   `musicforge-v{ver}-{target}.tar.gz` + 独立 `.sha256`；
@@ -323,7 +325,8 @@ Initial public release (renamed from the private prototype "Shelf").
 
 - Core has zero network code paths (CI-enforced); no telemetry, no crash reporting, no analytics.
 
-[Unreleased]: https://github.com/simenty/MusicForge/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/simenty/MusicForge/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/simenty/MusicForge/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/simenty/MusicForge/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/simenty/MusicForge/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/simenty/MusicForge/compare/v0.4.0...v0.5.0

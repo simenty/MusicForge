@@ -498,7 +498,7 @@ export default function App() {
         <div className="chips">
           <span className="chip green">{t.app.offlineChip}</span>
           <span className="chip">MIT</span>
-          <span className="chip">v0.7.0</span>
+          <span className="chip">v0.8.0</span>
           <select
             className="lang-select"
             value={lang}
