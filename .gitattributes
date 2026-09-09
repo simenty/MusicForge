@@ -8,3 +8,8 @@
 *.flac binary
 *.mp3 binary
 *.ico binary
+
+# B23 预防：生命周期脚本强制 LF（CRLF 会让 fnOS bash 报 bad interpreter）
+musicforge-fpk/cmd/** text eol=lf
+musicforge-fpk/manifest text eol=lf
+musicforge-fpk/config/** text eol=lf
