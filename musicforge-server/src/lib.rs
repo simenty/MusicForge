@@ -171,6 +171,9 @@ pub fn build_router(state: ServerState) -> Router {
                 .route("/convert", post(api::convert))
                 .route("/organize/plan", post(api::organize_plan))
                 .route("/organize/apply", post(api::organize_apply))
+                .route("/clean/plan", post(api::clean_plan))
+                .route("/clean/apply", post(api::clean_apply))
+                .route("/trash/restore", post(api::trash_restore))
                 .fallback(|| async {
                     (
                         StatusCode::NOT_FOUND,

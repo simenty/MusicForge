@@ -329,6 +329,118 @@ pub async fn organize_apply(JsonBody(body): JsonBody<Value>) -> Response {
     }
 }
 
+// ---------------------------------------------------------------- clean/trash --
+
+use musicforge_core::scan::{apply_clean_plan, build_clean_plan, restore_from_trash, RULE_CARDS};
+
+/// 规则启用集提取（rules 缺省 = 全部 RULE_CARDS；逗号分隔 ID）。
+fn enabled_rules(body: &Value) -> std::collections::HashSet<&'static str> {
+    match body.get("rules").and_then(|v| v.as_str()) {
+        Some(list) => {
+            let wanted: std::collections::HashSet<&str> =
+                list.split(',').map(|s| s.trim()).collect();
+            RULE_CARDS
+                .iter()
+                .map(|c| c.id)
+                .filter(|id| wanted.contains(*id))
+                .collect()
+        }
+        None => RULE_CARDS.iter().map(|c| c.id).collect(),
+    }
+}
+
+/// `POST /api/clean/plan`：垃圾清洗计划预览（**只读**——dry-run 语义）。
+///
+/// 请求 `{ "dir", "rules"? }`（rules 缺省 = 全部 RULE_CARDS）。
+pub async fn clean_plan(JsonBody(body): JsonBody<Value>) -> Response {
+    let Some(dir) = body.get("dir").and_then(|v| v.as_str()) else {
+        return err(StatusCode::BAD_REQUEST, "MF-API-BAD-REQUEST", "缺 dir");
+    };
+    let dir = PathBuf::from(dir);
+    let report = match scan_library(&dir, &ScanOptions::default()) {
+        Ok(r) => r,
+        Err(e) => return err_from(e),
+    };
+    let trash_root = dir.join(".musicforge").join("trash");
+    let plan = build_clean_plan(&report, &enabled_rules(&body), &trash_root, &dir);
+    ok(json!({
+        "actions": plan.actions.iter().map(|a| json!({
+            "path": a.path.display().to_string(),
+            "rule_id": a.rule_id,
+        })).collect::<Vec<_>>(),
+        "empty_dirs": plan.empty_dirs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+        "trash_root": plan.trash_root.display().to_string(),
+    }))
+}
+
+/// `POST /api/clean/apply`：执行清洗（**破坏类**——全部进回收站可整体还原，
+/// 但仍强制 confirm；P2 语义：dry-run 先行）。
+///
+/// 请求 `{ "dir", "rules"?, "confirm" }`。回收站 = `<dir>/.musicforge/trash/<task>/`。
+pub async fn clean_apply(JsonBody(body): JsonBody<Value>) -> Response {
+    let confirm = body
+        .get("confirm")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !confirm {
+        return err(
+            StatusCode::FORBIDDEN,
+            "MF-OP-NEEDS-YES",
+            "清洗为破坏类操作：先调 /api/clean/plan 预览，再以 confirm:true 执行（可整体还原）",
+        );
+    }
+    let Some(dir) = body.get("dir").and_then(|v| v.as_str()) else {
+        return err(StatusCode::BAD_REQUEST, "MF-API-BAD-REQUEST", "缺 dir");
+    };
+    let dir = PathBuf::from(dir);
+    let report = match scan_library(&dir, &ScanOptions::default()) {
+        Ok(r) => r,
+        Err(e) => return err_from(e),
+    };
+    let trash_root = dir.join(".musicforge").join("trash");
+    let plan = build_clean_plan(&report, &enabled_rules(&body), &trash_root, &dir);
+    let task_id = format!(
+        "{}-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0),
+        std::process::id()
+    );
+    match apply_clean_plan(&plan, &task_id) {
+        Ok(outcome) => ok(json!({
+            "moved": outcome.moved,
+            "dirs_removed": outcome.dirs_removed,
+            "rollback_manifest": outcome.rollback_manifest.map(|p| p.display().to_string()),
+        })),
+        Err(e) => err_from(e),
+    }
+}
+
+/// `POST /api/trash/restore`：从回滚清单整体还原（**破坏类**——confirm 强制）。
+///
+/// 请求 `{ "manifest": "<rollback.jsonl 路径>", "confirm" }`。
+pub async fn trash_restore(JsonBody(body): JsonBody<Value>) -> Response {
+    let confirm = body
+        .get("confirm")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !confirm {
+        return err(
+            StatusCode::FORBIDDEN,
+            "MF-OP-NEEDS-YES",
+            "还原会覆盖恢复路径上的同名文件（如存在）：请以 confirm:true 确认",
+        );
+    }
+    let Some(manifest) = body.get("manifest").and_then(|v| v.as_str()) else {
+        return err(StatusCode::BAD_REQUEST, "MF-API-BAD-REQUEST", "缺 manifest");
+    };
+    match restore_from_trash(std::path::Path::new(manifest)) {
+        Ok(n) => ok(json!({ "restored": n })),
+        Err(e) => err_from(e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
