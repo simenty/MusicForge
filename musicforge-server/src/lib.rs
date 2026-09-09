@@ -168,6 +168,7 @@ pub fn build_router(state: ServerState) -> Router {
                 .route("/version", get(api::version))
                 .route("/wizard/status", get(api::wizard_status))
                 .route("/scan", post(api::scan))
+                .route("/convert", post(api::convert))
                 .fallback(|| async {
                     (
                         StatusCode::NOT_FOUND,

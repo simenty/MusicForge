@@ -135,6 +135,42 @@ pub async fn wizard_status(State(state): State<ServerState>) -> Response {
     }))
 }
 
+/// `POST /api/convert`：格式迁移（P8.2.2，经 cli 桥接 + plugin-host）。
+///
+/// 请求 `{ "plugin", "source", "output_dir"?, "ekey"? }`——与 GUI IPC 同源
+/// （musicforge_cli::format_migrate；ACK 闸/崩溃计数/并发槽位全部内建）。
+/// output_dir 缺省 = 源父目录。ekey 透传（QMC STag 变体，本地传递零网络）。
+pub async fn convert(JsonBody(body): JsonBody<Value>) -> Response {
+    let Some(plugin) = body.get("plugin").and_then(|v| v.as_str()) else {
+        return err(
+            StatusCode::BAD_REQUEST,
+            "MF-API-BAD-REQUEST",
+            "缺 plugin（如 qmc-migration / kwm-migration）",
+        );
+    };
+    let Some(source) = body.get("source").and_then(|v| v.as_str()) else {
+        return err(StatusCode::BAD_REQUEST, "MF-API-BAD-REQUEST", "缺 source");
+    };
+    let output_dir = body
+        .get("output_dir")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let ekey = body.get("ekey").and_then(|v| v.as_str());
+    // output_dir 缺省 = 源父目录（与 GUI IPC 同语义）
+    let out_dir = if output_dir.trim().is_empty() {
+        std::path::Path::new(source)
+            .parent()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default()
+    } else {
+        output_dir.to_string()
+    };
+    match musicforge_cli::format_migrate(plugin, source, &out_dir, None, ekey) {
+        Ok(output_path) => ok(json!({ "outputPath": output_path })),
+        Err(e) => err(StatusCode::BAD_REQUEST, e.mf_code(), format!("{e}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -231,6 +267,43 @@ mod tests {
         assert!(
             v["code"].as_str().unwrap().starts_with("MF-"),
             "业务码透传: {v}"
+        );
+    }
+
+    #[tokio::test]
+    async fn convert_rejects_missing_fields_loudly() {
+        let app = build_router(state_with(None));
+        let res = app
+            .oneshot(req(
+                "POST",
+                "/api/convert",
+                Some(json!({"source": "x"}).to_string()),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        let v = body_json(res).await;
+        assert_eq!(v["code"], "MF-API-BAD-REQUEST");
+    }
+
+    #[tokio::test]
+    async fn convert_unknown_plugin_surfaces_stable_code() {
+        let app = build_router(state_with(None));
+        let res = app
+            .oneshot(req(
+                "POST",
+                "/api/convert",
+                Some(
+                    json!({"plugin": "no-such-plugin", "source": "C:/x/song.qmcflac"}).to_string(),
+                ),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        let v = body_json(res).await;
+        assert!(
+            v["code"].as_str().unwrap().starts_with("MF-PLUGIN-"),
+            "cli 桥接稳定码透传: {v}"
         );
     }
 

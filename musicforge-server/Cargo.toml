@@ -13,6 +13,9 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["fs"] }
 serde_json = "1"
 musicforge-core = { path = "../musicforge-core" }
+# P8.2.2：convert API 经 cli 桥接（显式启用 plugin-host——NAS fpk 发行形态；
+# D8 语义 = cli/core **默认 feature** 不含 host，server 为显式 opt-in）
+musicforge-cli = { path = "../musicforge-cli", features = ["plugin-host"] }
 
 [dev-dependencies]
 http-body-util = "0.1"
