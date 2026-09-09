@@ -36,8 +36,8 @@ jobs:
           - arch: arm64
             platform: arm
             target: aarch64-unknown-linux-musl
-            tools: gcc-aarch64-linux-gnu
-            linker: aarch64-linux-gnu-gcc
+            tools: musl-tools
+            linker: ""
     steps:
       - uses: actions/checkout@v4
 
@@ -58,8 +58,22 @@ jobs:
           npm --prefix musicforge-gui/ui ci
           npm --prefix musicforge-gui/ui run build
 
+      - name: Setup cargo-zigbuild (aarch64)
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+      - uses: goto-bus-stop/setup-zig@v2
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        with:
+          version: 0.13.0
+
       - name: Build server + CLI (musl static)
+        if: matrix.target != 'aarch64-unknown-linux-musl'
         run: cargo build --release -p musicforge-cli -p musicforge-server --target ${{ matrix.target }}
+      - name: Build server + CLI (zigbuild aarch64)
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: cargo zigbuild --release -p musicforge-cli -p musicforge-server --target aarch64-unknown-linux-musl
 
       - name: Download fnpack
         run: |
