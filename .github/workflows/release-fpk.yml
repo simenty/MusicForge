@@ -1,4 +1,4 @@
-﻿name: Release FPK (fnOS)
+name: Release FPK (fnOS)
 
 # P8/D27/X35：fnOS native FPK 双架构打包（amd64 + arm64）。
 # R23：fnpack Windows 工具链粗糙 → 固定 Linux runner。
@@ -90,8 +90,8 @@ jobs:
           # entry name must equal manifest desktop_applaunchname; icon {0} = size slot
           echo '{}' > fpk/app/ui/config
           # multi-size icons (placeholder 1x1, real icons later)
-          cp ICON_256.PNG fpk/app/ui/images/icon_256.png
-          cp ICON.PNG fpk/app/ui/images/icon_64.png          cp "target/${{ matrix.target }}/release/musicforge-server" fpk/app/
+          cp musicforge-fpk/ICON_256.PNG fpk/app/ui/images/icon_256.png
+          cp musicforge-fpk/ICON.PNG fpk/app/ui/images/icon_64.png          cp "target/${{ matrix.target }}/release/musicforge-server" fpk/app/
           cp "target/${{ matrix.target }}/release/musicforge" fpk/app/
           cp -r musicforge-gui/ui/dist/* fpk/app/ui/
           # X35：manifest 按官方 v1.1.8 字段填充（key=value，无冒号）
