@@ -22,6 +22,8 @@ async fn main() {
     let state = ServerState {
         token: cfg.token.clone(),
         ui_dir: cfg.ui_dir.clone(),
+        data_dir: cfg.data_dir.clone(),
+        library_dir: cfg.library_dir.clone(),
     };
     let app = build_router(state);
 

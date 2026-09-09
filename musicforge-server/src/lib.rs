@@ -21,9 +21,11 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Json, Response};
-use axum::routing::{get, Router};
+use axum::routing::{get, post, Router};
 use serde_json::json;
 use tower_http::services::{ServeDir, ServeFile};
+
+pub mod api;
 
 /// 服务配置（env 注入；fpk `cmd/main` 为主要调用方）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,6 +34,8 @@ pub struct ServerConfig {
     pub bind: String,
     pub token: String,
     pub ui_dir: PathBuf,
+    /// P8.2.1：音乐库目录（`MUSICFORGE_LIBRARY_DIR`；scan API 缺省根）
+    pub library_dir: Option<PathBuf>,
 }
 
 impl ServerConfig {
@@ -55,12 +59,17 @@ impl ServerConfig {
                     .and_then(|p| p.parent().map(|d| d.join("ui")))
                     .unwrap_or_else(|| PathBuf::from("ui"))
             });
+        let library_dir = std::env::var("MUSICFORGE_LIBRARY_DIR")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .map(PathBuf::from);
         Ok((
             Self {
                 data_dir,
                 bind,
                 token,
                 ui_dir,
+                library_dir,
             },
             generated,
         ))
@@ -134,11 +143,15 @@ async fn auth_middleware(
     }
 }
 
-/// 共享状态（token + ui_dir）。
+/// 共享状态（token + ui_dir + data_dir + library_dir）。
 #[derive(Clone)]
 pub struct ServerState {
     pub token: String,
     pub ui_dir: PathBuf,
+    /// P8.2.1：wizard 探测 + 未来 DB 路径基准
+    pub data_dir: PathBuf,
+    /// P8.2.1：scan API 缺省根（fpk `MUSICFORGE_LIBRARY_DIR`）
+    pub library_dir: Option<PathBuf>,
 }
 
 /// 构建路由（health 免鉴权；其余 /api/* 鉴权；非 /api → SPA）。
@@ -152,12 +165,15 @@ pub fn build_router(state: ServerState) -> Router {
         .nest(
             "/api",
             Router::new()
+                .route("/version", get(api::version))
+                .route("/wizard/status", get(api::wizard_status))
+                .route("/scan", post(api::scan))
                 .fallback(|| async {
                     (
                         StatusCode::NOT_FOUND,
                         Json(json!({
                             "ok": false, "code": "MF-API-NOT-FOUND",
-                            "message": "API 面随 P8 迭代逐域开放（当前仅 health）"
+                            "message": "API 面随 P8 迭代逐域开放（当前 health/version/wizard/scan）"
                         })),
                     )
                 })
@@ -185,6 +201,8 @@ mod tests {
         ServerState {
             token: token.to_string(),
             ui_dir: PathBuf::from("ui"),
+            data_dir: std::env::temp_dir().join(format!("mf-srv-test-{}", std::process::id())),
+            library_dir: None,
         }
     }
 
