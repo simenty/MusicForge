@@ -1,9 +1,74 @@
 // Tauri 桥接层：命令调用 + 事件监听（类型化）
-import { invoke } from "@tauri-apps/api/core";
+// P8.2.5 双形态传输层：Tauri 桌面 = invoke IPC；fnOS 服务端 = fetch 同源 API。
+// 未接 HTTP 的命令在服务端形态下经 invoke 包装**显式降级**（MF-DESKTOP-ONLY，
+// 降级铁律：绝不静默装作可用）。
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export type { UnlistenFn };
+
+/** Tauri 桌面环境探测（fnOS server 形态下为 false） */
+export const IS_DESKTOP =
+  typeof window !== "undefined" &&
+  (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !==
+    undefined;
+
+const TOKEN_KEY = "mf.server.token";
+
+/** fnOS 服务端形态的访问 token（用户从服务端首启日志获取，存 localStorage） */
+export function serverToken(): string {
+  return localStorage.getItem(TOKEN_KEY) ?? "";
+}
+
+export function setServerToken(t: string): void {
+  localStorage.setItem(TOKEN_KEY, t);
+}
+
+/** HTTP 形态错误：code = MF-* 稳定码（与 CLI/GUI 同码表），message 原文 */
+export class HttpApiError extends Error {
+  code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+async function httpPost<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-token": serverToken(),
+    },
+    body: JSON.stringify(body ?? {}),
+  });
+  let v: { ok: boolean; data?: T; code?: string; message?: string };
+  try {
+    v = (await res.json()) as typeof v;
+  } catch {
+    throw new HttpApiError("MF-HTTP-FAILED", `服务端响应非 JSON（HTTP ${res.status}）`);
+  }
+  if (!v.ok) {
+    throw new HttpApiError(v.code ?? "MF-HTTP-FAILED", v.message ?? `HTTP ${res.status}`);
+  }
+  return v.data as T;
+}
+
+/**
+ * 命令调用的双形态分发：桌面直通 Tauri IPC；服务端形态对未接 HTTP 的命令
+ * 显式降级（已接线命令在各自函数内走 httpPost，不经过此包装的降级路径）。
+ */
+async function invoke<T>(
+  cmd: string,
+  args?: Record<string, unknown>
+): Promise<T> {
+  if (IS_DESKTOP) return tauriInvoke<T>(cmd, args);
+  throw new HttpApiError(
+    "MF-DESKTOP-ONLY",
+    `功能 ${cmd} 需要桌面版：fnOS 服务端形态当前提供 扫描/格式迁移/整理/清洗 域`
+  );
+}
 
 export type FileStatus = "ok" | "skipped" | "cancelled" | "failed";
 
@@ -140,13 +205,22 @@ export interface FormatMigrateResponse {
 }
 
 /** P6b.4：经插件执行本地格式迁移（outputDir 缺省 = 源父目录）；
- * X49：ekey = 用户自备密钥（QMC STag 尾标变体；仅本地传递给插件进程，零网络） */
+ * X49：ekey = 用户自备密钥（QMC STag 尾标变体；仅本地传递给插件进程，零网络）；
+ * P8.2.5：HTTP 形态 → /api/convert（同形状 outputPath） */
 export async function formatMigrate(
   plugin: string,
   source: string,
   outputDir?: string,
   ekey?: string
 ): Promise<FormatMigrateResponse> {
+  if (!IS_DESKTOP) {
+    return httpPost<FormatMigrateResponse>("/api/convert", {
+      plugin,
+      source,
+      output_dir: outputDir ?? null,
+      ekey: ekey?.trim() ? ekey.trim() : null,
+    });
+  }
   return invoke<FormatMigrateResponse>("format_migrate", {
     plugin,
     source,
@@ -203,6 +277,37 @@ export interface ScanReport {
 
 /** 只读扫描曲库目录（不改动任何文件；错误经 Result 显式返回，不静默） */
 export async function scanLibrary(dir: string, recursive: boolean): Promise<ScanReport> {
+  if (!IS_DESKTOP) {
+    const d = await httpPost<{
+      dir: string;
+      scannedFiles: number;
+      scannedDirs: number;
+      summary: {
+        audio: number;
+        lyrics: number;
+        covers: number;
+        junk: number;
+        other: number;
+        emptyDirs: number;
+      };
+      ruleHits: ScanRuleHit[];
+      items: { path: string; category: string; rule: string | null; size: number }[];
+      unauthorizedDirs: string[];
+    }>("/api/scan", { dir, recursive });
+    return {
+      dir: d.dir,
+      scannedFiles: d.scannedFiles,
+      scannedDirs: d.scannedDirs,
+      summary: d.summary,
+      ruleHits: d.ruleHits,
+      items: d.items.map((i) => ({
+        path: i.path,
+        category: i.category as ScanItem["category"],
+        rule: i.rule,
+        size: i.size,
+      })),
+    };
+  }
   return invoke<ScanReport>("scan_library", { dir, recursive });
 }
 
@@ -261,10 +366,12 @@ export async function cancelBatch(): Promise<boolean> {
 }
 
 export function onBatchFile(handler: (r: FileResult) => void): Promise<UnlistenFn> {
+  if (!IS_DESKTOP) return Promise.reject(new HttpApiError("MF-DESKTOP-ONLY", "批处理进度事件需要桌面版"));
   return listen<FileResult>("batch-file", (ev) => handler(ev.payload));
 }
 
 export function onBatchDone(handler: (s: BatchSummary) => void): Promise<UnlistenFn> {
+  if (!IS_DESKTOP) return Promise.reject(new HttpApiError("MF-DESKTOP-ONLY", "批处理完成事件需要桌面版"));
   return listen<BatchSummary>("batch-done", (ev) => handler(ev.payload));
 }
 
@@ -278,5 +385,6 @@ export type DragPayload =
 export function onDragDropEvent(
   handler: (ev: DragPayload) => void
 ): Promise<UnlistenFn> {
+  if (!IS_DESKTOP) return Promise.reject(new HttpApiError("MF-DESKTOP-ONLY", "拖拽导入需要桌面版"));
   return getCurrentWebview().onDragDropEvent((ev) => handler(ev.payload));
 }

@@ -11,6 +11,9 @@ import {
   onDragDropEvent,
   planBatch,
   startBatch,
+  IS_DESKTOP,
+  serverToken,
+  setServerToken,
   type BatchSummary,
   type FileResult,
   type PlannedItem,
@@ -62,6 +65,8 @@ const FLUSH_MS = 100;
 
 export default function App() {
   const { t, lang, setLang } = useLang();
+  // P8.2.5：fnOS 服务端形态的访问 token（HTTP 形态标题栏可见可改）
+  const [serverTokenInput, setServerTokenInput] = useState<string>(serverToken());
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [rows, setRows] = useState<Row[]>([]);
   const [summary, setSummary] = useState<BatchSummary | null>(null);
@@ -499,6 +504,20 @@ export default function App() {
           <span className="chip green">{t.app.offlineChip}</span>
           <span className="chip">MIT</span>
           <span className="chip">v0.8.2</span>
+          {!IS_DESKTOP && (
+            <input
+              className="lang-select server-token"
+              type="password"
+              placeholder="server token"
+              value={serverTokenInput}
+              onChange={(e) => {
+                setServerTokenInput(e.target.value);
+                setServerToken(e.target.value);
+              }}
+              spellCheck={false}
+              aria-label="server token"
+            />
+          )}
           <select
             className="lang-select"
             value={lang}

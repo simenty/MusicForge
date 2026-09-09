@@ -97,7 +97,13 @@ pub async fn scan(State(state): State<ServerState>, body: Option<JsonBody<Value>
         .and_then(|v| v.as_u64())
         .map(|v| v.min(512) as usize)
         .unwrap_or(64);
+    let recursive = body
+        .as_ref()
+        .and_then(|b| b.0.get("recursive"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
     let options = ScanOptions {
+        recursive,
         max_depth,
         ..ScanOptions::default()
     };

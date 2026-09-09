@@ -1355,3 +1355,9 @@ body {
 .plugin-ack-warn {
   color: #d9480f;
 }
+
+/* P8.2.5：fnOS 服务端 token 输入（标题栏，密码形态） */
+.server-token {
+  width: 130px;
+  font-family: monospace;
+}
