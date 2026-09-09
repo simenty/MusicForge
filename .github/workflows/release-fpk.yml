@@ -91,7 +91,8 @@ jobs:
           echo '{}' > fpk/app/ui/config
           # multi-size icons (placeholder 1x1, real icons later)
           cp musicforge-fpk/ICON_256.PNG fpk/app/ui/images/icon_256.png
-          cp musicforge-fpk/ICON.PNG fpk/app/ui/images/icon_64.png          cp "target/${{ matrix.target }}/release/musicforge-server" fpk/app/
+          cp musicforge-fpk/ICON.PNG fpk/app/ui/images/icon_64.png
+          cp "target/${{ matrix.target }}/release/musicforge-server" fpk/app/
           cp "target/${{ matrix.target }}/release/musicforge" fpk/app/
           cp -r musicforge-gui/ui/dist/* fpk/app/ui/
           # X35：manifest 按官方 v1.1.8 字段填充（key=value，无冒号）
