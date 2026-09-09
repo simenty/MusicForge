@@ -35,14 +35,28 @@ export class HttpApiError extends Error {
 }
 
 async function httpPost<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-token": serverToken(),
-    },
-    body: JSON.stringify(body ?? {}),
-  });
+  // B19: 30s 超时——网络挂起时显式失败而非永久 pending
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 30_000);
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-token": serverToken(),
+      },
+      body: JSON.stringify(body ?? {}),
+      signal: ctl.signal,
+    });
+  } catch (e) {
+    clearTimeout(timer);
+    throw new HttpApiError(
+      "MF-HTTP-FAILED",
+      `服务端不可达或超时（${e instanceof Error && e.name === "AbortError" ? "30s 超时" : String(e)}）`
+    );
+  }
+  clearTimeout(timer);
   let v: { ok: boolean; data?: T; code?: string; message?: string };
   try {
     v = (await res.json()) as typeof v;

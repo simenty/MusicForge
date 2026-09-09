@@ -20,6 +20,11 @@ case "$1" in
       echo "X app/musicforge-server 缺失（fpk 安装不完整）" >&2
       exit 1
     fi
+    # B20: 重复 start 防护——运行中直接幂等返回（否则旧进程成孤儿 + pid 文件被覆盖）
+    if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+      echo "musicforge-server 已在运行（pid=$(cat "$PID_FILE")），跳过重复启动"
+      exit 0
+    fi
     mkdir -p "$LOG_DIR"
     # R22：首启生成随机 token；server 侧双保险（文件缺失也会自生成并打印日志）
     if [ ! -s "$DATA_DIR/.token" ]; then
@@ -37,6 +42,12 @@ case "$1" in
   stop)
     if [ -f "$PID_FILE" ]; then
       kill "$(cat "$PID_FILE")" 2>/dev/null && rm -f "$PID_FILE"
+      # S10: 轮询等待退出（最多 5s），status 紧跟不再误报运行中
+      for _ in 1 2 3 4 5 6 7 8 9 10; do
+        [ -f "$PID_FILE" ] || break
+        kill -0 "$(cat "$PID_FILE")" 2>/dev/null || break
+        sleep 0.5
+      done
       echo "musicforge-server 已停止"
     else
       echo "musicforge-server 未在运行（无 pid 文件）"

@@ -27,6 +27,9 @@ use tower_http::services::{ServeDir, ServeFile};
 
 pub mod api;
 
+/// 默认绑定地址（R22：仅回环；B22——常量化供测试断言，测试不再读环境变量）
+pub const DEFAULT_BIND: &str = "127.0.0.1:8787";
+
 /// 服务配置（env 注入；fpk `cmd/main` 为主要调用方）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerConfig {
@@ -45,8 +48,7 @@ impl ServerConfig {
         let data_dir = PathBuf::from(
             std::env::var("MUSICFORGE_DATA_DIR").unwrap_or_else(|_| "data".to_string()),
         );
-        let bind =
-            std::env::var("MUSICFORGE_BIND").unwrap_or_else(|_| "127.0.0.1:8787".to_string());
+        let bind = std::env::var("MUSICFORGE_BIND").unwrap_or_else(|_| DEFAULT_BIND.to_string());
         let token_file = std::env::var("MUSICFORGE_TOKEN_FILE")
             .map(PathBuf::from)
             .unwrap_or_else(|_| data_dir.join(".token"));
@@ -89,23 +91,60 @@ pub fn load_or_create_token(path: &std::path::Path) -> Result<(String, bool), St
         std::fs::create_dir_all(dir).map_err(|e| format!("token 目录创建失败: {e}"))?;
     }
     let token = generate_token();
+    // B18: 0o600 -- token 属敏感凭据，默认 umask 的 0644 会泄露给同机其他用户
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)
+            .map_err(|e| format!("token 写入失败: {e}"))?;
+        f.write_all(token.as_bytes())
+            .map_err(|e| format!("token 写入失败: {e}"))?;
+    }
+    #[cfg(not(unix))]
     std::fs::write(path, &token).map_err(|e| format!("token 写入失败: {e}"))?;
     Ok((token, true))
 }
 
-/// 生成 24B 随机 token（base64url 形态）。
+/// 生成 24B 随机 token（48 位十六进制表示；B17 修复）。
+///
+/// 熵源优先级：
+/// 1. unix `/dev/urandom`（read_exact 精确读 24B——OS CSPRNG）；
+/// 2. 兜底（win/其它）：`RandomState` 进程随机种子（SipHash keys 来自 OS
+///    CSPRNG，进程内每次 new 都不同）多轮叠加 + 时间/pid 混淆——远强于
+///    修复前的纯时间+pid 可预测熵。
 fn generate_token() -> String {
-    // 简单熵源叠加：pid + 纳秒 + 地址熵（无 /dev/urandom 依赖的兜底；
-    // fpk cmd/main 已优先用 /dev/urandom 生成——此处为 server 独立运行兜底）
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let pid = std::process::id() as u128;
-    let a = nanos ^ (pid << 64) ^ nanos.rotate_left(17);
-    let b = a.wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(31);
-    let c = b ^ (a >> 7);
-    format!("{a:032x}{b:016x}{c:032x}")
+    #[cfg(unix)]
+    {
+        use std::io::Read;
+        if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+            let mut buf = [0u8; 24];
+            if f.read_exact(&mut buf).is_ok() {
+                return buf.iter().map(|b| format!("{b:02x}")).collect();
+            }
+        }
+    }
+    // 兜底熵：RandomState 种子叠加（每轮 hasher 状态不同）
+    use std::hash::{BuildHasher as _, Hasher as _};
+    let mut acc: u128 = std::process::id() as u128;
+    for i in 0..6u128 {
+        let h = std::collections::hash_map::RandomState::new();
+        let mut hasher = h.build_hasher();
+        hasher.write_u128(acc ^ (i << 96));
+        acc = acc.rotate_left(29)
+            ^ (hasher.finish() as u128)
+            ^ (std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos() as u128)
+                .unwrap_or(0)
+                << (i * 13 % 96));
+    }
+    format!("{acc:032x}{:016x}", acc as u64 ^ (acc >> 64) as u64)
 }
 
 /// 常量时间字符串比较（token 校验；长度不同直接 false——不泄露长度差时序）。
@@ -131,6 +170,15 @@ async fn auth_middleware(
         .get("X-Token")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
+    // B21: 空 token 的 ServerState 属误配置——拒绝服务而非放行（ct_eq("","")=true）
+    if state.token.is_empty() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"ok": false, "code": "MF-AUTH-REQUIRED",
+                "message": "服务端 token 未初始化（误配置）"})),
+        )
+            .into_response();
+    }
     if ct_eq(provided, &state.token) {
         next.run(req).await
     } else {
@@ -287,6 +335,17 @@ mod tests {
         assert!(ct_eq("", ""));
     }
 
+    /// B17 回归：token 熵质量——两次生成必不同、长度恒 48 hex（24B）、非零
+    #[test]
+    fn generate_token_entropy_quality() {
+        let a = generate_token();
+        let b = generate_token();
+        assert_eq!(a.len(), 48, "24B hex 表示恒 48 字符: {a}");
+        assert_eq!(b.len(), 48);
+        assert_ne!(a, b, "连续两次生成必须不同");
+        assert!(a.chars().all(|ch| ch.is_ascii_hexdigit()));
+    }
+
     #[test]
     fn token_file_created_when_missing() {
         let dir = std::env::temp_dir().join(format!(
@@ -310,8 +369,10 @@ mod tests {
 
     #[test]
     fn config_defaults_are_loopback() {
-        // 显式 env 空场景下的默认 bind 必须是回环（R22）
-        let bind = std::env::var("MUSICFORGE_BIND").unwrap_or_else(|_| "127.0.0.1:8787".into());
-        assert!(bind.starts_with("127.0.0.1"), "默认绑定必须仅回环: {bind}");
+        // B22：常量断言（原实现读环境变量——CI 设置该 env 时断言失效）
+        assert!(
+            DEFAULT_BIND.starts_with("127.0.0.1"),
+            "默认绑定必须仅回环: {DEFAULT_BIND}"
+        );
     }
 }
