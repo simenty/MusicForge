@@ -1,30 +1,26 @@
 #!/bin/bash
-# MusicForge fnOS 生命周期脚本（P8/D27/R22 合规）
+# MusicForge fnOS 生命周期脚本（P8/D27/R22 + TRIM_* 正解版）
 # 用法: main {start|stop|status}；status 返回码: 0=运行中, 3=未运行
-# 安全要点：
-#   - token 首启随机生成（/dev/urandom），无默认口令（R22）
-#   - 服务默认绑定 127.0.0.1（R22：对外暴露需显式确认）
-#   - 数据目录回退链（P8 真机校准 B23）：APP_DATA_DIR（fnOS 注入）->
-#     安装目录内 data/（package 专用用户必可写）-> /tmp/musicforge-data（最终兜底）
+# 路径全部来自 fnOS 注入的 TRIM_* 环境变量（真机实测：安装布局为扁平化解包，
+# $0 dirname 定位不可靠）；本地裸跑回退到脚本相对路径。
 
-APP_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DATA_DIR="${APP_DATA_DIR:-$APP_ROOT/data}"
-# 兜底探测：首选不可写则降级
-if ! mkdir -p "$DATA_DIR" 2>/dev/null; then
-  DATA_DIR="/tmp/musicforge-data"
-  mkdir -p "$DATA_DIR" 2>/dev/null
-fi
-PORT="${MUSICFORGE_PORT:-8787}"
+APPDEST="${TRIM_APPDEST:-$(cd "$(dirname "$0")/.." && pwd)}"
+DATA_DIR="${TRIM_PKGVAR:-$APPDEST/data}"
+PORT="${TRIM_SERVICE_PORT:-${MUSICFORGE_PORT:-8787}}"
 PID_FILE="$DATA_DIR/server.pid"
 LOG_DIR="$DATA_DIR/logs"
 LOG_FILE="$LOG_DIR/server.log"
-BIN="$APP_ROOT/app/musicforge-server"
+BIN="$APPDEST/musicforge-server"
+UI_DIR="$APPDEST/ui"
+
+mkdir -p "$DATA_DIR" 2>/dev/null
 
 case "$1" in
   start)
     if [ ! -x "$BIN" ]; then
-      echo "X app/musicforge-server 缺失或不可执行（fpk 安装不完整/权限丢失）" >&2
-      ls -l "$APP_ROOT/app/" >&2
+      echo "X $BIN 缺失或不可执行" >&2
+      echo "  TRIM_APPDEST=$TRIM_APPDEST APPDEST=$APPDEST" >&2
+      ls -la "$APPDEST" >&2 2>/dev/null | head -10
       exit 1
     fi
     if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
@@ -39,12 +35,12 @@ case "$1" in
     MUSICFORGE_DATA_DIR="$DATA_DIR" \
     MUSICFORGE_BIND="127.0.0.1:${PORT}" \
     MUSICFORGE_TOKEN_FILE="$DATA_DIR/.token" \
-    MUSICFORGE_UI_DIR="$APP_ROOT/app/ui" \
+    MUSICFORGE_UI_DIR="$UI_DIR" \
     nohup "$BIN" >> "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
     sleep 1
     if kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-      echo "musicforge-server 已启动（pid=$(cat "$PID_FILE")，绑定 127.0.0.1:${PORT}，data=$DATA_DIR）"
+      echo "musicforge-server 已启动（pid=$(cat "$PID_FILE")，bind=127.0.0.1:${PORT}，data=$DATA_DIR，appdest=$APPDEST）"
     else
       echo "X server 启动后立即退出——日志尾部：" >&2
       tail -20 "$LOG_FILE" >&2 2>/dev/null
@@ -72,6 +68,7 @@ case "$1" in
     ;;
   *)
     echo "用法: $0 {start|stop|status}" >&2
+    echo "  环境诊断: TRIM_APPDEST=$TRIM_APPDEST TRIM_PKGVAR=$TRIM_PKGVAR TRIM_SERVICE_PORT=$TRIM_SERVICE_PORT" >&2
     exit 1
     ;;
 esac
