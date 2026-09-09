@@ -85,7 +85,8 @@ jobs:
         run: |
           VERSION=$(grep '^version' musicforge-core/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
           cp -r musicforge-fpk fpk
-          mkdir -p fpk/app/ui
+          mkdir -p fpk/app/ui/images
+          cp musicforge-fpk/app/ui/config fpk/app/ui/
           cp "target/${{ matrix.target }}/release/musicforge-server" fpk/app/
           cp "target/${{ matrix.target }}/release/musicforge" fpk/app/
           cp -r musicforge-gui/ui/dist/* fpk/app/ui/
