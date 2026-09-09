@@ -1,0 +1,19 @@
+[
+    {
+        "stepTitle": "安装说明",
+        "items": [
+            {
+                "type": "tips",
+                "helpText": "<b>MusicForge</b><br>本地音乐库整理工具：格式迁移（QMC/KWM 插件独立分发）、重复清理、整理、歌词补全。零网络、本地优先、绝不改源。"
+            },
+            {
+                "type": "tips",
+                "helpText": "<br>安装完成后，点击桌面图标在浏览器打开 Web UI。<br><br><b>首次使用三步：</b><br>1. fnOS「文件管理」中为应用授权目录：音乐库（只读）、输出目录（读写）、回收站（读写）；<br>2. 读取访问 token：SSH 查看应用数据目录 <b>data/.token</b>；<br>3. 将 token 填入 Web UI 标题栏的 token 输入框。"
+            },
+            {
+                "type": "tips",
+                "helpText": "<br>格式迁移插件（QMC/KWM）为独立分发，按插件面板的白名单目录安装并确认启用后生效。"
+            }
+        ]
+    }
+]
