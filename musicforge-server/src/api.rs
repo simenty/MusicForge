@@ -11,6 +11,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
 use axum::Json as JsonBody;
 use serde_json::{json, Value};
+use std::path::PathBuf;
 
 use musicforge_core::scan::{scan_library, ScanOptions};
 
@@ -171,6 +172,163 @@ pub async fn convert(JsonBody(body): JsonBody<Value>) -> Response {
     }
 }
 
+// ---------------------------------------------------------------- organize --
+
+use musicforge_core::organize::{
+    apply_organize_plan, plan_organize, ConflictStrategy, OrganizeOptions, OrganizeStatus,
+};
+
+const DEFAULT_TEMPLATE: &str = "{artist} - {title}";
+
+/// organize 请求参数提取（plan/apply 共用）。
+struct OrganizeReq {
+    dir: PathBuf,
+    template: String,
+    target_root: PathBuf,
+    conflict: ConflictStrategy,
+}
+
+#[allow(clippy::result_large_err)] // Response 直返（单调用点，Box 化噪音大于收益）
+fn parse_organize_req(body: &Value) -> Result<OrganizeReq, Response> {
+    let Some(dir) = body.get("dir").and_then(|v| v.as_str()) else {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "MF-API-BAD-REQUEST",
+            "缺 dir（整理根目录）",
+        ));
+    };
+    let template = body
+        .get("template")
+        .and_then(|v| v.as_str())
+        .unwrap_or(DEFAULT_TEMPLATE)
+        .to_string();
+    let target_root = body
+        .get("target_root")
+        .and_then(|v| v.as_str())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(dir)); // 缺省 = 原地整理
+    let conflict = body
+        .get("strategy")
+        .and_then(|v| v.as_str())
+        .map(|s| {
+            ConflictStrategy::parse(s).ok_or_else(|| {
+                err(
+                    StatusCode::BAD_REQUEST,
+                    "MF-API-BAD-REQUEST",
+                    format!("未知 strategy: {s}（skip/suffix/overwrite-never）"),
+                )
+            })
+        })
+        .transpose()?
+        .unwrap_or(ConflictStrategy::Skip);
+    Ok(OrganizeReq {
+        dir: PathBuf::from(dir),
+        template,
+        target_root,
+        conflict,
+    })
+}
+
+fn plan_json(
+    items: &[musicforge_core::organize::OrganizeItem],
+    tpl: &str,
+    strategy: &str,
+) -> Value {
+    json!({
+        "items": items.iter().map(|i| json!({
+            "source": i.source.display().to_string(),
+            "target": i.target.display().to_string(),
+            "status": match i.status {
+                OrganizeStatus::Planned => "planned",
+                OrganizeStatus::AlreadyInPlace => "in_place",
+                OrganizeStatus::SkippedConflict => "skipped_conflict",
+                OrganizeStatus::ConflictNever => "conflict_never",
+            },
+            "note": i.note,
+        })).collect::<Vec<_>>(),
+        "template": tpl,
+        "strategy": strategy,
+    })
+}
+
+fn build_options(r: &OrganizeReq) -> OrganizeOptions<'_> {
+    OrganizeOptions {
+        template: &r.template,
+        target_root: &r.target_root,
+        conflict: r.conflict,
+    }
+}
+
+/// `POST /api/organize/plan`：整理计划预览（**只读**，绝不移动）。
+///
+/// 请求 `{ "dir", "template"?, "target_root"?, "strategy"? }`。
+pub async fn organize_plan(JsonBody(body): JsonBody<Value>) -> Response {
+    let r = match parse_organize_req(&body) {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+    match plan_organize(&r.dir, &build_options(&r)) {
+        Ok(plan) => {
+            let c = plan.counts();
+            ok(json!({
+                "counts": {
+                    "planned": c.planned,
+                    "in_place": c.in_place,
+                    "skipped_conflict": c.skipped_conflict,
+                    "conflict_never": c.conflict_never,
+                },
+                "plan": plan_json(&plan.items, &plan.template, plan.strategy.as_str()),
+            }))
+        }
+        Err(e) => err_from(e),
+    }
+}
+
+/// `POST /api/organize/apply`：执行整理计划（**破坏类**——safety 分级强制）。
+///
+/// - `confirm !== true` → `403 MF-OP-NEEDS-YES`（P2 安全分级语义的 API 版：
+///   必须先 plan 预览、再显式 confirm 才落盘）；
+/// - 绝不覆盖（apply 间隙目标被外部创建 → 该项失败）；
+/// - 回滚清单落 target_root/.musicforge/。
+pub async fn organize_apply(JsonBody(body): JsonBody<Value>) -> Response {
+    let confirm = body
+        .get("confirm")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !confirm {
+        return err(
+            StatusCode::FORBIDDEN,
+            "MF-OP-NEEDS-YES",
+            "破坏类操作需显式确认：先调 /api/organize/plan 预览，再以 confirm:true 执行",
+        );
+    }
+    let r = match parse_organize_req(&body) {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+    let plan = match plan_organize(&r.dir, &build_options(&r)) {
+        Ok(p) => p,
+        Err(e) => return err_from(e),
+    };
+    let task_id = format!(
+        "{}-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0),
+        std::process::id()
+    );
+    match apply_organize_plan(&plan, &task_id) {
+        Ok(outcome) => ok(json!({
+            "moved": outcome.moved,
+            "skipped": outcome.skipped,
+            "failed": outcome.failed,
+            "rollback_manifest": outcome.rollback_manifest.map(|p| p.display().to_string()),
+        })),
+        Err(e) => err_from(e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,6 +382,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let app = build_router(state_with(None));
         let res = app
+            .clone()
             .oneshot(req(
                 "POST",
                 "/api/scan",
@@ -243,6 +402,7 @@ mod tests {
     async fn scan_without_dir_and_library_config_is_bad_request() {
         let app = build_router(state_with(None));
         let res = app
+            .clone()
             .oneshot(req("POST", "/api/scan", Some(json!({}).to_string())))
             .await
             .unwrap();
@@ -255,6 +415,7 @@ mod tests {
     async fn scan_nonexistent_dir_surfaces_stable_code() {
         let app = build_router(state_with(None));
         let res = app
+            .clone()
             .oneshot(req(
                 "POST",
                 "/api/scan",
@@ -274,6 +435,7 @@ mod tests {
     async fn convert_rejects_missing_fields_loudly() {
         let app = build_router(state_with(None));
         let res = app
+            .clone()
             .oneshot(req(
                 "POST",
                 "/api/convert",
@@ -290,6 +452,7 @@ mod tests {
     async fn convert_unknown_plugin_surfaces_stable_code() {
         let app = build_router(state_with(None));
         let res = app
+            .clone()
             .oneshot(req(
                 "POST",
                 "/api/convert",
@@ -308,9 +471,81 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn organize_apply_requires_explicit_confirm() {
+        let dir = std::env::temp_dir().join(format!("mf-org-1-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = build_router(state_with(None));
+        let res = app
+            .clone()
+            .oneshot(req(
+                "POST",
+                "/api/organize/apply",
+                Some(json!({"dir": dir.display().to_string()}).to_string()),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN, "无 confirm 必须 403");
+        let v = body_json(res).await;
+        assert_eq!(v["code"], "MF-OP-NEEDS-YES");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn organize_plan_is_read_only_and_apply_moves_with_confirm() {
+        let dir = std::env::temp_dir().join(format!("mf-org-2-{}", std::process::id()));
+        let lib = dir.join("lib");
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::write(lib.join("a.flac"), b"fLaC-stub-for-plan-test").unwrap();
+
+        let app = build_router(state_with(None));
+        let res = app
+            .clone()
+            .oneshot(req(
+                "POST",
+                "/api/organize/plan",
+                Some(json!({"dir": lib.display().to_string()}).to_string()),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let v = body_json(res).await;
+        assert_eq!(v["ok"], true);
+        assert!(lib.join("a.flac").exists(), "plan 绝不动文件");
+
+        let res = app
+            .clone()
+            .oneshot(req(
+                "POST",
+                "/api/organize/apply",
+                Some(json!({"dir": lib.display().to_string()}).to_string()),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+        let res = app
+            .clone()
+            .oneshot(req(
+                "POST",
+                "/api/organize/apply",
+                Some(json!({"dir": lib.display().to_string(), "confirm": true}).to_string()),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "apply 执行成功");
+        let v = body_json(res).await;
+        let processed = v["data"]["moved"].as_u64().unwrap()
+            + v["data"]["skipped"].as_u64().unwrap()
+            + v["data"]["failed"].as_u64().unwrap();
+        assert!(processed >= 1, "至少处理一项");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
     async fn wizard_status_reports_writable_data_dir() {
         let app = build_router(state_with(None));
         let res = app
+            .clone()
             .oneshot(req("GET", "/api/wizard/status", None))
             .await
             .unwrap();
