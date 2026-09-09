@@ -129,18 +129,25 @@ jobs:
       - name: Install musl tools
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - name: Install aarch64 cross tools
+      # aarch64 musl：gnu gcc 编 C 会带 glibc fortify 语义（__memcpy_chk/open64），
+      # musl crt 链接必炸 → 用 cargo-zigbuild（zig 充当 C 编译器/linker）
+      - name: Setup cargo-zigbuild
         if: matrix.target == 'aarch64-unknown-linux-musl'
-        run: |
-          sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
-          # rusqlite bundled：cc crate 对 aarch64-musl 目标需要显式 CC/AR
-          # （缺失时会回退 host gcc → 对象架构不匹配 → link 失败）
-          echo "CC_aarch64_unknown_linux_musl=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
-          echo "AR_aarch64_unknown_linux_musl=aarch64-linux-gnu-ar" >> "$GITHUB_ENV"
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+      - uses: goto-bus-stop/setup-zig@v2
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        with:
+          version: 0.13.0
 
       - name: Build CLI + Server (release)
+        if: matrix.target != 'aarch64-unknown-linux-musl'
         run: cargo build --release -p musicforge-cli -p musicforge-server --target ${{ matrix.target }}
+
+      - name: Build CLI + Server (release, zigbuild aarch64-musl)
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: cargo zigbuild --release -p musicforge-cli -p musicforge-server --target aarch64-unknown-linux-musl
 
       # P7/P8：unix 产物统一打包（server+CLI 同树；Windows 安装包由 release-installer 负责）
       - name: Package CLI+Server（unix：dist 树 + tar.gz + sha256）
