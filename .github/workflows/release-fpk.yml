@@ -65,7 +65,7 @@ jobs:
         run: |
           curl -fL -o /usr/local/bin/fnpack "https://static2.fnnas.com/fnpack/fnpack-${FNPACK_VERSION}-linux-amd64"
           chmod +x /usr/local/bin/fnpack
-          fnpack --version
+          fnpack --help | head -3
 
       - name: Assemble FPK tree
         run: |
