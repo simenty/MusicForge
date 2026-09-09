@@ -1,0 +1,13 @@
+{
+    ".url": {
+        "musicforge.APPLICATION": {
+            "title": "MusicForge",
+            "icon": "images/icon_{0}.png",
+            "type": "url",
+            "protocol": "",
+            "port": "8787",
+            "url": "/",
+            "allUsers": false
+        }
+    }
+}
