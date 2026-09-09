@@ -1,4 +1,4 @@
-name: Release FPK (fnOS)
+﻿name: Release FPK (fnOS)
 
 # P8/D27/X35：fnOS native FPK 双架构打包（amd64 + arm64）。
 # R23：fnpack Windows 工具链粗糙 → 固定 Linux runner。
@@ -88,21 +88,7 @@ jobs:
           mkdir -p fpk/app/ui/images
           # fnOS desktop entry config (sample: Fnos-Hermes-Studio app/ui/config) --
           # entry name must equal manifest desktop_applaunchname; icon {0} = size slot
-          cat > fpk/app/ui/config <<EOF
-{
-    ".url": {
-        "musicforge.APPLICATION": {
-            "title": "MusicForge",
-            "icon": "images/icon_{0}.png",
-            "type": "url",
-            "protocol": "",
-            "port": "8787",
-            "url": "/",
-            "allUsers": false
-        }
-    }
-}
-EOF
+          echo '{}' > fpk/app/ui/config
           # multi-size icons (placeholder 1x1, real icons later)
           cp ICON_256.PNG fpk/app/ui/images/icon_256.png
           cp ICON.PNG fpk/app/ui/images/icon_64.png          cp "target/${{ matrix.target }}/release/musicforge-server" fpk/app/
@@ -126,12 +112,12 @@ EOF
       - name: Collect artifacts
         run: |
           mkdir -p fpk-out
-          echo \"-- fpk dir --\"
+          echo "-- fpk dir --"
           ls -la fpk/ | head -20
           find . -name "*.fpk" -print
           find . -name "*.fpk" -exec cp -v {} fpk-out/ \;
           ls -la fpk-out/
-          if ls fpk-out/*.fpk >/dev/null 2>&1; then ( cd fpk-out && sha256sum ./*.fpk > SHA256SUMS-fpk.txt ); else echo \"::error::no .fpk produced\" && exit 1; fi
+          if ls fpk-out/*.fpk >/dev/null 2>&1; then ( cd fpk-out && sha256sum ./*.fpk > SHA256SUMS-fpk.txt ); else echo "::error::no .fpk produced" && exit 1; fi
 
       - uses: actions/upload-artifact@v4
         with:
