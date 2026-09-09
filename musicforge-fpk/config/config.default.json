@@ -1,0 +1,8 @@
+{
+  "port": 8787,
+  "bind": "127.0.0.1",
+  "asset_mode": "auto",
+  "data_dir_note": "数据目录由 fnOS 注入 APP_DATA_DIR（应用自有空间）；library.db 落此（X16 位置铁律）",
+  "auth_note": "token 首启随机生成于数据目录 .token（R22：无默认口令）；对外暴露需显式确认",
+  "dirs_note": "音乐库/输出目录/回收站由管理员在「系统设置 → 应用 → MusicForge → +文件夹」显式授权（只读/读写）"
+}

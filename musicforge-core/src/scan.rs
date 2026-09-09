@@ -173,6 +173,10 @@ pub struct ScanReport {
     pub scanned_dirs: usize,
     /// 各规则命中数（仅启用的规则）
     pub rule_hits: BTreeMap<&'static str, usize>,
+    /// P8（fnOS 授权模型）：权限被拒（未授权/只读不足）而无法进入的目录清单。
+    /// 扫描不中断（部分授权语义：其余目录照常），由调用方聚合呈现
+    /// `MF-DIR-NOT-AUTHORIZED` + 授权引导文案。
+    pub unauthorized_dirs: Vec<PathBuf>,
 }
 
 impl ScanReport {
@@ -263,8 +267,15 @@ pub fn scan_library(root: &Path, options: &ScanOptions) -> Result<ScanReport, Nc
             continue;
         }
         report.scanned_dirs += 1;
-        let Ok(rd) = std::fs::read_dir(&dir) else {
-            continue;
+        let rd = match std::fs::read_dir(&dir) {
+            Ok(rd) => rd,
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                // P8（fnOS 授权模型）：未授权目录显式上报（部分授权语义：
+                // 不中断扫描）；调用方按 `MF-DIR-NOT-AUTHORIZED` 聚合呈现
+                report.unauthorized_dirs.push(dir);
+                continue;
+            }
+            Err(_) => continue,
         };
         let mut child_dirs: Vec<PathBuf> = Vec::new();
         let mut file_count = 0usize;

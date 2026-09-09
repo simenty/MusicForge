@@ -106,6 +106,10 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             suffix: ""
+          # P8：ARM NAS（fnOS/群晖 ARM 机型）——aarch64 musl 静态（server + CLI）
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            suffix: ""
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -119,22 +123,29 @@ jobs:
       - name: Add target std for pinned toolchain
         run: rustup target add ${{ matrix.target }}
 
-      # musl 静态链接需要 musl-gcc（rusqlite bundled 会编译 sqlite3.c）
+      # musl 静态链接需要 C 编译器（rusqlite bundled 会编译 sqlite3.c）；
+      # aarch64 musl 用 aarch64-linux-gnu-gcc 作 linker（musl crt 来自 rust std）
       - name: Install musl tools
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Install aarch64 cross tools
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: |
+          sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
 
-      - name: Build CLI (release)
-        run: cargo build --release -p musicforge-cli --target ${{ matrix.target }}
+      - name: Build CLI + Server (release)
+        run: cargo build --release -p musicforge-cli -p musicforge-server --target ${{ matrix.target }}
 
-      # P7：unix 产物统一打包（tar.gz + 独立 .sha256；Windows 安装包由 release-installer 负责）
-      - name: Package CLI（unix：dist 树 + tar.gz + sha256）
+      # P7/P8：unix 产物统一打包（server+CLI 同树；Windows 安装包由 release-installer 负责）
+      - name: Package CLI+Server（unix：dist 树 + tar.gz + sha256）
         if: matrix.target != 'x86_64-pc-windows-msvc'
         run: |
           VERSION=$(grep '^version' musicforge-core/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
           PKG="musicforge-v${VERSION}-${{ matrix.target }}"
           mkdir -p "dist/$PKG"
           cp "target/${{ matrix.target }}/release/musicforge" "dist/$PKG/"
+          cp "target/${{ matrix.target }}/release/musicforge-server" "dist/$PKG/"
           tar -czf "dist/${PKG}.tar.gz" -C dist "$PKG"
           ( cd dist && sha256sum "${PKG}.tar.gz" > "${PKG}.tar.gz.sha256" )
 
@@ -153,6 +164,7 @@ jobs:
           name: musicforge-cli-${{ matrix.target }}
           path: |
             target/${{ matrix.target }}/release/musicforge${{ matrix.suffix }}
+            target/${{ matrix.target }}/release/musicforge-server${{ matrix.suffix }}
             dist/*.tar.gz
             dist/*.tar.gz.sha256
 

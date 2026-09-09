@@ -1,0 +1,55 @@
+#!/bin/bash
+# MusicForge fnOS 生命周期脚本（P8/D27/R22 合规）
+# 用法: main {start|stop|status}；status 返回码: 0=运行中, 3=未运行
+# 安全要点：
+#   - token 首启随机生成（/dev/urandom），无默认口令（R22）
+#   - 服务默认绑定 127.0.0.1（R22：对外暴露需显式确认；fnOS 网关集成真机阶段定）
+#   - 数据目录 = 应用自有空间（X16 位置铁律：library.db 落本地盘，非网络挂载）
+
+APP_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+DATA_DIR="${APP_DATA_DIR:-/vol1/@appcenter/musicforge/data}"
+PORT="${MUSICFORGE_PORT:-8787}"
+PID_FILE="$DATA_DIR/server.pid"
+LOG_DIR="$DATA_DIR/logs"
+LOG_FILE="$LOG_DIR/server.log"
+BIN="$APP_ROOT/app/musicforge-server"
+
+case "$1" in
+  start)
+    if [ ! -x "$BIN" ]; then
+      echo "X app/musicforge-server 缺失（fpk 安装不完整）" >&2
+      exit 1
+    fi
+    mkdir -p "$LOG_DIR"
+    # R22：首启生成随机 token；server 侧双保险（文件缺失也会自生成并打印日志）
+    if [ ! -s "$DATA_DIR/.token" ]; then
+      head -c 24 /dev/urandom | base64 > "$DATA_DIR/.token"
+      echo "首启：随机访问 token 已生成（见 $DATA_DIR/.token 或服务日志）"
+    fi
+    MUSICFORGE_DATA_DIR="$DATA_DIR" \
+    MUSICFORGE_BIND="127.0.0.1:${PORT}" \
+    MUSICFORGE_TOKEN_FILE="$DATA_DIR/.token" \
+    MUSICFORGE_UI_DIR="$APP_ROOT/app/ui" \
+    nohup "$BIN" >> "$LOG_FILE" 2>&1 &
+    echo $! > "$PID_FILE"
+    echo "musicforge-server 已启动（pid=$(cat "$PID_FILE")，绑定 127.0.0.1:${PORT}）"
+    ;;
+  stop)
+    if [ -f "$PID_FILE" ]; then
+      kill "$(cat "$PID_FILE")" 2>/dev/null && rm -f "$PID_FILE"
+      echo "musicforge-server 已停止"
+    else
+      echo "musicforge-server 未在运行（无 pid 文件）"
+    fi
+    ;;
+  status)
+    if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+      exit 0
+    fi
+    exit 3
+    ;;
+  *)
+    echo "用法: $0 {start|stop|status}" >&2
+    exit 1
+    ;;
+esac

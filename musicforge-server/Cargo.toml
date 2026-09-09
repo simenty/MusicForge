@@ -1,0 +1,19 @@
+[package]
+name = "musicforge-server"
+version = "0.8.2"
+edition = "2021"
+license.workspace = true
+description = "MusicForge headless HTTP server shell (axum) — SPA serving + token auth for NAS deployments (fnOS FPK)"
+
+[dependencies]
+# P8 壳层依赖（dependency-policy §4：server 壳允许 axum/tokio——core 仍禁）
+axum = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "fs"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs"] }
+serde_json = "1"
+musicforge-core = { path = "../musicforge-core" }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }

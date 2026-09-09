@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["musicforge-core", "musicforge-cli", "musicforge-gui/src-tauri", "musicforge-plugin-api", "musicforge-plugin-host"]
+members = ["musicforge-core", "musicforge-cli", "musicforge-gui/src-tauri", "musicforge-plugin-api", "musicforge-plugin-host", "musicforge-server"]
 
 [workspace.package]
 license = "MIT"
