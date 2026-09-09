@@ -86,9 +86,26 @@ jobs:
           VERSION=$(grep '^version' musicforge-core/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
           cp -r musicforge-fpk fpk
           mkdir -p fpk/app/ui/images
-          # fnOS 桌面 UI 约定：app/ui/config（壳配置占位）+ app/ui/images/
-          echo '{}' > fpk/app/ui/config
-          cp "target/${{ matrix.target }}/release/musicforge-server" fpk/app/
+          # fnOS desktop entry config (sample: Fnos-Hermes-Studio app/ui/config) --
+          # entry name must equal manifest desktop_applaunchname; icon {0} = size slot
+          cat > fpk/app/ui/config <<EOF
+{
+    ".url": {
+        "musicforge.APPLICATION": {
+            "title": "MusicForge",
+            "icon": "images/icon_{0}.png",
+            "type": "url",
+            "protocol": "",
+            "port": "8787",
+            "url": "/",
+            "allUsers": false
+        }
+    }
+}
+EOF
+          # multi-size icons (placeholder 1x1, real icons later)
+          cp ICON_256.PNG fpk/app/ui/images/icon_256.png
+          cp ICON.PNG fpk/app/ui/images/icon_64.png          cp "target/${{ matrix.target }}/release/musicforge-server" fpk/app/
           cp "target/${{ matrix.target }}/release/musicforge" fpk/app/
           cp -r musicforge-gui/ui/dist/* fpk/app/ui/
           # X35：manifest 按官方 v1.1.8 字段填充（key=value，无冒号）
