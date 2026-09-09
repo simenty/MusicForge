@@ -1,6 +1,6 @@
 [package]
 name = "musicforge-core"
-version = "0.8.1"
+version = "0.8.2"
 edition = "2021"
 license = "MIT"
 description = "MusicForge core: offline, streaming, CRC-verified NetEase .ncm decryption library"

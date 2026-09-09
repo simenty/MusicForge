@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-09-09
+
+### Added（X49/X50：QMC 系格式迁移全链路）
+- **QMC 静态表变体开箱即用**（RFC-0002/X48，`qmc-migration` 插件，独立分发
+  0.8.0）：qmc0/qmc3/qmcflac/qmc2/qmcogg/bkc*/qm* → mp3/flac/ogg；
+  128 字节映射表（jixunmoe/qmc-decode，MIT，README 审计表登记）。
+- **QMCv2 ekey 解密**（X49，STag 尾标 mflac0/mflac1 → flac）：用户自备 ekey
+  （`options.ekey` 本地传递，**零网络/无数据库/无 musicex API**）；EncV2 双阶段
+  TEA 剥壳 + RC4/Map 流密码工厂分派（参考源 bczhc/qmc-dec `qmc2-crypto`
+  MIT+Apache，测试钉死值全数移植）；ekey 三态错误码 `QMC-EKEY-REQUIRED`/
+  `QMC-EKEY-INVALID`（X42 source_code 透传）。QTag（mgg 系）维持 D 级识别报告。
+- **GUI ekey 通道**（X50）：「AI 与插件」面板 ekey 输入位（尾标系插件条件
+  显示）；按扩展名**分流计数**（可直接处理/需 ekey/待判定——RFC-0002 §2.2）；
+  业务码友好映射（引导文案替代原始错误）；format_migrate IPC ekey 透传。
+- **ekey 提取引导文档**（RFC 附录 C）：插件仓 `docs/ekey-guide.md`（缓存目录/
+  调试日志/GUI+CLI 导入/FAQ）。
+- **法务框架**：插件仓 README 许可证审计表（unlock-music DMCA 下架事实 +
+  qmc-dec/qmc2-crypto/tc_tea 登记 + X48/X49 裁决存档）；CI 断言 = 无 ekey
+  数据库 + 网络栈禁入。
+
 ## [0.8.1] - 2026-09-09
 
 ### Added（P6a-R：插件协议 v0.1 改装，跨仓协同 R26）
