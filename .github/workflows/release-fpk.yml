@@ -86,7 +86,8 @@ jobs:
           VERSION=$(grep '^version' musicforge-core/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
           cp -r musicforge-fpk fpk
           mkdir -p fpk/app/ui/images
-          cp musicforge-fpk/app/ui/config fpk/app/ui/
+          # fnOS 桌面 UI 约定：app/ui/config（壳配置占位）+ app/ui/images/
+          echo '{}' > fpk/app/ui/config
           cp "target/${{ matrix.target }}/release/musicforge-server" fpk/app/
           cp "target/${{ matrix.target }}/release/musicforge" fpk/app/
           cp -r musicforge-gui/ui/dist/* fpk/app/ui/
