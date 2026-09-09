@@ -98,7 +98,11 @@ jobs:
             fpk/cmd/config_init fpk/cmd/config_callback
 
       - name: Build FPK
-        run: fnpack build --directory fpk
+        run: |
+          cd fpk
+          fnpack build
+          cd ..
+          ls -la fpk/*.fpk || find . -name "*.fpk" -print
 
       - name: Collect artifacts
         run: |
