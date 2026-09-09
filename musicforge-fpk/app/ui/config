@@ -1,6 +1,6 @@
 {
     ".url": {
-        "musicforge.APPLICATION": {
+        "musicforge.Application": {
             "title": "MusicForge",
             "icon": "images/icon_{0}.png",
             "type": "url",
