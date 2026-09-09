@@ -103,8 +103,12 @@ jobs:
       - name: Collect artifacts
         run: |
           mkdir -p fpk-out
-          find . -maxdepth 2 -name "*.fpk" -exec cp {} fpk-out/ \;
-          ( cd fpk-out && sha256sum ./*.fpk > SHA256SUMS-fpk.txt )
+          echo \"-- fpk dir --\"
+          ls -la fpk/ | head -20
+          find . -name "*.fpk" -print
+          find . -name "*.fpk" -exec cp -v {} fpk-out/ \;
+          ls -la fpk-out/
+          if ls fpk-out/*.fpk >/dev/null 2>&1; then ( cd fpk-out && sha256sum ./*.fpk > SHA256SUMS-fpk.txt ); else echo \"::error::no .fpk produced\" && exit 1; fi
 
       - uses: actions/upload-artifact@v4
         with:
