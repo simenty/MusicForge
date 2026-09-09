@@ -1,11 +1,12 @@
 name: Release FPK (fnOS)
 
-# P8/D27：fnOS native FPK 双架构打包（amd64 + arm64）。
+# P8/D27/X35：fnOS native FPK 双架构打包（amd64 + arm64）。
 # R23：fnpack Windows 工具链粗糙 → 固定 Linux runner。
 #
-# X35（真机阶段定稿项）：FNPACK_URL 为 fnpack 官方 Linux 二进制下载地址——
-# 未配置时本工作流显式跳过（不失败），避免 CI 红灯；真机联调时定稿 URL 与
-# manifest 字段全集（fnpack create 校准）。
+# X35（2026-09-09 定稿）：fnpack 1.2.3 官方源（developer.fnnas.com/docs/cli/fnpack/
+# → static2.fnnas.com 直链）；manifest 字段规范 v1.1.8 已校准（appname/platform/
+# source=thirdparty/service_port/desktop_applaunchname）；打包检查表
+# （manifest / config privilege+resource / 双 ICON / app / cmd / wizard）全部就位。
 
 on:
   push:
@@ -17,18 +18,23 @@ on:
       - "musicforge-server/**"
   workflow_dispatch:
 
+env:
+  FNPACK_VERSION: 1.2.3
+
 jobs:
   fpk:
-    if: ${{ vars.FNPACK_URL != '' }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: amd64
+            platform: x86
             target: x86_64-unknown-linux-musl
             tools: musl-tools
             linker: ""
           - arch: arm64
+            platform: arm
             target: aarch64-unknown-linux-musl
             tools: gcc-aarch64-linux-gnu
             linker: aarch64-linux-gnu-gcc
@@ -47,8 +53,19 @@ jobs:
         if: matrix.linker != ''
         run: echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=${{ matrix.linker }}" >> "$GITHUB_ENV"
 
+      - name: Build frontend (SPA → app/ui)
+        run: |
+          npm --prefix musicforge-gui/ui ci
+          npm --prefix musicforge-gui/ui run build
+
       - name: Build server + CLI (musl static)
         run: cargo build --release -p musicforge-cli -p musicforge-server --target ${{ matrix.target }}
+
+      - name: Download fnpack
+        run: |
+          curl -fL -o /usr/local/bin/fnpack "https://static2.fnnas.com/fnpack/fnpack-${FNPACK_VERSION}-linux-amd64"
+          chmod +x /usr/local/bin/fnpack
+          fnpack --version
 
       - name: Assemble FPK tree
         run: |
@@ -58,22 +75,21 @@ jobs:
           cp "target/${{ matrix.target }}/release/musicforge-server" fpk/app/
           cp "target/${{ matrix.target }}/release/musicforge" fpk/app/
           cp -r musicforge-gui/ui/dist/* fpk/app/ui/
-          sed -i "s/^arch:.*/arch: ${{ matrix.arch }}/" fpk/manifest
-          sed -i "s/^version:.*/version: $VERSION/" fpk/manifest
-          chmod +x fpk/cmd/main
-
-      - name: Download fnpack
-        run: |
-          curl -fL -o fnpack "${{ vars.FNPACK_URL }}" && chmod +x fnpack
-          ./fnpack --version
+          # X35：manifest 按官方 v1.1.8 字段填充（key=value，无冒号）
+          sed -i "s/^platform=.*/platform=${{ matrix.platform }}/" fpk/manifest
+          sed -i "s/^version=.*/version=$VERSION/" fpk/manifest
+          chmod +x fpk/cmd/main fpk/cmd/install_init fpk/cmd/install_callback \
+            fpk/cmd/upgrade_init fpk/cmd/upgrade_callback \
+            fpk/cmd/uninstall_init fpk/cmd/uninstall_callback \
+            fpk/cmd/config_init fpk/cmd/config_callback
 
       - name: Build FPK
-        run: ./fnpack build fpk
+        run: fnpack build --directory fpk
 
       - name: Collect artifacts
         run: |
           mkdir -p fpk-out
-          cp ./*.fpk fpk-out/ 2>/dev/null || find . -maxdepth 2 -name "*.fpk" -exec cp {} fpk-out/ \;
+          find . -maxdepth 2 -name "*.fpk" -exec cp {} fpk-out/ \;
           ( cd fpk-out && sha256sum ./*.fpk > SHA256SUMS-fpk.txt )
 
       - uses: actions/upload-artifact@v4

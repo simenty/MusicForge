@@ -1,0 +1,2 @@
+#!/bin/bash
+echo "[musicforge] uninstall_init（数据目录保留，由用户手动清理）"

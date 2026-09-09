@@ -1,10 +1,20 @@
-# MusicForge fnOS native FPK 清单（P8/D27/X34）
-# 字段全集以社区实证结构为准（Mihomo-fpk / fn-fpk-builder-skill）；
-# X34：fnpack create 骨架落地后需逐字段校准（未识别字段由 fnpack 报错即知）。
-name: musicforge
-displayName: MusicForge
-version: 0.9.0
-arch: amd64
-description: 本地音乐库整理工具（格式迁移/重复清理/整理/歌词，零网络）
-maintainer: simenty <https://github.com/simenty/MusicForge>
-homepage: https://github.com/simenty/MusicForge
+appname=musicforge
+version=0.9.0
+display_name=MusicForge
+desc=本地音乐库整理工具：格式迁移（QMC/KWM 插件独立分发）、重复清理、整理、歌词补全。零网络、本地优先、绝不改源。
+platform=x86
+source=thirdparty
+
+maintainer=simenty
+maintainer_url=https://github.com/simenty/MusicForge
+
+os_min_version=0.9.0
+size=15
+labels=工具,音乐,本地服务
+
+service_port=8787
+checkport=true
+ctl_stop=true
+
+desktop_uidir=ui
+desktop_applaunchname=musicforge.APPLICATION
