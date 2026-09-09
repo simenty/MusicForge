@@ -32,15 +32,18 @@ case "$1" in
       head -c 24 /dev/urandom | base64 > "$DATA_DIR/.token" 2>/dev/null || true
       echo "首启：随机访问 token 已生成（$DATA_DIR/.token）"
     fi
+    # fpk 形态 = fnOS 局域网 web 服务（manifest service_port + 桌面入口跳 NAS IP），
+    # 绑 0.0.0.0；安全兜底 = 首启随机 token（业务 API 全部过 X-Token 闸），
+    # SPA 静态文件无敏感数据。裸跑 server 二进制（无 fpk）默认仍回环（R22）。
     MUSICFORGE_DATA_DIR="$DATA_DIR" \
-    MUSICFORGE_BIND="127.0.0.1:${PORT}" \
+    MUSICFORGE_BIND="0.0.0.0:${PORT}" \
     MUSICFORGE_TOKEN_FILE="$DATA_DIR/.token" \
     MUSICFORGE_UI_DIR="$UI_DIR" \
     nohup "$BIN" >> "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
     sleep 1
     if kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-      echo "musicforge-server 已启动（pid=$(cat "$PID_FILE")，bind=127.0.0.1:${PORT}，data=$DATA_DIR，appdest=$APPDEST）"
+      echo "musicforge-server 已启动（pid=$(cat "$PID_FILE")，bind=0.0.0.0:${PORT}，data=$DATA_DIR，appdest=$APPDEST）"
     else
       echo "X server 启动后立即退出——日志尾部：" >&2
       tail -20 "$LOG_FILE" >&2 2>/dev/null
