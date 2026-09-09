@@ -88,7 +88,10 @@ jobs:
           mkdir -p fpk/app/ui/images
           # fnOS desktop entry config (sample: Fnos-Hermes-Studio app/ui/config) --
           # entry name must equal manifest desktop_applaunchname; icon {0} = size slot
-          echo '{}' > fpk/app/ui/config
+          # fnOS desktop entry (repo template: entry name = desktop_applaunchname)
+          cp musicforge-fpk/app/ui/config fpk/app/ui/
+          cp musicforge-fpk/app/ui/images/icon_256.png fpk/app/ui/images/
+          cp musicforge-fpk/app/ui/images/icon_64.png fpk/app/ui/images/
           # multi-size icons (placeholder 1x1, real icons later)
           cp musicforge-fpk/ICON_256.PNG fpk/app/ui/images/icon_256.png
           cp musicforge-fpk/ICON.PNG fpk/app/ui/images/icon_64.png
