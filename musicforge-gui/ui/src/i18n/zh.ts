@@ -96,6 +96,11 @@ export const zh = {
     labelAddFolder: "添加目录",
     labelOutDir: "选择输出目录",
     labelCancel: "取消",
+    // P8.2.6：fnOS 服务端形态的转换域边界（显式可见，绝不静默）
+    fnosNcmUnsupported:
+      "内置 NCM 转换在 fnOS 服务端形态暂未提供（需桌面版或后续服务端域扩展）",
+    fnosNoPlugin: (ext: string) =>
+      `格式 .${ext} 无对应迁移插件（当前支持 kwm/qmc 系——需在「AI 与插件」面板安装并启用插件包）`,
   },
   dedupe: {
     toggle: "▍重复文件去重（组内对比 · 建议保留 · 可改选）",

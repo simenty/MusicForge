@@ -6,6 +6,7 @@ import {
   saveFailures,
   selectDirectory,
   selectNcmFiles,
+  formatMigrate,
   onBatchDone,
   onBatchFile,
   onDragDropEvent,
@@ -409,6 +410,78 @@ export default function App() {
     setSummary(null);
     setElapsedMs(0);
     setRunning(true);
+    if (!IS_DESKTOP) {
+      // P8.2.6：fnOS 服务端形态——逐文件 HTTP 插件迁移（无批处理进程/事件）。
+      // .ncm = 内置 core 转换（server 尚无该域端点）→ 显式失败标注（P8.2.7 待办）；
+      // kwm/qmc 系 → /api/convert（需已安装并启用对应插件包）。
+      const PLUGIN_BY_EXT: Record<string, string> = {
+        kwm: "kwm-migration",
+        qmc0: "qmc-migration",
+        qmc3: "qmc-migration",
+        qmcflac: "qmc-migration",
+        qmc2: "qmc-migration",
+        qmcogg: "qmc-migration",
+        qmcmp3: "qmc-migration",
+        qmflac: "qmc-migration",
+        bkcflac: "qmc-migration",
+        bkcmp3: "qmc-migration",
+        mflac: "qmc-migration",
+        mflac0: "qmc-migration",
+        mflac1: "qmc-migration",
+        mgg: "qmc-migration",
+        mgg0: "qmc-migration",
+        mgg1: "qmc-migration",
+        mggl: "qmc-migration",
+      };
+      const t0 = Date.now();
+      let ok = 0;
+      let failed = 0;
+      const results: FileResult[] = [];
+      for (const r of rows) {
+        const ext = (/\.(?:([A-Za-z0-9]+))$/.exec(r.source)?.[1] ?? "").toLowerCase();
+        const plugin = PLUGIN_BY_EXT[ext];
+        if (!plugin) {
+          failed += 1;
+          const reason = ext === "ncm" ? t.app.fnosNcmUnsupported : t.app.fnosNoPlugin(ext || "?");
+          results.push({ source: r.source, status: "failed", output: null, reason });
+          setRows((prev) =>
+            prev.map((x) => (x.source === r.source ? { ...x, status: "failed" as const, output: null, reason } : x))
+          );
+          continue;
+        }
+        try {
+          const out = await formatMigrate(
+            plugin,
+            r.source,
+            settings.saveTo === "custom" ? settings.outDir.trim() : undefined
+          );
+          ok += 1;
+          results.push({ source: r.source, status: "ok", output: out.outputPath, reason: null });
+          setRows((prev) =>
+            prev.map((x) => (x.source === r.source ? { ...x, status: "ok" as const, output: out.outputPath, reason: null } : x))
+          );
+        } catch (e) {
+          failed += 1;
+          const reason = String(e);
+          results.push({ source: r.source, status: "failed", output: null, reason });
+          setRows((prev) =>
+            prev.map((x) => (x.source === r.source ? { ...x, status: "failed" as const, output: null, reason } : x))
+          );
+        }
+      }
+      setSummary({
+        planned: 0,
+        ok,
+        skipped: 0,
+        cancelled: 0,
+        failed,
+        durationMs: Date.now() - t0,
+        isCancelled: false,
+        results,
+      });
+      setRunning(false);
+      return;
+    }
     try {
       await startBatch({
         inputs: rows.map((r) => ({ path: r.source, root: r.root })),

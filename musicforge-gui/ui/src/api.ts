@@ -139,6 +139,12 @@ export async function collectFiles(
  * 返回已选路径（未过滤扩展名，交由 collectFiles 统一处理）。
  */
 export async function selectNcmFiles(startDir?: string): Promise<string[]> {
+  if (!IS_DESKTOP) {
+    // P8.2.6：fnOS 形态 = 路径输入框（NAS 路径如 /vol1/music/song.ncm；一次一个，可多次添加）
+    const v = window.prompt("输入文件完整路径（NAS 路径）", startDir ?? "");
+    const p = v?.trim();
+    return p ? [p] : [];
+  }
   return invoke<string[]>("select_ncm_files", { startDir: startDir ?? null });
 }
 
@@ -147,6 +153,12 @@ export async function selectDirectory(
   startDir: string | null,
   title: string
 ): Promise<string | null> {
+  if (!IS_DESKTOP) {
+    // P8.2.6：fnOS 形态 = 路径输入框（返回类型与桌面同型：null=取消）
+    const v = window.prompt(`${title}（输入 NAS 目录完整路径）`, startDir ?? "");
+    const p = v?.trim();
+    return p ? p : null;
+  }
   return invoke<string | null>("select_directory", { startDir, title });
 }
 
@@ -207,6 +219,15 @@ export async function selectMigrationFiles(
   extensions: string[],
   startDir?: string
 ): Promise<string[]> {
+  if (!IS_DESKTOP) {
+    // P8.2.6：fnOS 形态 = 路径输入框（单文件完整路径；目录迁移待 server 域扩展）
+    const v = window.prompt(
+      `输入待迁移文件完整路径（扩展名: ${extensions.join("/")})`,
+      startDir ?? ""
+    );
+    const p = v?.trim();
+    return p ? [p] : [];
+  }
   return invoke<string[]>("select_migration_files", {
     extensions,
     startDir: startDir ?? null,
@@ -380,12 +401,19 @@ export async function cancelBatch(): Promise<boolean> {
 }
 
 export function onBatchFile(handler: (r: FileResult) => void): Promise<UnlistenFn> {
-  if (!IS_DESKTOP) return Promise.reject(new HttpApiError("MF-DESKTOP-ONLY", "批处理进度事件需要桌面版"));
+  if (!IS_DESKTOP) {
+    // P8.2.6：优雅降级为 noop（HTTP 形态转换 = 逐文件同步调用，无进度事件）。
+    // 此前 reject 会在 SPA 启动期冒泡，被 fnOS 桌面包装成「应用初始化异常」弹窗。
+    return Promise.resolve(() => {});
+  }
   return listen<FileResult>("batch-file", (ev) => handler(ev.payload));
 }
 
 export function onBatchDone(handler: (s: BatchSummary) => void): Promise<UnlistenFn> {
-  if (!IS_DESKTOP) return Promise.reject(new HttpApiError("MF-DESKTOP-ONLY", "批处理完成事件需要桌面版"));
+  if (!IS_DESKTOP) {
+    // 同上：noop 降级（HTTP 形态的汇总由前端逐文件循环后直接 set）
+    return Promise.resolve(() => {});
+  }
   return listen<BatchSummary>("batch-done", (ev) => handler(ev.payload));
 }
 
@@ -395,10 +423,13 @@ export type DragPayload =
   | { type: "drop"; paths: string[] }
   | { type: "leave" };
 
-/** 拖拽事件（Tauri v2 webview 级）：enter/over/leave 用于视觉反馈，drop 用于导入 */
+/** 拖拽事件（Tauri v2 webview 级）：enter/over/leave 用于视觉反馈，drop 用于导入；
+ * HTTP 形态 noop 降级（浏览器原生拖拽由 App 自行处理） */
 export function onDragDropEvent(
   handler: (ev: DragPayload) => void
 ): Promise<UnlistenFn> {
-  if (!IS_DESKTOP) return Promise.reject(new HttpApiError("MF-DESKTOP-ONLY", "拖拽导入需要桌面版"));
+  if (!IS_DESKTOP) {
+    return Promise.resolve(() => {});
+  }
   return getCurrentWebview().onDragDropEvent((ev) => handler(ev.payload));
 }
