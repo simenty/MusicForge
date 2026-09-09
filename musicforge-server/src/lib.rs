@@ -227,7 +227,7 @@ pub fn build_router(state: ServerState) -> Router {
                         StatusCode::NOT_FOUND,
                         Json(json!({
                             "ok": false, "code": "MF-API-NOT-FOUND",
-                            "message": "API 面随 P8 迭代逐域开放（当前 health/version/wizard/scan）"
+                            "message": "API 面随 P8 迭代逐域开放（当前 health/version/wizard/scan/convert/organize/clean/trash）"
                         })),
                     )
                 })

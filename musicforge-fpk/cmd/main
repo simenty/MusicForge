@@ -52,13 +52,22 @@ case "$1" in
     ;;
   stop)
     if [ -f "$PID_FILE" ]; then
-      kill "$(cat "$PID_FILE")" 2>/dev/null && rm -f "$PID_FILE"
-      for _ in 1 2 3 4 5 6 7 8 9 10; do
-        [ -f "$PID_FILE" ] || break
-        kill -0 "$(cat "$PID_FILE")" 2>/dev/null || break
-        sleep 0.5
-      done
-      echo "musicforge-server 已停止"
+      SPID="$(cat "$PID_FILE" 2>/dev/null)"
+      # AUD-7（修复）：PID 回绕防护——/proc/<pid> 可复用，直接 kill 可能误杀
+      # 无辜进程。仅在 comm 确认为本服务进程时才发送信号；陈旧 pid 文件直接清理。
+      if [ -n "$SPID" ] && [ -r "/proc/$SPID/comm" ] \
+         && grep -q "^musicforge-server$" "/proc/$SPID/comm" 2>/dev/null; then
+        kill "$SPID" 2>/dev/null && rm -f "$PID_FILE"
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
+          [ -f "$PID_FILE" ] || break
+          kill -0 "$SPID" 2>/dev/null || break
+          sleep 0.5
+        done
+        echo "musicforge-server 已停止"
+      else
+        rm -f "$PID_FILE"
+        echo "musicforge-server 未在运行（清理陈旧 pid 文件）"
+      fi
     else
       echo "musicforge-server 未在运行（无 pid 文件）"
     fi

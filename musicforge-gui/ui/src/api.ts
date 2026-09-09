@@ -141,7 +141,10 @@ export async function collectFiles(
 export async function selectNcmFiles(startDir?: string): Promise<string[]> {
   if (!IS_DESKTOP) {
     // P8.2.6：fnOS 形态 = 路径输入框（NAS 路径如 /vol1/music/song.ncm；一次一个，可多次添加）
-    const v = window.prompt("输入文件完整路径（NAS 路径）", startDir ?? "");
+    const v = window.prompt(
+      "File path (full NAS path) / 文件路径（NAS 完整路径）",
+      startDir ?? ""
+    );
     const p = v?.trim();
     return p ? [p] : [];
   }
@@ -155,7 +158,10 @@ export async function selectDirectory(
 ): Promise<string | null> {
   if (!IS_DESKTOP) {
     // P8.2.6：fnOS 形态 = 路径输入框（返回类型与桌面同型：null=取消）
-    const v = window.prompt(`${title}（输入 NAS 目录完整路径）`, startDir ?? "");
+    const v = window.prompt(
+      `${title} — full NAS path / 目录完整路径`,
+      startDir ?? ""
+    );
     const p = v?.trim();
     return p ? p : null;
   }
@@ -222,7 +228,7 @@ export async function selectMigrationFiles(
   if (!IS_DESKTOP) {
     // P8.2.6：fnOS 形态 = 路径输入框（单文件完整路径；目录迁移待 server 域扩展）
     const v = window.prompt(
-      `输入待迁移文件完整路径（扩展名: ${extensions.join("/")})`,
+      `File to migrate (${extensions.join("/")}) / 待迁移文件完整路径（扩展名: ${extensions.join("/")})`,
       startDir ?? ""
     );
     const p = v?.trim();

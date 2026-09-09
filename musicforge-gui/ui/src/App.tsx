@@ -434,6 +434,22 @@ export default function App() {
         mggl: "qmc-migration",
       };
       const t0 = Date.now();
+      // AUD-1（严重修复）：此前 HTTP 分支完全忽略 dryRun——勾选「仅规划（不写文件）」
+      // 仍会真实执行迁移写文件（数据面风险）。对齐桌面语义：planned = 仅规划数。
+      if (settings.dryRun) {
+        setSummary({
+          planned: rows.length,
+          ok: 0,
+          skipped: 0,
+          cancelled: 0,
+          failed: 0,
+          durationMs: Date.now() - t0,
+          isCancelled: false,
+          results: [],
+        });
+        setRunning(false);
+        return;
+      }
       let ok = 0;
       let failed = 0;
       const results: FileResult[] = [];
@@ -469,13 +485,15 @@ export default function App() {
           );
         }
       }
+      const durationMs = Date.now() - t0;
+      setElapsedMs(durationMs); // AUD-3：HTTP 分支此前结束时不清零计时显示
       setSummary({
         planned: 0,
         ok,
         skipped: 0,
         cancelled: 0,
         failed,
-        durationMs: Date.now() - t0,
+        durationMs,
         isCancelled: false,
         results,
       });

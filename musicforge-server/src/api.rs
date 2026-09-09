@@ -107,9 +107,17 @@ pub async fn scan(State(state): State<ServerState>, body: Option<JsonBody<Value>
         max_depth,
         ..ScanOptions::default()
     };
-    match scan_library(&dir, &options) {
-        Ok(report) => ok(scan_report_json(report)),
-        Err(e) => err_from(e),
+    // AUD-5（并发修复）：scan 为同步阻塞 IO（大库可达秒级）——移出 tokio worker
+    // 线程（spawn_blocking），避免并发请求时卡死 reactor。
+    let scan_result = tokio::task::spawn_blocking(move || scan_library(&dir, &options)).await;
+    match scan_result {
+        Ok(Ok(report)) => ok(scan_report_json(report)),
+        Ok(Err(e)) => err_from(e),
+        Err(e) => err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "MF-INTERNAL",
+            format!("扫描任务执行失败: {e}"),
+        ),
     }
 }
 
@@ -118,7 +126,8 @@ pub async fn version() -> Response {
     ok(json!({
         "name": "musicforge-server",
         "version": env!("CARGO_PKG_VERSION"),
-        "api_surface": "p8.2.1",
+        // AUD-8：随域开放同步（原文案 "p8.2.1" 已过时）
+        "api_surface": "p8.2.6",
     }))
 }
 
@@ -162,7 +171,7 @@ pub async fn convert(JsonBody(body): JsonBody<Value>) -> Response {
         .get("output_dir")
         .and_then(|v| v.as_str())
         .unwrap_or_default();
-    let ekey = body.get("ekey").and_then(|v| v.as_str());
+    let ekey: Option<String> = body.get("ekey").and_then(|v| v.as_str()).map(String::from);
     // output_dir 缺省 = 源父目录（与 GUI IPC 同语义）
     let out_dir = if output_dir.trim().is_empty() {
         std::path::Path::new(source)
@@ -172,9 +181,22 @@ pub async fn convert(JsonBody(body): JsonBody<Value>) -> Response {
     } else {
         output_dir.to_string()
     };
-    match musicforge_cli::format_migrate(plugin, source, &out_dir, None, ekey) {
-        Ok(output_path) => ok(json!({ "outputPath": output_path })),
-        Err(e) => err(StatusCode::BAD_REQUEST, e.mf_code(), format!("{e}")),
+    // AUD-5（并发修复）：插件迁移为同步阻塞（起子进程 + 全文件变换，可达秒级）
+    // ——移出 tokio worker 线程。
+    let plugin = plugin.to_string();
+    let source = source.to_string();
+    let convert_result = tokio::task::spawn_blocking(move || {
+        musicforge_cli::format_migrate(&plugin, &source, &out_dir, None, ekey.as_deref())
+    })
+    .await;
+    match convert_result {
+        Ok(Ok(output_path)) => ok(json!({ "outputPath": output_path })),
+        Ok(Err(e)) => err(StatusCode::BAD_REQUEST, e.mf_code(), format!("{e}")),
+        Err(e) => err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "MF-INTERNAL",
+            format!("迁移任务执行失败: {e}"),
+        ),
     }
 }
 
@@ -257,14 +279,6 @@ fn plan_json(
     })
 }
 
-fn build_options(r: &OrganizeReq) -> OrganizeOptions<'_> {
-    OrganizeOptions {
-        template: &r.template,
-        target_root: &r.target_root,
-        conflict: r.conflict,
-    }
-}
-
 /// `POST /api/organize/plan`：整理计划预览（**只读**，绝不移动）。
 ///
 /// 请求 `{ "dir", "template"?, "target_root"?, "strategy"? }`。
@@ -273,8 +287,18 @@ pub async fn organize_plan(JsonBody(body): JsonBody<Value>) -> Response {
         Ok(r) => r,
         Err(resp) => return resp,
     };
-    match plan_organize(&r.dir, &build_options(&r)) {
-        Ok(plan) => {
+    // AUD-5：plan 含全库扫描（同步阻塞）——spawn_blocking
+    let plan_result = tokio::task::spawn_blocking(move || {
+        let opts = OrganizeOptions {
+            template: &r.template,
+            target_root: &r.target_root,
+            conflict: r.conflict,
+        };
+        plan_organize(&r.dir, &opts)
+    })
+    .await;
+    match plan_result {
+        Ok(Ok(plan)) => {
             let c = plan.counts();
             ok(json!({
                 "counts": {
@@ -286,7 +310,12 @@ pub async fn organize_plan(JsonBody(body): JsonBody<Value>) -> Response {
                 "plan": plan_json(&plan.items, &plan.template, plan.strategy.as_str()),
             }))
         }
-        Err(e) => err_from(e),
+        Ok(Err(e)) => err_from(e),
+        Err(e) => err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "MF-INTERNAL",
+            format!("整理规划任务执行失败: {e}"),
+        ),
     }
 }
 
@@ -312,10 +341,6 @@ pub async fn organize_apply(JsonBody(body): JsonBody<Value>) -> Response {
         Ok(r) => r,
         Err(resp) => return resp,
     };
-    let plan = match plan_organize(&r.dir, &build_options(&r)) {
-        Ok(p) => p,
-        Err(e) => return err_from(e),
-    };
     let task_id = format!(
         "{}-{}",
         std::time::SystemTime::now()
@@ -324,14 +349,30 @@ pub async fn organize_apply(JsonBody(body): JsonBody<Value>) -> Response {
             .unwrap_or(0),
         std::process::id()
     );
-    match apply_organize_plan(&plan, &task_id) {
-        Ok(outcome) => ok(json!({
+    // AUD-5：plan + apply 全程同步阻塞——spawn_blocking
+    let apply_result = tokio::task::spawn_blocking(move || {
+        let opts = OrganizeOptions {
+            template: &r.template,
+            target_root: &r.target_root,
+            conflict: r.conflict,
+        };
+        let plan = plan_organize(&r.dir, &opts)?;
+        apply_organize_plan(&plan, &task_id)
+    })
+    .await;
+    match apply_result {
+        Ok(Ok(outcome)) => ok(json!({
             "moved": outcome.moved,
             "skipped": outcome.skipped,
             "failed": outcome.failed,
             "rollback_manifest": outcome.rollback_manifest.map(|p| p.display().to_string()),
         })),
-        Err(e) => err_from(e),
+        Ok(Err(e)) => err_from(e),
+        Err(e) => err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "MF-INTERNAL",
+            format!("整理执行任务失败: {e}"),
+        ),
     }
 }
 
@@ -363,12 +404,25 @@ pub async fn clean_plan(JsonBody(body): JsonBody<Value>) -> Response {
         return err(StatusCode::BAD_REQUEST, "MF-API-BAD-REQUEST", "缺 dir");
     };
     let dir = PathBuf::from(dir);
-    let report = match scan_library(&dir, &ScanOptions::default()) {
-        Ok(r) => r,
-        Err(e) => return err_from(e),
+    // AUD-5：全库扫描同步阻塞——spawn_blocking
+    let plan_result = tokio::task::spawn_blocking(move || {
+        let report = scan_library(&dir, &ScanOptions::default())?;
+        let trash_root = dir.join(".musicforge").join("trash");
+        let rules = enabled_rules(&body);
+        Ok::<_, musicforge_core::NcmError>(build_clean_plan(&report, &rules, &trash_root, &dir))
+    })
+    .await;
+    let plan = match plan_result {
+        Ok(Ok(p)) => p,
+        Ok(Err(e)) => return err_from(e),
+        Err(e) => {
+            return err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "MF-INTERNAL",
+                format!("清洗规划任务执行失败: {e}"),
+            )
+        }
     };
-    let trash_root = dir.join(".musicforge").join("trash");
-    let plan = build_clean_plan(&report, &enabled_rules(&body), &trash_root, &dir);
     ok(json!({
         "actions": plan.actions.iter().map(|a| json!({
             "path": a.path.display().to_string(),
@@ -399,12 +453,6 @@ pub async fn clean_apply(JsonBody(body): JsonBody<Value>) -> Response {
         return err(StatusCode::BAD_REQUEST, "MF-API-BAD-REQUEST", "缺 dir");
     };
     let dir = PathBuf::from(dir);
-    let report = match scan_library(&dir, &ScanOptions::default()) {
-        Ok(r) => r,
-        Err(e) => return err_from(e),
-    };
-    let trash_root = dir.join(".musicforge").join("trash");
-    let plan = build_clean_plan(&report, &enabled_rules(&body), &trash_root, &dir);
     let task_id = format!(
         "{}-{}",
         std::time::SystemTime::now()
@@ -413,13 +461,27 @@ pub async fn clean_apply(JsonBody(body): JsonBody<Value>) -> Response {
             .unwrap_or(0),
         std::process::id()
     );
-    match apply_clean_plan(&plan, &task_id) {
-        Ok(outcome) => ok(json!({
+    // AUD-5：scan + apply 全程同步阻塞——spawn_blocking
+    let apply_result = tokio::task::spawn_blocking(move || {
+        let report = scan_library(&dir, &ScanOptions::default())?;
+        let trash_root = dir.join(".musicforge").join("trash");
+        let rules = enabled_rules(&body);
+        let plan = build_clean_plan(&report, &rules, &trash_root, &dir);
+        apply_clean_plan(&plan, &task_id)
+    })
+    .await;
+    match apply_result {
+        Ok(Ok(outcome)) => ok(json!({
             "moved": outcome.moved,
             "dirs_removed": outcome.dirs_removed,
             "rollback_manifest": outcome.rollback_manifest.map(|p| p.display().to_string()),
         })),
-        Err(e) => err_from(e),
+        Ok(Err(e)) => err_from(e),
+        Err(e) => err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "MF-INTERNAL",
+            format!("清洗执行任务失败: {e}"),
+        ),
     }
 }
 
@@ -441,9 +503,35 @@ pub async fn trash_restore(JsonBody(body): JsonBody<Value>) -> Response {
     let Some(manifest) = body.get("manifest").and_then(|v| v.as_str()) else {
         return err(StatusCode::BAD_REQUEST, "MF-API-BAD-REQUEST", "缺 manifest");
     };
-    match restore_from_trash(std::path::Path::new(manifest)) {
-        Ok(n) => ok(json!({ "restored": n })),
-        Err(e) => err_from(e),
+    // AUD-6（安全修复）：此前接受任意路径的 manifest——持 token 者可借 restore
+    // 读取/「还原」任意 jsonl 文件描述的任意路径（越权面）。最小约束：manifest
+    // 必须位于 `.musicforge` 回收站体系内（*.jsonl）——合法流（clean/organize
+    // 的回滚清单）全部满足，其余一律拒绝。
+    let manifest_path = std::path::Path::new(manifest);
+    let in_trash = manifest_path
+        .components()
+        .any(|c| c.as_os_str() == ".musicforge")
+        && manifest_path.extension().and_then(|e| e.to_str()) == Some("jsonl");
+    if !in_trash {
+        return err(
+            StatusCode::FORBIDDEN,
+            "MF-TRASH-MANIFEST-INVALID",
+            "manifest 必须是 .musicforge 回收站/回滚目录内的 *.jsonl 清单",
+        );
+    }
+    let manifest = manifest.to_string(); // owned（借用不得跨 await）
+                                         // AUD-5：还原含批量文件搬移——spawn_blocking
+    let restore_result =
+        tokio::task::spawn_blocking(move || restore_from_trash(std::path::Path::new(&manifest)))
+            .await;
+    match restore_result {
+        Ok(Ok(n)) => ok(json!({ "restored": n })),
+        Ok(Err(e)) => err_from(e),
+        Err(e) => err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "MF-INTERNAL",
+            format!("还原任务执行失败: {e}"),
+        ),
     }
 }
 
@@ -672,5 +760,63 @@ mod tests {
         assert_eq!(v["ok"], true);
         assert_eq!(v["data"]["token_ready"], true);
         assert_eq!(v["data"]["data_dir_writable"], true);
+    }
+
+    /// AUD-6 回归：restore 的 manifest 必须位于 .musicforge 体系内——
+    /// 任意路径（如 /etc/passwd 旁伪造的 jsonl）必须 403 拒绝。
+    #[tokio::test]
+    async fn trash_restore_rejects_manifest_outside_musicforge() {
+        let app = build_router(state_with(None));
+        // 不在 .musicforge 下 → 403（即使扩展名是 .jsonl）
+        let res = app
+            .clone()
+            .oneshot(req(
+                "POST",
+                "/api/trash/restore",
+                Some(json!({"manifest": "/tmp/evil/rollback.jsonl", "confirm": true}).to_string()),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        let v = body_json(res).await;
+        assert_eq!(v["code"], "MF-TRASH-MANIFEST-INVALID");
+        // 在 .musicforge 下但非 .jsonl → 403
+        let res = app
+            .clone()
+            .oneshot(req(
+                "POST",
+                "/api/trash/restore",
+                Some(
+                    json!({"manifest": "/data/.musicforge/trash/t1/rollback.txt", "confirm": true})
+                        .to_string(),
+                ),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    }
+
+    /// AUD-6 正路回归：合法 trash 清单路径通过校验（到达 core 层后因文件不存在
+    /// 报 NcmError 稳定码——而非校验层 403）。
+    #[tokio::test]
+    async fn trash_restore_accepts_in_trash_manifest_path() {
+        let app = build_router(state_with(None));
+        let res = app
+            .clone()
+            .oneshot(req(
+                "POST",
+                "/api/trash/restore",
+                Some(
+                    json!({"manifest": "/data/lib/.musicforge/trash/task-1/rollback.jsonl", "confirm": true})
+                        .to_string(),
+                ),
+            ))
+            .await
+            .unwrap();
+        assert_ne!(
+            res.status(),
+            StatusCode::FORBIDDEN,
+            "合法路径不得被校验层拦截"
+        );
     }
 }
