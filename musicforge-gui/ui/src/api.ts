@@ -139,16 +139,19 @@ export interface FormatMigrateResponse {
   outputPath: string;
 }
 
-/** P6b.4：经插件执行本地格式迁移（outputDir 缺省 = 源父目录） */
+/** P6b.4：经插件执行本地格式迁移（outputDir 缺省 = 源父目录）；
+ * X49：ekey = 用户自备密钥（QMC STag 尾标变体；仅本地传递给插件进程，零网络） */
 export async function formatMigrate(
   plugin: string,
   source: string,
-  outputDir?: string
+  outputDir?: string,
+  ekey?: string
 ): Promise<FormatMigrateResponse> {
   return invoke<FormatMigrateResponse>("format_migrate", {
     plugin,
     source,
     outputDir: outputDir ?? null,
+    ekey: ekey?.trim() ? ekey.trim() : null,
   });
 }
 

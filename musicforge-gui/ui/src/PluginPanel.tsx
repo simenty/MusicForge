@@ -30,6 +30,8 @@ export default function PluginPanel() {
   const [saving, setSaving] = useState(false);
   const [migBusy, setMigBusy] = useState<string | null>(null);
   const [migResults, setMigResults] = useState<Record<string, string[]>>({});
+  // X49：用户自备 ekey（QMC STag 尾标变体；仅本地传递给插件进程，零网络）
+  const [ekey, setEkey] = useState("");
 
   const load = useCallback(async () => {
     setError(null);
@@ -68,6 +70,7 @@ export default function PluginPanel() {
   };
 
   // P6b.4：格式迁移入口——选文件 → 逐个经插件迁移（产物与源同目录，源不动）
+  // X49：requires_ekey 分流计数（按扩展名预估）+ ekey 透传 + 业务码友好映射
   const migrateFiles = async (p: InstalledPlugin) => {
     setError(null);
     try {
@@ -75,12 +78,49 @@ export default function PluginPanel() {
       if (files.length === 0) return;
       setMigBusy(p.name);
       const lines: string[] = [];
+      // 分流计数（RFC-0002 §2.2）：静态表系 / 尾标系 / 待判定（无数字 mflac/mgg
+      // 可能带 STag，归待判定——插件侧以最末 4 字节精确判定）
+      const extOf = (f: string) => {
+        const m = /\.([A-Za-z0-9]+)$/.exec(f);
+        return (m?.[1] ?? "").toLowerCase();
+      };
+      const STATIC = new Set([
+        "qmc0",
+        "qmc3",
+        "qmcmp3",
+        "bkcmp3",
+        "qmcflac",
+        "qmflac",
+        "bkcflac",
+        "qmc2",
+        "qmcogg",
+      ]);
+      const TAGGED = new Set(["mflac0", "mflac1", "mgg0", "mgg1", "mggl"]);
+      let direct = 0;
+      let needEkey = 0;
+      let unknown = 0;
+      for (const f of files) {
+        const e = extOf(f);
+        if (STATIC.has(e)) direct += 1;
+        else if (TAGGED.has(e)) needEkey += 1;
+        else unknown += 1;
+      }
+      lines.push(
+        `${t.plugin.splitHead}: ${t.plugin.splitDirect(direct)} · ${t.plugin.splitEkey(needEkey)} · ${t.plugin.splitUnknown(unknown)}`
+      );
       for (const f of files) {
         try {
-          const r = await formatMigrate(p.name, f);
+          const r = await formatMigrate(p.name, f, undefined, ekey || undefined);
           lines.push(`✓ ${f} → ${r.outputPath}`);
         } catch (e) {
-          lines.push(`✗ ${f}: ${String(e)}`);
+          const msg = String(e);
+          if (msg.includes("QMC-EKEY-REQUIRED")) {
+            lines.push(`✗ ${f}: ${t.plugin.ekeyRequired}`);
+          } else if (msg.includes("QMC-EKEY-INVALID")) {
+            lines.push(`✗ ${f}: ${t.plugin.ekeyInvalid}`);
+          } else {
+            lines.push(`✗ ${f}: ${msg}`);
+          }
         }
       }
       setMigResults((prev) => ({ ...prev, [p.name]: lines }));
@@ -90,6 +130,11 @@ export default function PluginPanel() {
       setMigBusy(null);
     }
   };
+
+  // X49：插件声明尾标系扩展名 → 显示 ekey 输入位
+  const TAGGED_EXTS = new Set(["mflac", "mflac0", "mflac1", "mgg", "mgg0", "mgg1", "mggl"]);
+  const needsEkeyInput = (p: InstalledPlugin) =>
+    p.extensions.some((e) => TAGGED_EXTS.has(e.toLowerCase()));
 
   const save = async () => {
     setSaving(true);
@@ -174,6 +219,22 @@ export default function PluginPanel() {
                 )}
                 {p.extensions.length > 0 && runtime && enabled.has(p.name) && (
                   <div className="plugin-migrate">
+                    {needsEkeyInput(p) && (
+                      <>
+                        <label className="plugin-ekey-row">
+                          <span className="plugin-note">{t.plugin.ekeyLabel}</span>
+                          <input
+                            className="plugin-ekey-input"
+                            type="text"
+                            value={ekey}
+                            placeholder={t.plugin.ekeyPlaceholder}
+                            onChange={(ev) => setEkey(ev.target.value)}
+                            spellCheck={false}
+                          />
+                        </label>
+                        <div className="plugin-note">{t.plugin.ekeyHint}</div>
+                      </>
+                    )}
                     <button
                       className="btn sm"
                       onClick={() => void migrateFiles(p)}

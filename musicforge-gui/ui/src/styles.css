@@ -1335,6 +1335,23 @@ body {
   color: var(--muted);
   cursor: pointer;
 }
+/* X49：QMC ekey 输入位（迁移区，紧凑行内布局） */
+.plugin-ekey-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.plugin-ekey-input {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px;
+  font-size: 12px;
+  font-family: monospace;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+}
 .plugin-ack-warn {
   color: #d9480f;
 }

@@ -186,6 +186,19 @@ export const en: typeof zh = {
       "Confirming writes config.json plugins.acked (delete the record any time to revoke).",
     migrating: "Migrating…",
     migrateButton: "Pick files & migrate",
+    // X49: QMC tail-tag ekey channel (user-supplied, local-only, zero network)
+    ekeyLabel: "ekey (optional)",
+    ekeyPlaceholder: "Only needed for STag-tagged files — extract from your own QQ Music client",
+    ekeyHint:
+      "ekey is per-file: MusicForge never bundles or fetches it online; see the plugin guide for extraction.",
+    ekeyRequired:
+      "ekey required: fill it in above and retry (see the plugin guide for extraction).",
+    ekeyInvalid:
+      "ekey check failed: make sure it is copied fully and belongs to the same file/account.",
+    splitHead: "Estimated by extension",
+    splitDirect: (n: number) => `Ready to migrate: ${n}`,
+    splitEkey: (n: number) => `Needs ekey: ${n}`,
+    splitUnknown: (n: number) => `Plugin decides: ${n}`,
     saving: "Saving…",
     saveEnabled: "Save enabled list",
     refresh: "Refresh",

@@ -192,6 +192,17 @@ export const zh = {
       "确认后写入 config.json plugins.acked（可随时删除该记录撤销）。",
     migrating: "迁移中…",
     migrateButton: "选择文件并迁移",
+    // X49：QMC 尾标变体 ekey 通道（用户自备、本地传递、零网络）
+    ekeyLabel: "ekey（可选）",
+    ekeyPlaceholder: "仅 STag 尾标文件需要——从你的 QQ 音乐客户端提取",
+    ekeyHint:
+      "ekey 与文件一一对应：MusicForge 不内置、不联网获取；提取方法见插件引导文档。",
+    ekeyRequired: "需要 ekey：请在上方输入框填入后重试（提取方法见插件引导文档）。",
+    ekeyInvalid: "ekey 校验失败：请确认完整复制且来自同一文件的所属账号。",
+    splitHead: "按扩展名预估",
+    splitDirect: (n: number) => `可直接处理 ${n}`,
+    splitEkey: (n: number) => `需 ekey ${n}`,
+    splitUnknown: (n: number) => `待插件判定 ${n}`,
     saving: "保存中…",
     saveEnabled: "保存启用列表",
     refresh: "刷新",

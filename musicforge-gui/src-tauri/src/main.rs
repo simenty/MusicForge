@@ -753,10 +753,12 @@ async fn select_migration_files(
 }
 
 /// P6b.4：格式迁移执行核心（同步；命令层薄封装）。
+/// X49：ekey 透传（QMCv2 尾标变体——用户自备，本地传递，零网络）。
 fn format_migrate_core(
     plugin: &str,
     source: &str,
     output_dir: Option<&str>,
+    ekey: Option<&str>,
 ) -> Result<serde_json::Value, String> {
     let out_dir = match output_dir.map(str::trim) {
         Some(o) if !o.is_empty() => o.to_string(),
@@ -765,20 +767,23 @@ fn format_migrate_core(
             .map(|p| p.display().to_string())
             .unwrap_or_default(),
     };
-    let output_path = musicforge_cli::format_migrate(plugin, source, &out_dir, None, None)
+    let output_path = musicforge_cli::format_migrate(plugin, source, &out_dir, None, ekey)
         .map_err(|e| format!("{}: {e} | 建议: {}", e.code(), e.suggestion()))?;
     Ok(serde_json::json!({ "outputPath": output_path }))
 }
 
 /// P6b.4：格式迁移执行（经 musicforge-cli 桥接；output_dir 缺省 = 源父目录；
 /// 默认构建响亮报 MF-PLUGIN-NOT-FOUND）。
+/// X49：ekey = 用户自备密钥（QMC STag 变体；插件业务码 QMC-EKEY-REQUIRED/
+/// INVALID 以 source_code 前缀透传——前端识别后展示引导）。
 #[tauri::command]
 async fn format_migrate(
     plugin: String,
     source: String,
     output_dir: Option<String>,
+    ekey: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    format_migrate_core(&plugin, &source, output_dir.as_deref())
+    format_migrate_core(&plugin, &source, output_dir.as_deref(), ekey.as_deref())
 }
 
 // ============ P1a 保护网：GUI ↔ 前端 IPC 契约测试 ============
@@ -1021,12 +1026,18 @@ mod tests {
     /// （MF-PLUGIN-NOT-FOUND），绝不静默装作执行过。
     #[test]
     fn format_migrate_command_loud_without_runtime() {
-        let err = format_migrate_core("kwm-migration", "C:/music/song.kwm", None).unwrap_err();
+        let err =
+            format_migrate_core("kwm-migration", "C:/music/song.kwm", None, None).unwrap_err();
         assert!(err.contains("MF-PLUGIN-NOT-FOUND"), "{err}");
         assert!(err.contains("建议"), "必须带可操作建议: {err}");
         // output_dir 缺省 → 源父目录语义（不 panic）
-        let err2 = format_migrate_core("kwm-migration", "C:/music/song.kwm", Some("C:/music/out"))
-            .unwrap_err();
+        let err2 = format_migrate_core(
+            "kwm-migration",
+            "C:/music/song.kwm",
+            Some("C:/music/out"),
+            None,
+        )
+        .unwrap_err();
         assert!(err2.contains("MF-PLUGIN-NOT-FOUND"), "{err2}");
     }
 
