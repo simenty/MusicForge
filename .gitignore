@@ -39,3 +39,6 @@ docs/*
 
 # project-docs 七类项目文档自 2026-09-09 起属本地治理链，不入库（X46 分层；docs 根的三件套除外）
 docs/project-docs/
+
+# P8 fpk artifacts (local dist for real-device acceptance)
+dist-fpk/
