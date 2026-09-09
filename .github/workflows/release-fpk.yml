@@ -16,6 +16,11 @@ on:
       - ".github/workflows/release-fpk.yml"
       - "musicforge-fpk/**"
       - "musicforge-server/**"
+      # P8.2.6：前端源变化必须重打包（ui dist 是 fpk app/ui/ 的内容——
+      # 漏配导致纯前端修复不产生新 fpk，真机永远拿不到新界面）
+      - "musicforge-gui/ui/src/**"
+      - "musicforge-gui/ui/package.json"
+      - "musicforge-gui/ui/package-lock.json"
   workflow_dispatch:
 
 env:
