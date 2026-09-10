@@ -23,11 +23,32 @@ case "$1" in
       ls -la "$APPDEST" >&2 2>/dev/null | head -10
       exit 1
     fi
-    if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-      echo "musicforge-server 已在运行（pid=$(cat "$PID_FILE")），跳过重复启动"
-      exit 0
-    fi
     mkdir -p "$LOG_DIR" 2>/dev/null
+    # B27（升级启用失败修复）：start 必须让旧实例让位。
+    # 旧逻辑「旧进程存活 → 跳过启动」在升级语义下是错的：新版二进制永远不会生效；
+    # 而「pid 文件丢失但旧进程仍占端口」（升级/异常退出的常见残留）会让新实例
+    # 因端口占用秒退 → fnOS 报「启用失败」。故 start 一律先清理旧实例再启动。
+    # 1) 按 pid 文件停止（comm 校验防 PID 回绕误杀）
+    if [ -f "$PID_FILE" ]; then
+      SPID="$(cat "$PID_FILE" 2>/dev/null)"
+      if [ -n "$SPID" ] && [ -r "/proc/$SPID/comm" ] \
+         && grep -q "^musicforge-server$" "/proc/$SPID/comm" 2>/dev/null; then
+        kill "$SPID" 2>/dev/null
+        for _ in 1 2 3 4 5 6; do
+          kill -0 "$SPID" 2>/dev/null || break
+          sleep 0.5
+        done
+        echo "已停止旧实例（pid=$SPID）"
+      fi
+      rm -f "$PID_FILE"
+    fi
+    # 2) 兜底：pid 文件丢失但进程仍在——按 comm 精确清理（不用 pgrep，busybox 也有 /proc）
+    for pd in /proc/[0-9]*; do
+      if [ -r "$pd/comm" ] && grep -q "^musicforge-server$" "$pd/comm" 2>/dev/null; then
+        kill "${pd#/proc/}" 2>/dev/null && echo "已清理残留实例（pid=${pd#/proc/}）"
+      fi
+    done
+    sleep 0.5
     if [ ! -s "$DATA_DIR/.token" ]; then
       head -c 24 /dev/urandom | base64 > "$DATA_DIR/.token" 2>/dev/null || true
       echo "首启：随机访问 token 已生成（$DATA_DIR/.token）"
@@ -41,11 +62,25 @@ case "$1" in
     MUSICFORGE_UI_DIR="$UI_DIR" \
     nohup "$BIN" >> "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
-    sleep 1
-    if kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+    # 存活探测改为轮询（最长约 6s）：慢启动/磁盘忙时不再被固定 1s 误判为失败
+    started=0
+    for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+      if kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
+        started=1
+        break
+      fi
+      sleep 0.5
+    done
+    if [ "$started" = "1" ]; then
       echo "musicforge-server 已启动（pid=$(cat "$PID_FILE")，bind=0.0.0.0:${PORT}，data=$DATA_DIR，appdest=$APPDEST）"
     else
-      echo "X server 启动后立即退出——日志尾部：" >&2
+      echo "X server 启动后立即退出——诊断信息：" >&2
+      echo "  bind=0.0.0.0:${PORT} data=$DATA_DIR appdest=$APPDEST" >&2
+      if command -v ss >/dev/null 2>&1; then
+        echo "  端口 ${PORT} 占用情况：" >&2
+        ss -tlnp 2>/dev/null | grep -w "${PORT}" >&2
+      fi
+      echo "  日志尾部：" >&2
       tail -20 "$LOG_FILE" >&2 2>/dev/null
       exit 1
     fi
