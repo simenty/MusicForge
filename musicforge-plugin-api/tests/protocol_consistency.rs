@@ -234,14 +234,20 @@ fn plugin_kind_value_domain_frozen() {
 /// §7/§4.10：三禁位（delete/move/upload）语义冻结——声明即拒载。
 #[test]
 fn forbidden_permission_trio_frozen() {
-    let mut p = PluginPermissions::default();
-    assert!(!p.has_forbidden());
-    p.delete_source_file = true;
+    assert!(!PluginPermissions::default().has_forbidden());
+    let p = PluginPermissions {
+        delete_source_file: true,
+        ..PluginPermissions::default()
+    };
     assert!(p.has_forbidden());
-    let mut p = PluginPermissions::default();
-    p.move_source_file = true;
+    let p = PluginPermissions {
+        move_source_file: true,
+        ..PluginPermissions::default()
+    };
     assert!(p.has_forbidden());
-    let mut p = PluginPermissions::default();
-    p.upload_audio = true;
+    let p = PluginPermissions {
+        upload_audio: true,
+        ..PluginPermissions::default()
+    };
     assert!(p.has_forbidden());
 }
