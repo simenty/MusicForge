@@ -50,11 +50,16 @@ jobs:
       - name: 冒烟（容器内 /api/health 免鉴权可达）
         run: |
           CID=$(docker run -d -p 18787:8787 mf-size-check:ci)
-          sleep 2
-          BODY=$(curl -fsS http://127.0.0.1:18787/api/health)
-          echo "$BODY"
-          echo "$BODY" | grep -q '"status":"ok"'
-          docker rm -f "$CID" > /dev/null
+          for i in 1 2 3 4 5; do
+            sleep 2
+            if BODY=$(curl -fsS http://127.0.0.1:18787/api/health 2>/dev/null); then
+              echo "$BODY"; echo "$BODY" | grep -q '"status":"ok"'
+              docker rm -f "$CID" > /dev/null
+              exit 0
+            fi
+            docker logs "$CID" 2>&1 | tail -5 || true
+          done
+          echo "::error::15s 内 /api/health 不可达"; exit 1
 
       - name: Meta tags（v* → 版本号 + latest）
         id: meta

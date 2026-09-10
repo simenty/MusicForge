@@ -24,12 +24,16 @@ WORKDIR /src
 COPY . .
 ENV CARGO_NET_OFFLINE=false
 RUN cargo build --release -p musicforge-cli -p musicforge-server
+# /data 数据目录预建 + 属主预置（scratch 无法 chown——匿名卷/挂载卷以镜像内
+# 该路径权限初始化；缺失则 root:root → 非 root 运行写不进 → server 启动即退）
+RUN mkdir -p /data && chown 65532:65532 /data
 
 # ---- 阶段 3：scratch 组装 ----
 FROM scratch
 COPY --from=build /src/target/release/musicforge-server /usr/local/bin/musicforge-server
 COPY --from=build /src/target/release/musicforge /usr/local/bin/musicforge
 COPY --from=ui /ui/dist /opt/musicforge/ui
+COPY --from=build --chown=65532:65532 /data /data
 # 数据目录（token/日志/manifest）：挂载卷持久化
 VOLUME ["/data"]
 ENV MUSICFORGE_DATA_DIR=/data \
