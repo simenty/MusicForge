@@ -200,6 +200,126 @@ pub async fn convert(JsonBody(body): JsonBody<Value>) -> Response {
     }
 }
 
+/// 批处理命名模板缺省（与前端 settings.template 兜底一致）。
+const DEFAULT_BATCH_TEMPLATE: &str = "{title} - {artist}";
+
+/// `POST /api/batch`：内置 NCM 批处理转换（P8.2.7——与桌面 `startBatch` 同源引擎）。
+///
+/// 请求 `{ inputs: [{path, root?}], out_dir?, template?, skip_existing?, recursive?, jobs?, dry_run? }`
+/// （与前端 `BatchArgs` 同语义，snake_case）。同步执行（spawn_blocking）→
+/// 返回与桌面事件流终态同形状的 summary（planned/ok/skipped/cancelled/failed/
+/// durationMs/isCancelled/results[]）。
+///
+/// - 仅处理**内置转换域**（.ncm）——插件格式（kwm/qmc）走 `/api/convert`（前端分派）；
+/// - `jobs` 硬约束 ≤10（Q7 姿态）；`cancel: None`——HTTP 同步形态无取消（连接断开
+///   不中断任务，语义与 CLI 一次性执行一致）。
+pub async fn batch(State(state): State<ServerState>, JsonBody(body): JsonBody<Value>) -> Response {
+    let Some(inputs) = body.get("inputs").and_then(|v| v.as_array()) else {
+        return err(
+            StatusCode::BAD_REQUEST,
+            "MF-API-BAD-REQUEST",
+            "缺 inputs 数组",
+        );
+    };
+    let expanded: Vec<(PathBuf, Option<PathBuf>)> = inputs
+        .iter()
+        .filter_map(|v| {
+            let p = v.get("path")?.as_str()?;
+            Some((
+                PathBuf::from(p),
+                v.get("root").and_then(|r| r.as_str()).map(PathBuf::from),
+            ))
+        })
+        .collect();
+    if expanded.is_empty() {
+        return err(
+            StatusCode::BAD_REQUEST,
+            "MF-API-BAD-REQUEST",
+            "inputs 内无有效 path",
+        );
+    }
+    let out_dir = body
+        .get("out_dir")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from);
+    let template = body
+        .get("template")
+        .and_then(|v| v.as_str())
+        .unwrap_or(DEFAULT_BATCH_TEMPLATE)
+        .to_string();
+    let skip_existing = body
+        .get("skip_existing")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let recursive = body
+        .get("recursive")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    // Q7：有界并发硬约束 10
+    let jobs = body
+        .get("jobs")
+        .and_then(|v| v.as_u64())
+        .map(|v| v.clamp(1, 10) as usize)
+        .unwrap_or(4);
+    let dry_run = body
+        .get("dry_run")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let task_id = musicforge_cli::manifest::new_task_id();
+    let manifest_path = musicforge_cli::manifest::default_manifest_path(
+        // 无自定义输出目录时落服务端数据目录（fnOS：package 用户 home 之上的
+        // 可控位置，而非隐式 local_config_dir）
+        Some(out_dir.clone().unwrap_or_else(|| state.data_dir.clone())).as_deref(),
+        &task_id,
+    );
+    let cfg = musicforge_cli::BatchConfig {
+        // expanded 入口（G3）：inputs 留空，root 随行
+        inputs: Vec::new(),
+        out_dir,
+        recursive,
+        skip_existing,
+        jobs,
+        template,
+        cancel: None,
+        dry_run,
+        manifest: Some(manifest_path),
+    };
+    // AUD-5 约束遵守：批处理为同步阻塞 IO——spawn_blocking
+    let batch_result = tokio::task::spawn_blocking(move || {
+        musicforge_cli::run_with_progress_expanded(expanded, cfg, |_| {})
+    })
+    .await;
+    match batch_result {
+        Ok(s) => ok(json!({
+            "planned": s.planned,
+            "ok": s.ok,
+            "skipped": s.skipped,
+            "cancelled": s.cancelled,
+            "failed": s.failed,
+            "durationMs": s.duration_ms,
+            "isCancelled": s.is_cancelled(),
+            "results": s.results.iter().map(|r| json!({
+                "source": r.source.to_string_lossy(),
+                "status": match r.status {
+                    musicforge_cli::Status::Ok => "ok",
+                    musicforge_cli::Status::Skipped => "skipped",
+                    musicforge_cli::Status::Cancelled => "cancelled",
+                    musicforge_cli::Status::Failed => "failed",
+                },
+                "output": r.output.as_ref().map(|p| p.to_string_lossy()),
+                "reason": r.reason,
+            })).collect::<Vec<_>>(),
+        })),
+        Err(e) => err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "MF-INTERNAL",
+            format!("批处理任务执行失败: {e}"),
+        ),
+    }
+}
+
 // ---------------------------------------------------------------- organize --
 
 use musicforge_core::organize::{
@@ -818,5 +938,141 @@ mod tests {
             StatusCode::FORBIDDEN,
             "合法路径不得被校验层拦截"
         );
+    }
+
+    // ---------------------------------------------------------------- batch --
+
+    /// P8.2.7 fixtures（真实 ncm 文件，与 CLI 测试同源）。
+    fn ncm_fixtures() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../musicforge-core/tests/fixtures")
+    }
+
+    /// 递归收集文件（dry-run 断言辅助）。
+    fn walk_files(dir: &std::path::Path) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(dir) {
+            for e in rd.filter_map(|e| e.ok()) {
+                let p = e.path();
+                if p.is_dir() {
+                    out.extend(walk_files(&p));
+                } else {
+                    out.push(p);
+                }
+            }
+        }
+        out
+    }
+
+    /// P8.2.7 回归：/api/batch 真实 ncm roundtrip——引擎桥接全链路。
+    #[tokio::test]
+    async fn batch_converts_real_ncm_fixture() {
+        let src = ncm_fixtures();
+        let ncm = std::fs::read_dir(&src)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .find(|p| p.extension().map(|e| e == "ncm").unwrap_or(false))
+            .expect("fixtures 目录应含 .ncm 文件");
+        let out = std::env::temp_dir().join(format!("mf-batch-{}", std::process::id()));
+        let app = build_router(state_with(None));
+        let res = app
+            .clone()
+            .oneshot(req(
+                "POST",
+                "/api/batch",
+                Some(
+                    json!({
+                        "inputs": [{"path": ncm.display().to_string(), "root": null}],
+                        "out_dir": out.display().to_string(),
+                        "jobs": 2,
+                    })
+                    .to_string(),
+                ),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let v = body_json(res).await;
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["data"]["ok"], 1, "单文件转换应成功: {v}");
+        assert_eq!(v["data"]["failed"], 0);
+        // 产物落盘
+        let output = v["data"]["results"][0]["output"]
+            .as_str()
+            .expect("成功项应有 output 路径");
+        assert!(
+            std::path::Path::new(output).exists(),
+            "产物应存在: {output}"
+        );
+        std::fs::remove_dir_all(&out).ok();
+    }
+
+    /// P8.2.7 回归：dry_run=true 绝不写文件（AUD-1 语义的服务端承载）。
+    #[tokio::test]
+    async fn batch_dry_run_writes_nothing() {
+        let src = ncm_fixtures();
+        let ncm = std::fs::read_dir(&src)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .find(|p| p.extension().map(|e| e == "ncm").unwrap_or(false))
+            .unwrap();
+        let out = std::env::temp_dir().join(format!("mf-batch-dry-{}", std::process::id()));
+        std::fs::create_dir_all(&out).unwrap();
+        let app = build_router(state_with(None));
+        let res = app
+            .clone()
+            .oneshot(req(
+                "POST",
+                "/api/batch",
+                Some(
+                    json!({
+                        "inputs": [{"path": ncm.display().to_string(), "root": null}],
+                        "out_dir": out.display().to_string(),
+                        "dry_run": true,
+                    })
+                    .to_string(),
+                ),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let v = body_json(res).await;
+        assert_eq!(v["data"]["planned"], 1, "dry-run 报 planned 计数");
+        // dry-run 允许落任务审计清单（.musicforge/manifests/*.jsonl，与桌面引擎
+        // 同源行为）；断言核心：无任何**转换产物**落盘
+        let produced: Vec<_> = walk_files(&out)
+            .into_iter()
+            .filter(|p| !p.components().any(|c| c.as_os_str() == ".musicforge"))
+            .collect();
+        assert!(
+            produced.is_empty(),
+            "dry-run 绝不落转换产物: {:?}",
+            produced
+        );
+        std::fs::remove_dir_all(&out).ok();
+    }
+
+    /// P8.2.7：缺 inputs / 空 path 显式报错。
+    #[tokio::test]
+    async fn batch_rejects_missing_or_empty_inputs() {
+        let app = build_router(state_with(None));
+        let res = app
+            .clone()
+            .oneshot(req("POST", "/api/batch", Some(json!({}).to_string())))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        let res = app
+            .oneshot(req(
+                "POST",
+                "/api/batch",
+                Some(json!({"inputs": [{"root": null}]}).to_string()),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        let v = body_json(res).await;
+        assert_eq!(v["code"], "MF-API-BAD-REQUEST");
     }
 }

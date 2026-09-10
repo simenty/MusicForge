@@ -7,6 +7,7 @@ import {
   selectDirectory,
   selectNcmFiles,
   formatMigrate,
+  runBatchHttp,
   onBatchDone,
   onBatchFile,
   onDragDropEvent,
@@ -452,13 +453,21 @@ export default function App() {
       }
       let ok = 0;
       let failed = 0;
+      let skipped = 0;
       const results: FileResult[] = [];
+      const ncmRows: typeof rows = [];
+      // 循环 1：插件格式逐文件迁移（kwm/qmc 系 → /api/convert）；
+      // .ncm 收集走内置批处理（P8.2.7）；未知扩展名显式失败
       for (const r of rows) {
         const ext = (/\.(?:([A-Za-z0-9]+))$/.exec(r.source)?.[1] ?? "").toLowerCase();
+        if (ext === "ncm") {
+          ncmRows.push(r);
+          continue;
+        }
         const plugin = PLUGIN_BY_EXT[ext];
         if (!plugin) {
           failed += 1;
-          const reason = ext === "ncm" ? t.app.fnosNcmUnsupported : t.app.fnosNoPlugin(ext || "?");
+          const reason = t.app.fnosNoPlugin(ext || "?");
           results.push({ source: r.source, status: "failed", output: null, reason });
           setRows((prev) =>
             prev.map((x) => (x.source === r.source ? { ...x, status: "failed" as const, output: null, reason } : x))
@@ -485,12 +494,48 @@ export default function App() {
           );
         }
       }
+      // 循环 2：.ncm 单次内置批处理（P8.2.7——与桌面 startBatch 同源引擎；
+      // HTTP 同步形态无进度事件，一次调用取终态 summary）
+      if (ncmRows.length > 0) {
+        try {
+          const s = await runBatchHttp({
+            inputs: ncmRows.map((r) => ({ path: r.source, root: r.root })),
+            outDir: settings.saveTo === "custom" ? settings.outDir.trim() : null,
+            template: settings.template,
+            skipExisting: settings.skipExisting,
+            recursive: true,
+            jobs: settings.jobs,
+            dryRun: false,
+          });
+          for (const r of s.results) {
+            results.push({ source: r.source, status: r.status, output: r.output, reason: r.reason });
+            if (r.status === "ok") ok += 1;
+            else if (r.status === "skipped") skipped += 1;
+            else if (r.status === "failed") failed += 1;
+            setRows((prev) =>
+              prev.map((x) =>
+                x.source === r.source ? { ...x, status: r.status, output: r.output, reason: r.reason } : x
+              )
+            );
+          }
+        } catch (e) {
+          // batch 调用整体失败（网络/服务端错误）：全部 ncm 行显式标失败
+          for (const r of ncmRows) {
+            failed += 1;
+            const reason = String(e);
+            results.push({ source: r.source, status: "failed", output: null, reason });
+            setRows((prev) =>
+              prev.map((x) => (x.source === r.source ? { ...x, status: "failed" as const, output: null, reason } : x))
+            );
+          }
+        }
+      }
       const durationMs = Date.now() - t0;
       setElapsedMs(durationMs); // AUD-3：HTTP 分支此前结束时不清零计时显示
       setSummary({
         planned: 0,
         ok,
-        skipped: 0,
+        skipped,
         cancelled: 0,
         failed,
         durationMs,

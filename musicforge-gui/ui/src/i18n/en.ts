@@ -93,10 +93,9 @@ export const en: typeof zh = {
     labelOutDir: "Choose output folder",
     labelCancel: "Cancel",
     // P8.2.6: fnOS server-mode conversion domain boundary (explicit, never silent)
-    fnosNcmUnsupported:
-      "Built-in NCM conversion is not yet available in fnOS server mode (desktop only, pending server domain extension)",
+    // P8.2.7: .ncm built-in conversion now available via /api/batch — fnosNcmUnsupported removed
     fnosNoPlugin: (ext: string) =>
-      `No migration plugin for .${ext} (kwm/qmc supported — install & enable the plugin package in the Plugins panel)`,
+      `No migration plugin for .${ext} (kwm/qmc need plugins; .ncm is built-in)`,
   },
   dedupe: {
     toggle: "▍Duplicate finder (side-by-side · suggested keep · your call)",

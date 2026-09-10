@@ -402,6 +402,21 @@ export async function startBatch(args: BatchArgs): Promise<void> {
   await invoke("start_batch", { args });
 }
 
+/** P8.2.7：fnOS 形态内置 NCM 批处理——与桌面 startBatch 同源引擎（HTTP 同步
+ * 形态：无进度事件/无取消，一次调用返回终态 summary；jobs 服务端硬约束 ≤10）。
+ * 仅处理内置转换域（.ncm）——插件格式由调用方走 formatMigrate 分派。 */
+export async function runBatchHttp(args: BatchArgs): Promise<BatchSummary> {
+  return httpPost<BatchSummary>("/api/batch", {
+    inputs: args.inputs,
+    out_dir: args.outDir,
+    template: args.template,
+    skip_existing: args.skipExisting,
+    recursive: args.recursive,
+    jobs: args.jobs,
+    dry_run: args.dryRun,
+  });
+}
+
 export async function cancelBatch(): Promise<boolean> {
   return invoke<boolean>("cancel_batch");
 }
