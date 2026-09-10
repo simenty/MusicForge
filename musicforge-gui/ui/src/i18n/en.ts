@@ -20,6 +20,11 @@ export const en: typeof zh = {
   },
   app: {
     subtitle: "Local music format converter",
+    // Main nav sections (IA: convert / library / plugins / settings)
+    navConvert: "Convert",
+    navLibrary: "Library",
+    navPlugins: "Plugins",
+    navSettings: "Settings",
     offlineChip: "Zero network · Offline",
     addFiles: "Add files",
     addFolder: "Add folder",

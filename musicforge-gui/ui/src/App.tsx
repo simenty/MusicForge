@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   cancelBatch,
   collectFiles,
@@ -26,6 +26,22 @@ import { useLang, type Lang } from "./i18n";
 import DedupePanel from "./DedupePanel";
 import ScanPanel from "./ScanPanel";
 import PluginPanel from "./PluginPanel";
+import {
+  IconConvert,
+  IconDownload,
+  IconFolder,
+  IconLibrary,
+  IconPlan,
+  IconPlay,
+  IconPlugin,
+  IconPlus,
+  IconSettings,
+  IconStop,
+  IconTrash,
+} from "./icons";
+
+/** 主分区（信息架构：转换 / 曲库 / 插件 / 设置——原单页纵向堆叠改为分区导航） */
+type ViewKey = "convert" | "library" | "plugins" | "settings";
 
 /**
  * 行状态。
@@ -67,6 +83,8 @@ const FLUSH_MS = 100;
 
 export default function App() {
   const { t, lang, setLang } = useLang();
+  /** 当前主分区（默认「转换」——核心流程零跳转可达） */
+  const [view, setView] = useState<ViewKey>("convert");
   // P8.2.5：fnOS 服务端形态的访问 token（HTTP 形态标题栏可见可改）
   const [serverTokenInput, setServerTokenInput] = useState<string>(serverToken());
   const [settings, setSettings] = useState<Settings>(loadSettings);
@@ -632,7 +650,9 @@ export default function App() {
       {/* ---------- 标题栏 ---------- */}
       <div className="titlebar">
         <div className="brand">
-          <span className="logo">▤</span>
+          <span className="logo">
+            <IconConvert size={18} />
+          </span>
           <strong>MusicForge</strong>
           <span className="sub">{t.app.subtitle}</span>
         </div>
@@ -666,37 +686,224 @@ export default function App() {
         </div>
       </div>
 
-      {/* ---------- 工具条 ---------- */}
+      {/* ---------- 主导航（分区：转换 / 曲库 / 插件 / 设置） ---------- */}
+      <nav className="nav" aria-label="main">
+        <button className={"nav-item" + (view === "convert" ? " on" : "")} onClick={() => setView("convert")}>
+          <IconConvert />
+          <span>{t.app.navConvert}</span>
+          {rows.length > 0 && <span className="badge">{rows.length}</span>}
+        </button>
+        <button className={"nav-item" + (view === "library" ? " on" : "")} onClick={() => setView("library")}>
+          <IconLibrary />
+          <span>{t.app.navLibrary}</span>
+        </button>
+        <button className={"nav-item" + (view === "plugins" ? " on" : "")} onClick={() => setView("plugins")}>
+          <IconPlugin />
+          <span>{t.app.navPlugins}</span>
+        </button>
+        <button className={"nav-item" + (view === "settings" ? " on" : "")} onClick={() => setView("settings")}>
+          <IconSettings />
+          <span>{t.app.navSettings}</span>
+        </button>
+      </nav>
+
+      <main className="main">
+      {view === "convert" && (
+        <>
+      {/* ---------- 导入操作区 ---------- */}
+      <div className="panel">
+        <div className="panel-head">
+          <h2>{t.app.navConvert}</h2>
+        </div>
       <div className="toolbar">
         <div className="tb-left">
           <button className="btn" onClick={addFiles} disabled={running}>
-            <span className="ico">＋</span>
+            <IconPlus />
             {t.app.addFiles}
           </button>
           <button className="btn" onClick={addFolder} disabled={running}>
-            <span className="ico">▣</span>
+            <IconFolder />
             {t.app.addFolder}
           </button>
           <button className="btn" onClick={clearList} disabled={running || rows.length === 0}>
-            <span className="ico">⌫</span>
+            <IconTrash />
             {t.app.clearList}
           </button>
         </div>
         <div className="tb-right">
           {running ? (
             <button className="btn danger" onClick={doCancel}>
-              <span className="ico">■</span>
+              <IconStop />
               {t.app.cancel}
             </button>
           ) : (
             <button className="btn primary" onClick={startRun} disabled={rows.length === 0}>
-              <span className="ico">{settings.dryRun ? "🗎" : "▶"}</span>
+              {settings.dryRun ? <IconPlan /> : <IconPlay />}
               {settings.dryRun ? t.app.planRun : t.app.start}
             </button>
           )}
         </div>
       </div>
+      </div>
 
+      {/* ---------- 拖放区 ---------- */}
+      <div
+        className={
+          "dropzone" + (dragOver ? " drop-active" : "") + (rows.length > 0 ? " compact" : "")
+        }
+      >
+        {rows.length === 0 ? (
+          <>
+            <div className="dz-icon" aria-hidden="true">
+              <IconConvert size={28} />
+            </div>
+            <div className="dz-title">{t.app.dropTitle}</div>
+            <div className="dz-sub">{t.app.dropSub}</div>
+          </>
+        ) : (
+          <div className="dz-inline">
+            <span>{t.app.imported(total)}</span>
+            <span className="dot">·</span>
+            <span>{t.app.dropMore}</span>
+          </div>
+        )}
+      </div>
+
+      {/* ---------- 文件列表 ---------- */}
+      <div className="panel">
+      <div className="listhead">
+        <div className="filters">
+          {FILTERS.map((f) => (
+            <button
+              key={f}
+              className={"fchip" + (filter === f ? " on" : "")}
+              onClick={() => setFilter(f)}
+            >
+              {filterLabel(f)}
+              <span className="fnum">{filterCounts[f]}</span>
+            </button>
+          ))}
+        </div>
+        {filtered.length !== rows.length && (
+          <span className="filter-note">{t.app.filtered(filtered.length, rows.length)}</span>
+        )}
+      </div>
+
+      {/* ---------- 表头 ---------- */}
+      <div className="grid-head">
+        <span>{t.app.colStatus}</span>
+        <span>{t.app.colFile}</span>
+        <span>{t.app.colOutput}</span>
+        <span className="ta-c">{t.app.colAction}</span>
+      </div>
+
+      {/* ---------- 虚拟滚动列表 ---------- */}
+      <div
+        className="vlist"
+        ref={viewRef}
+        onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}
+      >
+        {filtered.length === 0 ? (
+          <div className="empty">
+            {rows.length === 0 ? t.app.noFiles : t.app.emptyFiltered(filterLabel(filter))}
+          </div>
+        ) : (
+          <div style={{ height: filtered.length * ROW_H, position: "relative" }}>
+            <div style={{ transform: `translateY(${start * ROW_H}px)` }}>
+              {visible.map((r) => {
+                const meta = STATUS_META[r.status] ?? STATUS_META.pending;
+                return (
+                  <div className="grid-row" key={r.source} style={{ height: ROW_H }}>
+                    <span className={"st " + meta.cls}>
+                      <span className="st-ico">{meta.icon}</span>
+                      {t.status[r.status]}
+                    </span>
+                    <span className="fp" title={r.source}>
+                      {fileName(r.source)}
+                    </span>
+                    <span
+                      className="op"
+                      title={r.reason ?? r.output ?? ""}
+                    >
+                      {r.status === "failed" ? (
+                        <span className="reason">{r.reason ?? t.app.unknownError}</span>
+                      ) : (
+                        <span className="mono">{r.output ? relOutput(r.output) : "—"}</span>
+                      )}
+                    </span>
+                    <span className="ta-c">
+                      <button
+                        className="btn-mini"
+                        onClick={() => removeRow(r.source)}
+                        disabled={running}
+                        title={t.app.removeTip}
+                      >
+                        {t.app.remove}
+                      </button>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+      </div>
+
+      {/* ---------- 底部进度与汇总 ---------- */}
+      {/* running 仅用于驱动进度条流动动画（纯展示，不参与业务判断） */}
+      <div className={"footer" + (running ? " running" : "")}>
+        <div className="progress">
+          <div
+            className={"progress-fill" + (counts.failed > 0 ? " has-fail" : "")}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <div className="stats">
+          <span className="s-ok">✓ {counts.ok}</span>
+          <span className="s-skipped">⏭ {counts.skipped}</span>
+          <span className="s-failed">✕ {counts.failed}</span>
+          {counts.cancelled > 0 && <span className="s-cancelled">⏸ {counts.cancelled}</span>}
+          <span className="sep">|</span>
+          <span className="muted">
+            {doneCount} / {total} · {pct}%
+          </span>
+          <span className="sep">|</span>
+          <span className="muted">{formatDuration(finishedMs)}</span>
+          {summary && summary.planned > 0 && (
+            <span className="muted">{t.app.plannedBadge(summary.planned)}</span>
+          )}
+          {summary?.isCancelled && <span className="badge-cancel">{t.status.cancelled}</span>}
+        </div>
+        <button
+          className="btn sm"
+          onClick={exportFailures}
+          disabled={counts.failed === 0}
+          title={counts.failed === 0 ? t.app.noFailures : t.app.exportTip}
+        >
+          <IconDownload />
+          {t.app.exportFailures}
+        </button>
+      </div>
+
+        </>
+      )}
+
+      {/* ---------- 曲库治理：扫描 / 去重（只读入口，执行走回收站） ---------- */}
+      {view === "library" && (
+        <>
+          <ScanPanel />
+          <DedupePanel />
+        </>
+      )}
+      {/* ---------- 插件面板（X37：零请求） ---------- */}
+      {view === "plugins" && <PluginPanel />}
+      {/* ---------- 设置（转换参数集中区） ---------- */}
+      {view === "settings" && (
+        <div className="panel">
+          <div className="panel-head">
+            <h2>{t.app.navSettings}</h2>
+          </div>
       {/* ---------- 设置区 ---------- */}
       <div className="settings">
         {/* 保存位置：渐进披露（借鉴竞品，选「自定义目录」才展开路径输入） */}
@@ -819,148 +1026,10 @@ export default function App() {
         </div>
       </div>
 
-      {/* ---------- 拖放区 ---------- */}
-      <div
-        className={
-          "dropzone" + (dragOver ? " drop-active" : "") + (rows.length > 0 ? " compact" : "")
-        }
-      >
-        {rows.length === 0 ? (
-          <>
-            <div className="dz-icon" aria-hidden="true">
-              ▤
-            </div>
-            <div className="dz-title">{t.app.dropTitle}</div>
-            <div className="dz-sub">{t.app.dropSub}</div>
-          </>
-        ) : (
-          <div className="dz-inline">
-            <span>{t.app.imported(total)}</span>
-            <span className="dot">·</span>
-            <span>{t.app.dropMore}</span>
-          </div>
-        )}
-      </div>
-
-      {/* ---------- 筛选 ---------- */}
-      <div className="listhead">
-        <div className="filters">
-          {FILTERS.map((f) => (
-            <button
-              key={f}
-              className={"fchip" + (filter === f ? " on" : "")}
-              onClick={() => setFilter(f)}
-            >
-              {filterLabel(f)}
-              <span className="fnum">{filterCounts[f]}</span>
-            </button>
-          ))}
         </div>
-        {filtered.length !== rows.length && (
-          <span className="filter-note">{t.app.filtered(filtered.length, rows.length)}</span>
-        )}
-      </div>
+      )}
 
-      {/* ---------- 表头 ---------- */}
-      <div className="grid-head">
-        <span>{t.app.colStatus}</span>
-        <span>{t.app.colFile}</span>
-        <span>{t.app.colOutput}</span>
-        <span className="ta-c">{t.app.colAction}</span>
-      </div>
-
-      {/* ---------- 虚拟滚动列表 ---------- */}
-      <div
-        className="vlist"
-        ref={viewRef}
-        onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}
-      >
-        {filtered.length === 0 ? (
-          <div className="empty">
-            {rows.length === 0 ? t.app.noFiles : t.app.emptyFiltered(filterLabel(filter))}
-          </div>
-        ) : (
-          <div style={{ height: filtered.length * ROW_H, position: "relative" }}>
-            <div style={{ transform: `translateY(${start * ROW_H}px)` }}>
-              {visible.map((r) => {
-                const meta = STATUS_META[r.status] ?? STATUS_META.pending;
-                return (
-                  <div className="grid-row" key={r.source} style={{ height: ROW_H }}>
-                    <span className={"st " + meta.cls}>
-                      <span className="st-ico">{meta.icon}</span>
-                      {t.status[r.status]}
-                    </span>
-                    <span className="fp" title={r.source}>
-                      {fileName(r.source)}
-                    </span>
-                    <span
-                      className="op"
-                      title={r.reason ?? r.output ?? ""}
-                    >
-                      {r.status === "failed" ? (
-                        <span className="reason">{r.reason ?? t.app.unknownError}</span>
-                      ) : (
-                        <span className="mono">{r.output ? relOutput(r.output) : "—"}</span>
-                      )}
-                    </span>
-                    <span className="ta-c">
-                      <button
-                        className="btn-mini"
-                        onClick={() => removeRow(r.source)}
-                        disabled={running}
-                        title={t.app.removeTip}
-                      >
-                        {t.app.remove}
-                      </button>
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ---------- 底部进度与汇总 ---------- */}
-      {/* running 仅用于驱动进度条流动动画（纯展示，不参与业务判断） */}
-      <div className={"footer" + (running ? " running" : "")}>
-        <div className="progress">
-          <div
-            className={"progress-fill" + (counts.failed > 0 ? " has-fail" : "")}
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-        <div className="stats">
-          <span className="s-ok">✓ {counts.ok}</span>
-          <span className="s-skipped">⏭ {counts.skipped}</span>
-          <span className="s-failed">✕ {counts.failed}</span>
-          {counts.cancelled > 0 && <span className="s-cancelled">⏸ {counts.cancelled}</span>}
-          <span className="sep">|</span>
-          <span className="muted">
-            {doneCount} / {total} · {pct}%
-          </span>
-          <span className="sep">|</span>
-          <span className="muted">{formatDuration(finishedMs)}</span>
-          {summary && summary.planned > 0 && (
-            <span className="muted">{t.app.plannedBadge(summary.planned)}</span>
-          )}
-          {summary?.isCancelled && <span className="badge-cancel">{t.status.cancelled}</span>}
-        </div>
-        <button
-          className="btn sm"
-          onClick={exportFailures}
-          disabled={counts.failed === 0}
-          title={counts.failed === 0 ? t.app.noFailures : t.app.exportTip}
-        >
-          {t.app.exportFailures}
-        </button>
-      </div>
-
-      {/* ---------- 曲库治理面板（去重 / 扫描，均只读入口） ---------- */}
-      <DedupePanel />
-      <ScanPanel />
-      {/* ---------- 插件面板（X37：零请求） ---------- */}
-      <PluginPanel />
+      </main>
 
       <div className="legal">{t.app.legal}</div>
 

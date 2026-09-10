@@ -22,7 +22,8 @@ import { useLang } from "./i18n";
 
 export default function PluginPanel() {
   const { t } = useLang();
-  const [open, setOpen] = useState(false);
+  // UI 重构：本面板已归入「插件」主分区，默认展开——避免进入分区后再点一次入口
+  const [open, setOpen] = useState(true);
   const [status, setStatus] = useState<PluginsStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);

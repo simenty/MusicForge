@@ -24,6 +24,11 @@ export const zh = {
   },
   app: {
     subtitle: "本地音乐格式转换",
+    // 主导航分区（信息架构：转换 / 曲库 / 插件 / 设置）
+    navConvert: "转换",
+    navLibrary: "曲库",
+    navPlugins: "插件",
+    navSettings: "设置",
     offlineChip: "零网络 · 离线运行",
     addFiles: "添加文件",
     addFolder: "添加目录",
