@@ -209,10 +209,20 @@ async fn auth_middleware(
             .into_response();
     }
     if ct_eq(provided, &state.token) {
+        state.auth_guard.on_ok();
         next.run(req).await
     } else {
         // P1-2：鉴权失败是安全事件——记 warn（**只记路径，绝不记 token**）
-        tracing::warn!(path = %req.uri().path(), "auth rejected: missing or invalid X-Token");
+        // P2-3：连续失败达阈值后附加延迟（防暴力）；只延迟不封禁
+        let delay_ms = state.auth_guard.on_fail();
+        tracing::warn!(
+            path = %req.uri().path(),
+            delay_ms,
+            "auth rejected: missing or invalid X-Token"
+        );
+        if delay_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        }
         (
             StatusCode::UNAUTHORIZED,
             Json(json!({"ok": false, "code": "MF-AUTH-REQUIRED",
@@ -222,10 +232,80 @@ async fn auth_middleware(
     }
 }
 
+// ---------------------------------------------------------------- P2-3 认证限流 --
+
+/// 认证失败阈值：连续失败达到该次数后，后续失败响应附加延迟。
+const AUTH_FAIL_DELAY_THRESHOLD: u32 = 10;
+/// 附加延迟（毫秒）——把暴力猜测压到 ~1 次/秒；正常用户打错 1-2 次无感。
+const AUTH_FAIL_DELAY_MS: u64 = 1000;
+/// 计数衰减窗口（秒）：距上次失败超过该窗口则重新计数（避免永久惩罚）。
+const AUTH_FAIL_WINDOW_SECS: u64 = 60;
+
+/// 认证失败限流器（P2-3，防暴力猜 token）。
+///
+/// 设计取舍（无新依赖，纯 std 原子量）：
+/// - **只延迟、不封禁**——NAS 家庭内网里误封自己（如忘记 token）比被猜更常见；
+/// - 阈值内零延迟，正常交互不受影响；
+/// - 成功一次即清零；跨窗口自动衰减。
+#[derive(Debug)]
+pub struct AuthGuard {
+    fails: std::sync::atomic::AtomicU32,
+    /// 上次失败时刻（unix 秒；0 = 从未失败）
+    last_fail_secs: std::sync::atomic::AtomicU64,
+}
+
+impl AuthGuard {
+    pub fn new() -> Self {
+        Self {
+            fails: std::sync::atomic::AtomicU32::new(0),
+            last_fail_secs: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    fn now_secs() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    }
+
+    /// 记录一次失败，返回本次响应应附加的延迟（毫秒）。
+    pub fn on_fail(&self) -> u64 {
+        use std::sync::atomic::Ordering;
+        let now = Self::now_secs();
+        let prev = self.last_fail_secs.swap(now, Ordering::Relaxed);
+        let n = if now.saturating_sub(prev) > AUTH_FAIL_WINDOW_SECS {
+            self.fails.store(1, Ordering::Relaxed);
+            1
+        } else {
+            self.fails.fetch_add(1, Ordering::Relaxed) + 1
+        };
+        if n >= AUTH_FAIL_DELAY_THRESHOLD {
+            AUTH_FAIL_DELAY_MS
+        } else {
+            0
+        }
+    }
+
+    /// 认证成功：清零计数。
+    pub fn on_ok(&self) {
+        use std::sync::atomic::Ordering;
+        self.fails.store(0, Ordering::Relaxed);
+    }
+}
+
+impl Default for AuthGuard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// 共享状态（token + ui_dir + data_dir + library_dir）。
 #[derive(Clone)]
 pub struct ServerState {
     pub token: String,
+    /// P2-3：认证失败限流（Arc 共享，跨请求累积）
+    pub auth_guard: std::sync::Arc<AuthGuard>,
     pub ui_dir: PathBuf,
     /// P8.2.1：wizard 探测 + 未来 DB 路径基准
     pub data_dir: PathBuf,
@@ -314,6 +394,7 @@ mod tests {
     fn test_state(token: &str) -> ServerState {
         ServerState {
             token: token.to_string(),
+            auth_guard: std::sync::Arc::new(AuthGuard::new()),
             ui_dir: PathBuf::from("ui"),
             data_dir: std::env::temp_dir().join(format!("mf-srv-test-{}", std::process::id())),
             library_dir: None,
@@ -385,6 +466,22 @@ mod tests {
         let body = to_bytes(res.into_body(), 1024).await.unwrap();
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(v["code"], "MF-API-NOT-FOUND");
+    }
+
+    /// P2-3 回归：阈值内零延迟（正常误输无感）→ 达阈值后附加延迟 → 成功清零
+    #[test]
+    fn auth_guard_delays_only_after_threshold_and_resets() {
+        let g = AuthGuard::new();
+        for i in 1..AUTH_FAIL_DELAY_THRESHOLD {
+            assert_eq!(g.on_fail(), 0, "第 {i} 次失败不应延迟（阈值内）");
+        }
+        assert!(
+            g.on_fail() > 0,
+            "达到阈值（{AUTH_FAIL_DELAY_THRESHOLD}）后应附加延迟"
+        );
+        assert!(g.on_fail() > 0, "阈值之上持续延迟");
+        g.on_ok();
+        assert_eq!(g.on_fail(), 0, "认证成功一次即清零计数");
     }
 
     #[test]

@@ -11,6 +11,7 @@ use tower::ServiceExt;
 fn state_with() -> ServerState {
     ServerState {
         token: "tok-test".to_string(),
+        auth_guard: std::sync::Arc::new(musicforge_server::AuthGuard::new()),
         ui_dir: PathBuf::from("ui"),
         data_dir: std::env::temp_dir().join(format!("mf-int-{}", std::process::id())),
         library_dir: None,

@@ -27,6 +27,7 @@ async fn main() {
 
     let state = ServerState {
         token: cfg.token.clone(),
+        auth_guard: std::sync::Arc::new(musicforge_server::AuthGuard::new()),
         ui_dir: cfg.ui_dir.clone(),
         data_dir: cfg.data_dir.clone(),
         library_dir: cfg.library_dir.clone(),

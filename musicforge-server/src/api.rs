@@ -854,6 +854,7 @@ mod tests {
     fn state_with(lib: Option<PathBuf>) -> ServerState {
         ServerState {
             token: "tok-test".to_string(),
+            auth_guard: std::sync::Arc::new(crate::AuthGuard::new()),
             ui_dir: PathBuf::from("ui"),
             data_dir: std::env::temp_dir().join(format!("mf-api-test-{}", std::process::id())),
             library_dir: lib,
