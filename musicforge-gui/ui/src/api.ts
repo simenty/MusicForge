@@ -317,6 +317,30 @@ export interface ScanReport {
 }
 
 /** 只读扫描曲库目录（不改动任何文件；错误经 Result 显式返回，不静默） */
+/** P8 LibraryRefresher：库级增量重扫（扫描 + D17 增量哈希缓存刷新/入库）。 */
+export interface LibraryRefreshReport {
+  dir: string;
+  scannedFiles: number;
+  scannedDirs: number;
+  audio: number;
+  /** size+mtime 命中缓存（零文件读取）——增量生效的可见证据 */
+  cacheHits: number;
+  /** 未命中 → 重算 sha256 并回写缓存 */
+  hashed: number;
+  skipped: number;
+}
+
+/** P8：刷新曲库（增量）——桌面 IPC / fnOS HTTP 双形态同语义 */
+export async function refreshLibrary(dir: string): Promise<LibraryRefreshReport> {
+  if (!IS_DESKTOP) {
+    return httpPost<LibraryRefreshReport>("/api/library/refresh", { dir });
+  }
+  return invoke<LibraryRefreshReport>("refresh_library", {
+    dir,
+    stateDb: null,
+  });
+}
+
 export async function scanLibrary(dir: string, recursive: boolean): Promise<ScanReport> {
   if (!IS_DESKTOP) {
     const d = await httpPost<{

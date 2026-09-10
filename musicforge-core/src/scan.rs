@@ -620,6 +620,41 @@ pub fn refresh_hash_cache(db: &crate::db::Db, items: &[ScanItem]) -> HashRefresh
     st
 }
 
+/// P8 LibraryRefresher：库级增量重扫的统计（扫描结论 + D17 增量哈希缓存结果）。
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct LibraryRefresh {
+    pub scanned_dirs: usize,
+    pub scanned_files: usize,
+    pub audio: usize,
+    /// size+mtime 命中缓存（零文件读取）
+    pub cache_hits: usize,
+    /// 未命中 → 重算并回写缓存
+    pub hashed: usize,
+    /// 无法缓存（mtime 缺失 / 读取失败）
+    pub skipped: usize,
+}
+
+/// P8 LibraryRefresher：库级**增量**重扫（扫描 + D17 增量哈希缓存刷新/入库）。
+///
+/// - 扫描本身只读；唯一写入 = 状态库（可再生缓存，D16：db 位于本地配置目录）；
+/// - 二次刷新成本 = 元数据遍历（size+mtime 命中的文件零读取）——D17 三级指纹 L1。
+pub fn refresh_library(
+    db: &crate::db::Db,
+    root: &std::path::Path,
+    options: &ScanOptions,
+) -> Result<LibraryRefresh, NcmError> {
+    let report = scan_library(root, options)?;
+    let stats = refresh_hash_cache(db, &report.items);
+    Ok(LibraryRefresh {
+        scanned_dirs: report.scanned_dirs,
+        scanned_files: report.scanned_files,
+        audio: report.audio,
+        cache_hits: stats.cache_hits,
+        hashed: stats.hashed,
+        skipped: stats.skipped,
+    })
+}
+
 /// 流式计算文件 sha256（大文件友好）；读取失败返回 `None`。
 pub fn sha256_file_stream(path: &Path) -> Option<String> {
     use sha2::{Digest, Sha256};

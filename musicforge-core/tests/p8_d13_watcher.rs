@@ -1,4 +1,4 @@
-﻿//! D13 watcher 三级自动化测试：防抖合并语义 + 三级分派 + 安全铁律。
+//! D13 watcher 三级自动化测试：防抖合并语义 + 三级分派 + 安全铁律。
 //!
 //! 事件由测试直接喂入 `Debouncer`（时间注入）——不依赖真实 notify 事件流
 //! （真实监听由 CLI `musicforge watch` 手工验证）。
@@ -170,4 +170,3 @@ fn t1_without_target_root_is_config_error() {
     let r = handle_event_batch(&[f], &cfg(WatchLevel::T1AutoOrganize, None));
     assert!(r.is_err(), "无 target_root 必须显式报错");
 }
-

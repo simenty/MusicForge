@@ -6,7 +6,14 @@
 // - **独立组件**：与主转换流程零状态耦合；扫描只在用户显式点击时发生。
 // - **明示截断**：异常项最多展示 MAX_ROWS 条，超出部分给出口（CLI --json），不谎报「全部」。
 import { useState } from "react";
-import { scanLibrary, selectDirectory, type ScanItem, type ScanReport } from "./api";
+import {
+  scanLibrary,
+  refreshLibrary,
+  selectDirectory,
+  type LibraryRefreshReport,
+  type ScanItem,
+  type ScanReport,
+} from "./api";
 import { useLang } from "./i18n";
 
 const CAT_CLS: Record<ScanItem["category"], string> = {
@@ -42,6 +49,9 @@ export default function ScanPanel() {
   const [scanning, setScanning] = useState(false);
   const [report, setReport] = useState<ScanReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // P8 LibraryRefresher：增量重扫（扫描 + D17 哈希缓存刷新/入库）
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshed, setRefreshed] = useState<LibraryRefreshReport | null>(null);
 
   const browse = async () => {
     const d = await selectDirectory(dir.trim() || null, t.scan.pickDirTitle);
@@ -60,6 +70,22 @@ export default function ScanPanel() {
       setError(String(e));
     } finally {
       setScanning(false);
+    }
+  };
+
+  /** P8：增量重扫——二次刷新的成本 = 元数据遍历（缓存命中零文件读取） */
+  const runRefresh = async () => {
+    const target = dir.trim();
+    if (!target || refreshing) return;
+    setRefreshing(true);
+    setError(null);
+    try {
+      setRefreshed(await refreshLibrary(target));
+    } catch (e) {
+      setRefreshed(null);
+      setError(String(e));
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -106,7 +132,25 @@ export default function ScanPanel() {
         <button className="btn sm primary" onClick={run} disabled={scanning || !dir.trim()}>
           {scanning ? t.scan.scanning : t.scan.scan}
         </button>
+        <button
+          className="btn sm"
+          onClick={runRefresh}
+          disabled={refreshing || !dir.trim()}
+          title={t.scan.refreshHint}
+        >
+          {refreshing ? t.scan.refreshing : t.scan.refresh}
+        </button>
       </div>
+
+      {refreshed && (
+        <div className="scan-summary">
+          <span>{t.scan.refreshScanned(refreshed.scannedFiles)}</span>
+          <span className="sc-audio">{t.scan.refreshAudio(refreshed.audio)}</span>
+          <span title={t.scan.refreshHint}>{t.scan.refreshCacheHits(refreshed.cacheHits)}</span>
+          <span>{t.scan.refreshHashed(refreshed.hashed)}</span>
+          <span>{t.scan.refreshSkipped(refreshed.skipped)}</span>
+        </div>
+      )}
 
       {error && <div className="scan-error">{t.scan.scanFailed(error)}</div>}
 

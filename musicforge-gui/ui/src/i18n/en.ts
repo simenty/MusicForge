@@ -138,6 +138,16 @@ export const en: typeof zh = {
     recursive: "Recurse subfolders",
     scanning: "Scanning…",
     scan: "Scan",
+    // P8 LibraryRefresher: incremental refresh (D17 — cache hits skip file reads)
+    refresh: "Refresh library (incremental)",
+    refreshing: "Refreshing…",
+    refreshHint:
+      "Incremental rescan: files with unchanged size+mtime reuse cached hashes (zero reads); only new/changed files are hashed and indexed",
+    refreshScanned: (n: number) => `Scanned ${n}`,
+    refreshAudio: (n: number) => `Audio ${n}`,
+    refreshCacheHits: (n: number) => `Cache hits ${n}`,
+    refreshHashed: (n: number) => `Rehashed ${n}`,
+    refreshSkipped: (n: number) => `Skipped ${n}`,
     pickDirTitle: "Choose the library folder to scan",
     scanFailed: (e) => `✕ Scan failed: ${e}`,
     filesSeen: (n) => `Files ${n}`,

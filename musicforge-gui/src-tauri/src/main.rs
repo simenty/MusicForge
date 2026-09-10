@@ -146,6 +146,36 @@ fn plan_batch(args: BatchArgs) -> Result<Vec<serde_json::Value>, String> {
 /// - **只读**：不改动任何文件，也不写状态库（清洗执行与哈希缓存走 CLI，
 ///   破坏性操作必须有显式分级闸门，不藏在查看器里）；
 /// - 目录不存在/不可读 → Err（显式失败，前端可见）。
+/// P8 LibraryRefresher：库级**增量**重扫——扫描 + D17 增量哈希缓存刷新/入库。
+///
+/// - db 默认落在本地配置目录（D16：状态库严禁网络挂载；`Db::open` 内建校验）；
+/// - 二次刷新：size+mtime 命中的文件零读取（成本只剩元数据遍历）；
+/// - 唯一写入 = 状态库（可再生缓存），音乐文件只读。
+#[tauri::command]
+fn refresh_library(dir: String, state_db: Option<String>) -> Result<serde_json::Value, String> {
+    let db_path = match state_db.as_deref().map(str::trim) {
+        Some(p) if !p.is_empty() => std::path::PathBuf::from(p),
+        _ => musicforge_core::db::local_config_dir().join("library.db"),
+    };
+    let db = musicforge_core::db::Db::open(&db_path).map_err(|e| e.to_string())?;
+    let r = musicforge_core::scan::refresh_library(
+        &db,
+        std::path::Path::new(&dir),
+        &musicforge_core::scan::ScanOptions::default(),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "dir": dir,
+        "dbPath": db_path.display().to_string(),
+        "scannedFiles": r.scanned_files,
+        "scannedDirs": r.scanned_dirs,
+        "audio": r.audio,
+        "cacheHits": r.cache_hits,
+        "hashed": r.hashed,
+        "skipped": r.skipped,
+    }))
+}
+
 #[tauri::command]
 fn scan_library(dir: String, recursive: bool) -> Result<serde_json::Value, String> {
     let report = musicforge_core::scan::scan_library(
@@ -556,6 +586,7 @@ fn main() {
             collect_files,
             plan_batch,
             scan_library,
+            refresh_library,
             dedupe_scan,
             dedupe_apply,
             start_batch,

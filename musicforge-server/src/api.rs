@@ -121,6 +121,70 @@ pub async fn scan(State(state): State<ServerState>, body: Option<JsonBody<Value>
     }
 }
 
+/// `POST /api/library/refresh`：P8 LibraryRefresher——库级增量重扫
+///（扫描 + D17 增量哈希缓存刷新/入库；db 落服务端数据目录，D16 本地铁律）。
+///
+/// 请求 `{ "dir"?, "recursive"?, "max_depth"? }`（dir 缺省同 `/api/scan`）。
+/// 返回 `{ scannedFiles, scannedDirs, audio, cacheHits, hashed, skipped }`——
+/// `cacheHits` 高 = 增量生效（零文件读取）。
+pub async fn library_refresh(
+    State(state): State<ServerState>,
+    body: Option<JsonBody<Value>>,
+) -> Response {
+    let dir = body
+        .as_ref()
+        .and_then(|b| b.0.get("dir"))
+        .and_then(|v| v.as_str())
+        .map(PathBuf::from)
+        .or_else(|| state.library_dir.clone());
+    let Some(dir) = dir else {
+        return err(
+            StatusCode::BAD_REQUEST,
+            "MF-API-BAD-REQUEST",
+            "缺 dir 且服务端未配置 MUSICFORGE_LIBRARY_DIR",
+        );
+    };
+    let recursive = body
+        .as_ref()
+        .and_then(|b| b.0.get("recursive"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let max_depth = body
+        .as_ref()
+        .and_then(|b| b.0.get("max_depth"))
+        .and_then(|v| v.as_u64())
+        .map(|v| v.min(512) as usize)
+        .unwrap_or(64);
+    let options = ScanOptions {
+        recursive,
+        max_depth,
+        ..ScanOptions::default()
+    };
+    let db_path = state.data_dir.join("library.db");
+    let result = tokio::task::spawn_blocking(move || {
+        let db = musicforge_core::db::Db::open(&db_path)?;
+        let r = musicforge_core::scan::refresh_library(&db, &dir, &options)?;
+        Ok::<_, musicforge_core::NcmError>(r)
+    })
+    .await;
+    match result {
+        Ok(Ok(r)) => ok(json!({
+            "scannedFiles": r.scanned_files,
+            "scannedDirs": r.scanned_dirs,
+            "audio": r.audio,
+            "cacheHits": r.cache_hits,
+            "hashed": r.hashed,
+            "skipped": r.skipped,
+        })),
+        Ok(Err(e)) => err_from(e),
+        Err(e) => err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "MF-INTERNAL",
+            format!("库刷新任务执行失败: {e}"),
+        ),
+    }
+}
+
 /// `GET /api/version`：版本与形态（生命周期/前端握手用）。
 pub async fn version() -> Response {
     ok(json!({
@@ -1051,6 +1115,36 @@ mod tests {
             produced
         );
         std::fs::remove_dir_all(&out).ok();
+    }
+
+    /// P8 LibraryRefresher：/api/library/refresh 增量重扫（二次 = 全命中零重算）。
+    #[tokio::test]
+    async fn library_refresh_reports_incremental_stats() {
+        let dir = std::env::temp_dir().join(format!("mf-refresh-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.flac"), b"fLaC-stub-a").unwrap();
+        let app = build_router(state_with(None));
+        let body = json!({ "dir": dir.display().to_string() }).to_string();
+        // 首轮：全部重算
+        let first = app
+            .clone()
+            .oneshot(req("POST", "/api/library/refresh", Some(body.clone())))
+            .await
+            .unwrap();
+        assert_eq!(first.status(), StatusCode::OK);
+        // 二次：命中缓存，零重算
+        let res = app
+            .clone()
+            .oneshot(req("POST", "/api/library/refresh", Some(body)))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let v = body_json(res).await;
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["data"]["audio"], 1, "1 个音频文件");
+        assert_eq!(v["data"]["cacheHits"], 1, "二次刷新命中缓存");
+        assert_eq!(v["data"]["hashed"], 0, "二次零重算");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// P8.2.7：缺 inputs / 空 path 显式报错。
