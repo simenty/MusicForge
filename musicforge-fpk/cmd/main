@@ -24,6 +24,25 @@ mkdir -p "$DATA_DIR" 2>/dev/null
 #     2) ps -p <pid> -o comm=（macOS/BSD/Git-bash）
 #     3) 都取不到进程名 → 保守按「是本服务」处理（pid 文件由本脚本写入，
 #        误杀风险低于端口占用导致启动失败）
+# 存活且**非僵尸**判定。
+# ⚠ 僵尸进程（已退出、等待父进程回收）对 `kill -0` 仍返回成功——若只用 kill -0
+#   探测，server 秒退（如端口占用）会被误判为「启动成功」（CI 冒烟实测：
+#   打印「已启动」后 status 立刻失败）。故显式排除状态 Z。
+is_alive() {
+  local pid="$1" st=""
+  [ -n "$pid" ] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  if [ -r "/proc/$pid/status" ]; then
+    st="$(grep -m1 '^State:' "/proc/$pid/status" 2>/dev/null | awk '{print $2}')"
+  elif command -v ps >/dev/null 2>&1; then
+    st="$(ps -p "$pid" -o stat= 2>/dev/null | tail -1 | tr -d ' ')"
+  fi
+  case "$st" in
+    Z*) return 1 ;;
+  esac
+  return 0
+}
+
 proc_comm() {
   if [ -r "/proc/$1/comm" ]; then
     cat "/proc/$1/comm" 2>/dev/null
@@ -35,15 +54,17 @@ proc_comm() {
 is_server_pid() {
   local pid="$1" c
   [ -n "$pid" ] || return 1
-  kill -0 "$pid" 2>/dev/null || return 1
+  is_alive "$pid" || return 1
   c="$(proc_comm "$pid")"
   # 无法确认进程名 → **不杀**（安全优先）。
   # 反例教训：Windows/Git-bash 的 /proc 存在但无 comm，若此处保守「当是本服务」，
   #   sweep 会把任意存活进程（含脚本自身）杀掉——误杀远比端口占用严重。
-  # Linux（/proc/comm）与 macOS（ps -o comm=）都能取到名字，正常路径不受影响。
   [ -z "$c" ] && return 1
+  # ⚠ Linux `comm` 只有 15 字符："musicforge-server" 会被截断为 "musicforge-serve"
+  #   （CI 冒烟实测：精确匹配 "musicforge-server" 恒失败 → 清理逻辑在真机也不生效）。
+  #   故按前缀匹配，同时兼容未截断的平台。
   case "$c" in
-    *musicforge-server*) return 0 ;;
+    *musicforge-serve*) return 0 ;;
   esac
   return 1
 }
@@ -59,12 +80,18 @@ sweep_servers() {
       [ "$p" = "$PPID" ] && continue
       if is_server_pid "$p"; then
         kill "$p" 2>/dev/null && echo "已清理残留实例（pid=$p）"
+        # 等进程真正退出（否则端口未释放，新实例仍会绑定失败）
+        for _ in 1 2 3 4 5 6; do
+          is_alive "$p" || break
+          sleep 0.5
+        done
       fi
     done
   elif command -v ps >/dev/null 2>&1; then
     ps -eo pid=,comm= 2>/dev/null | while read -r p c; do
+      # 前缀匹配（Linux comm 15 字符截断）
       case "$c" in
-        *musicforge-server*) kill "$p" 2>/dev/null && echo "已清理残留实例（pid=$p）" ;;
+        *musicforge-serve*) kill "$p" 2>/dev/null && echo "已清理残留实例（pid=$p）" ;;
       esac
     done
   fi
@@ -89,7 +116,7 @@ case "$1" in
       if is_server_pid "$SPID"; then
         kill "$SPID" 2>/dev/null
         for _ in 1 2 3 4 5 6; do
-          kill -0 "$SPID" 2>/dev/null || break
+          is_alive "$SPID" || break
           sleep 0.5
         done
         echo "已停止旧实例（pid=$SPID）"
@@ -115,7 +142,7 @@ case "$1" in
     # 存活探测改为轮询（最长约 6s）：慢启动/磁盘忙时不再被固定 1s 误判为失败
     started=0
     for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
-      if kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
+      if is_alive "$(cat "$PID_FILE" 2>/dev/null)"; then
         started=1
         break
       fi
@@ -142,12 +169,14 @@ case "$1" in
       # 无辜进程。仅在确认为本服务进程时才发送信号；陈旧 pid 文件直接清理。
       # （判定逻辑见 is_server_pid：Linux 走 /proc，其它平台回退 ps）
       if is_server_pid "$SPID"; then
-        kill "$SPID" 2>/dev/null && rm -f "$PID_FILE"
+        kill "$SPID" 2>/dev/null
+        # 等待真正退出（此前 `[ -f "$PID_FILE" ] || break` 在 rm 之后恒成立，
+        # 循环实际 0 等待——改为按进程状态判定）
         for _ in 1 2 3 4 5 6 7 8 9 10; do
-          [ -f "$PID_FILE" ] || break
-          kill -0 "$SPID" 2>/dev/null || break
+          is_alive "$SPID" || break
           sleep 0.5
         done
+        rm -f "$PID_FILE"
         echo "musicforge-server 已停止"
       else
         rm -f "$PID_FILE"
@@ -158,7 +187,7 @@ case "$1" in
     fi
     ;;
   status)
-    if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+    if [ -f "$PID_FILE" ] && is_alive "$(cat "$PID_FILE")"; then
       exit 0
     fi
     exit 3
