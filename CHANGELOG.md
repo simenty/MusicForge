@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-10
+
+**P8（NAS/服务端形态）+ P9 先行收敛**——首个完整支持「桌面 / NAS 原生应用 / 容器」三形态交付的版本。
+
+### Added
+- **fnOS native FPK**（D27）：`musicforge-fpk/` 打包骨架（manifest v1.1.8 / cmd 生命周期 9 脚本 /
+  privilege package 模式 / 双尺寸 ICON / 首启向导 JSON / 桌面入口 ui-config）；
+  双架构（amd64·arm64）打包线；真机全生命周期（安装/启用/停止/升级/卸载）实测通过。
+- **server HTTP 服务**（P8.2）：axum 壳 + `X-Token` 鉴权（首启随机 token、0600、常量时间比较）+
+  SPA 服务 + 九端点 API（health / version / wizard / scan / library_refresh / convert / batch /
+  organize plan·apply / clean plan·apply / trash restore）；破坏类统一 confirm 闸（403 MF-OP-NEEDS-YES）。
+- **内置 NCM 批处理域**（P8.2.7）：`POST /api/batch` 桥接桌面同源引擎（模板命名 / 并发 jobs≤10 /
+  回滚清单）；fnOS Web UI 的 `.ncm` 转换与桌面等价。
+- **X25 并行 walker**：标准库 `thread::scope` 有界 worker 池（**零新依赖**）；目录级纯函数单元 +
+  输出全局路径排序（确定性跨运行一致）；`ScanOptions.parallel_jobs`（0 = 自动 min(cpus,8)）。
+- **D13 watcher 三级自动化**（notify 6.1）：T0 登记 / T1 新音频自动整理 / T2 自动清洗
+  （**白名单门**：`--whitelist`，空 = 不自动清洗）；逐路径防抖合并（默认 1500ms）；
+  CLI `musicforge watch --level t0|t1|t2`。
+- **LibraryRefresher 增量重扫**：`refresh_library`（扫描 + D17 增量哈希刷新/入库）；
+  GUI「刷新曲库（增量）」按钮 + 缓存命中/重算统计；`POST /api/library/refresh`。
+- **Docker 交付**：三阶段 scratch 镜像（node → rust-alpine musl → scratch，零 shell/零插件/非根 65532）；
+  GHCR 发布线（tag 触发）+ 40MB 大小闸 + 健康冒烟。
+- **路径域约束（可选）**：`MUSICFORGE_ALLOWED_ROOTS` 配置后，端点路径必须落在白名单内
+  （403 `MF-PATH-NOT-ALLOWED`）；**未配置 = 不约束**（默认，向后兼容）。
+- **协议 v1.0 冻结**：`docs/plugin-protocol.md` 升冻结版；一致性套件 15 测试钉死
+  （常量 / 16 方法集 / 事件名 / 稳定错误码 / 信封 serde 键集 / plugin.json 形状 / kind 值域 / 三禁位）。
+- 插件格式迁移：kwm 静态表 + QMCv2（STag ekey 三态 / QTag D 级识别）；GUI ekey 通道与分流计数。
+
+### Changed
+- 入口文件治理：`musicforge-cli/src/main.rs` 2047 → 625 行（拆 `commands/` 六模块）、
+  `musicforge-gui/src-tauri/src/main.rs` 1205 → 498 行（拆 `commands/` 三模块）——**逐字迁移，零行为变更**。
+- 文档公开面扩充：`docs/plugin-protocol.md` / `docs/result-codes.md` 入仓（对外契约可引用）。
+
+### Fixed
+- 稳定性与安全：HTTP 形态 dry-run 失效（勾规划仍写文件）、六端点同步阻塞 tokio worker、
+  trash_restore 任意 manifest 路径、fpk stop PID 回绕误杀、D13 T2 缺白名单门；
+  fnOS 装机四类（数据目录 / 路径推导 / 回环绑定 / wizard 协议）；并发与边界若干。
+
+### Security
+- 威胁模型四象限 14/14 控制在位；残余 4 项记录（server 路径域可选约束已提供缓解开关）。
+
+
 ## [0.8.2] - 2026-09-09
 
 ### Added（X49/X50：QMC 系格式迁移全链路）

@@ -639,7 +639,7 @@ export default function App() {
         <div className="chips">
           <span className="chip green">{t.app.offlineChip}</span>
           <span className="chip">MIT</span>
-          <span className="chip">v0.8.2</span>
+          <span className="chip">v0.9.0</span>
           {!IS_DESKTOP && (
             <input
               className="lang-select server-token"
