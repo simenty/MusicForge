@@ -28,6 +28,7 @@ import ScanPanel from "./ScanPanel";
 import PluginPanel from "./PluginPanel";
 import {
   IconConvert,
+  IconCopy,
   IconDownload,
   IconFolder,
   IconLibrary,
@@ -35,6 +36,7 @@ import {
   IconPlay,
   IconPlugin,
   IconPlus,
+  IconScan,
   IconSettings,
   IconStop,
   IconTrash,
@@ -85,6 +87,8 @@ export default function App() {
   const { t, lang, setLang } = useLang();
   /** 当前主分区（默认「转换」——核心流程零跳转可达） */
   const [view, setView] = useState<ViewKey>("convert");
+  /** 曲库分区的二级菜单（左侧导航）：扫描 / 去重 */
+  const [libraryTab, setLibraryTab] = useState<"scan" | "dedupe">("scan");
   // P8.2.5：fnOS 服务端形态的访问 token（HTTP 形态标题栏可见可改）
   const [serverTokenInput, setServerTokenInput] = useState<string>(serverToken());
   const [settings, setSettings] = useState<Settings>(loadSettings);
@@ -889,12 +893,30 @@ export default function App() {
         </>
       )}
 
-      {/* ---------- 曲库治理：扫描 / 去重（只读入口，执行走回收站） ---------- */}
+      {/* ---------- 曲库治理：左侧二级菜单 + 右侧工作区 ---------- */}
       {view === "library" && (
-        <>
-          <ScanPanel />
-          <DedupePanel />
-        </>
+        <div className="library">
+          <nav className="subnav" aria-label="library">
+            <button
+              className={"subnav-item" + (libraryTab === "scan" ? " on" : "")}
+              onClick={() => setLibraryTab("scan")}
+            >
+              <IconScan />
+              <span>{t.library.tabScan}</span>
+            </button>
+            <button
+              className={"subnav-item" + (libraryTab === "dedupe" ? " on" : "")}
+              onClick={() => setLibraryTab("dedupe")}
+            >
+              <IconCopy />
+              <span>{t.library.tabDedupe}</span>
+            </button>
+          </nav>
+          <div className="library-main">
+            {libraryTab === "scan" && <ScanPanel hideCollapse />}
+            {libraryTab === "dedupe" && <DedupePanel hideCollapse />}
+          </div>
+        </div>
       )}
       {/* ---------- 插件面板（X37：零请求） ---------- */}
       {view === "plugins" && <PluginPanel />}

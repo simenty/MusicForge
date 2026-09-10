@@ -102,6 +102,11 @@ export const en: typeof zh = {
     fnosNoPlugin: (ext: string) =>
       `No migration plugin for .${ext} (kwm/qmc need plugins; .ncm is built-in)`,
   },
+  /** Library section sub-nav (left rail) */
+  library: {
+    tabScan: "Scan",
+    tabDedupe: "Duplicates",
+  },
   dedupe: {
     toggle: "▍Duplicate finder (side-by-side · suggested keep · your call)",
     head: "Duplicate finder (byte-identical files; sacrificed copies go to the recycle bin)",

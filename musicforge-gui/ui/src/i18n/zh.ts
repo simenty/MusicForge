@@ -106,6 +106,11 @@ export const zh = {
     fnosNoPlugin: (ext: string) =>
       `格式 .${ext} 无对应迁移插件（kwm/qmc 需插件包；.ncm 为内置转换）`,
   },
+  /** 曲库分区二级菜单（左侧导航） */
+  library: {
+    tabScan: "曲库扫描",
+    tabDedupe: "重复去重",
+  },
   dedupe: {
     toggle: "▍重复文件去重（组内对比 · 建议保留 · 可改选）",
     head: "重复文件去重（内容完全相同的文件，牺牲项进回收站）",

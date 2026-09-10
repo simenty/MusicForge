@@ -933,6 +933,81 @@ code,
   }
 }
 
+/* ------------------------------------------------- 曲库分区：左侧二级菜单 -- */
+
+.library {
+  display: grid;
+  grid-template-columns: 184px minmax(0, 1fr);
+  gap: var(--sp-5);
+  align-items: start;
+}
+
+.subnav {
+  position: sticky;
+  /* 标题栏 52px + 主导航约 44px */
+  top: 100px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-1);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.subnav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: var(--fs-md);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.subnav-item:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.subnav-item.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.library-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+/* 窄屏：二级菜单转顶部横向条 */
+@media (max-width: 900px) {
+  .library {
+    grid-template-columns: 1fr;
+    gap: var(--sp-3);
+  }
+  .subnav {
+    position: static;
+    flex-direction: row;
+    overflow-x: auto;
+    padding: var(--sp-1);
+  }
+  .subnav-item {
+    width: auto;
+    white-space: nowrap;
+  }
+}
+
 /* ------------------------------------------------------- 扫描/去重/插件 -- */
 
 .scan-panel {

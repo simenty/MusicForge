@@ -119,6 +119,30 @@ export function IconPlan({ size = 16, className }: IconProps) {
   );
 }
 
+/** 曲库扫描 */
+export function IconScan({ size = 16, className }: IconProps) {
+  return svg(
+    <>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="M15.8 15.8L20 20" />
+    </>,
+    size,
+    className
+  );
+}
+
+/** 重复去重（两份重叠） */
+export function IconCopy({ size = 16, className }: IconProps) {
+  return svg(
+    <>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M15 6.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h.5" />
+    </>,
+    size,
+    className
+  );
+}
+
 export function IconDownload({ size = 16, className }: IconProps) {
   return svg(
     <>

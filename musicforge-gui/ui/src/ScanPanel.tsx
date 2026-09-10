@@ -41,9 +41,13 @@ function shortPath(p: string): string {
   return parts.length <= 2 ? norm : "…/" + parts.slice(-2).join("/");
 }
 
-export default function ScanPanel() {
+/**
+ * @param hideCollapse 二级菜单场景（左侧导航已选定本工具）：默认展开且隐藏「收起」，
+ *                     避免与左侧导航语义重复。缺省 false = 保持原有折叠行为。
+ */
+export default function ScanPanel({ hideCollapse = false }: { hideCollapse?: boolean } = {}) {
   const { t } = useLang();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const [dir, setDir] = useState("");
   const [recursive, setRecursive] = useState(true);
   const [scanning, setScanning] = useState(false);
@@ -104,9 +108,11 @@ export default function ScanPanel() {
     <div className="scan-panel">
       <div className="scan-head">
         <b>{t.scan.head}</b>
-        <button className="btn sm" onClick={() => setOpen(false)}>
-          {t.scan.collapse}
-        </button>
+        {!hideCollapse && (
+          <button className="btn sm" onClick={() => setOpen(false)}>
+            {t.scan.collapse}
+          </button>
+        )}
       </div>
       <div className="scan-bar">
         <input

@@ -30,9 +30,10 @@ function shortPath(p: string): string {
   return parts.length <= 2 ? norm : "…/" + parts.slice(-2).join("/");
 }
 
-export default function DedupePanel() {
+/** @param hideCollapse 同 ScanPanel：左侧二级菜单场景下默认展开且隐藏「收起」 */
+export default function DedupePanel({ hideCollapse = false }: { hideCollapse?: boolean } = {}) {
   const { t } = useLang();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const [dir, setDir] = useState("");
   const [scanning, setScanning] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -111,9 +112,11 @@ export default function DedupePanel() {
     <div className="scan-panel">
       <div className="scan-head">
         <b>{t.dedupe.head}</b>
-        <button className="btn sm" onClick={() => setOpen(false)}>
-          {t.dedupe.collapse}
-        </button>
+        {!hideCollapse && (
+          <button className="btn sm" onClick={() => setOpen(false)}>
+            {t.dedupe.collapse}
+          </button>
+        )}
       </div>
       <div className="scan-bar">
         <input
