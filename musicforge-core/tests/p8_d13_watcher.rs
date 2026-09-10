@@ -1,4 +1,4 @@
-//! D13 watcher 三级自动化测试：防抖合并语义 + 三级分派 + 安全铁律。
+﻿//! D13 watcher 三级自动化测试：防抖合并语义 + 三级分派 + 安全铁律。
 //!
 //! 事件由测试直接喂入 `Debouncer`（时间注入）——不依赖真实 notify 事件流
 //! （真实监听由 CLI `musicforge watch` 手工验证）。
@@ -62,7 +62,7 @@ fn t0_registers_without_touching_files() {
     std::fs::write(&f, b"fLaC-stub").unwrap();
 
     let a = handle_event_batch(
-        &[f.clone()],
+        std::slice::from_ref(&f),
         &cfg(
             WatchLevel::T0Register,
             Some(target.path().to_str().unwrap()),
@@ -93,7 +93,7 @@ fn t1_organizes_new_audio_file() {
     std::fs::write(&old, b"fLaC-stub").unwrap();
 
     let a = handle_event_batch(
-        &[f.clone()],
+        std::slice::from_ref(&f),
         &cfg(
             WatchLevel::T1AutoOrganize,
             Some(target.path().to_str().unwrap()),
@@ -143,7 +143,7 @@ fn t2_cleans_junk_into_trash_never_direct_delete() {
     std::fs::write(&junk, b"").unwrap();
 
     let a = handle_event_batch(
-        &[junk.clone()],
+        std::slice::from_ref(&junk),
         &cfg(
             WatchLevel::T2AutoWhitelist,
             Some(target.path().to_str().unwrap()),
@@ -170,3 +170,4 @@ fn t1_without_target_root_is_config_error() {
     let r = handle_event_batch(&[f], &cfg(WatchLevel::T1AutoOrganize, None));
     assert!(r.is_err(), "无 target_root 必须显式报错");
 }
+
