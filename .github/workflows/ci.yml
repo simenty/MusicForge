@@ -310,14 +310,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 验证 release manifest 引用已存在的 tag
-        run: |
-          VERSION=$(grep '^version' musicforge-core/Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
-          echo "版本: $VERSION"
-          if [ ! -f "skill-release.json" ]; then
-            echo "⚠ skill-release.json 不存在（CLI-only 项目可跳过）"
-          fi
-          echo "Release identity check ✓"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 前端依赖（release-check 会跑前端测试）
+        run: npm --prefix musicforge-gui/ui ci
+
+      # P3：发布前门禁一键化（契约 / fpk 结构 / 版本 + CHANGELOG + tag 占用 + 前端测试）
+      # 注：工作区干净与 tag 占用在 tag 触发的 CI 里天然满足（干净检出 + tag 已创建），
+      # 这两项主要服务于**本地发布前**自检。
+      - name: 发布前门禁
+        run: bash scripts/release-check.sh
 
   # ---- 供应链门禁（P0.5）：许可证/禁用依赖/公告/源码正则/feature 断言 ----
   supply-chain:
