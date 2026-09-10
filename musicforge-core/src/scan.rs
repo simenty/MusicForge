@@ -209,7 +209,8 @@ impl ScanReport {
     }
 }
 
-fn is_audio_ext(ext: &str) -> bool {
+/// 音频扩展名判定（D13 watcher 复用——判据同源不分叉）。
+pub fn is_audio_ext(ext: &str) -> bool {
     matches!(
         ext,
         "mp3" | "flac" | "m4a" | "aac" | "ogg" | "opus" | "wav" | "ape" | "wv" | "wma"
@@ -229,7 +230,8 @@ fn is_cover_name(name: &str) -> bool {
         || n.ends_with(".png")
 }
 
-fn is_junk_name(name: &str) -> Option<&'static str> {
+/// 垃圾文件名判定（D13 watcher 复用——判据同源不分叉）。
+pub fn is_junk_name(name: &str) -> Option<&'static str> {
     let n = name.to_ascii_lowercase();
     if n == "thumbs.db" || n == ".ds_store" || n == "desktop.ini" {
         return Some("MF-CLEAN-001");

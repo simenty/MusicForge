@@ -73,6 +73,24 @@ struct Args {
 
 #[derive(clap::Subcommand, Debug)]
 enum Sub {
+    /// D13 watcher：监听目录新文件（T0 登记 / T1 自动整理 / T2 整理+垃圾进回收站）
+    Watch {
+        /// 自动化等级：t0=只登记（默认）/ t1=自动整理 / t2=整理+垃圾自动清洗（只进回收站）
+        #[arg(long, default_value = "t0")]
+        level: String,
+        /// 整理目标根目录（t1/t2 必填）
+        #[arg(long)]
+        target: Option<String>,
+        /// 整理命名模板
+        #[arg(long, default_value = "{title} - {artist}")]
+        template: String,
+        /// 防抖窗口毫秒（同路径事件稳定后才处理）
+        #[arg(long, default_value_t = 1500)]
+        debounce_ms: u64,
+        /// 要监听的目录
+        #[arg(value_name = "DIR")]
+        dir: String,
+    },
     /// 只读扫描：分类文件并报告垃圾/异常项（不改动任何文件）
     Scan {
         /// 要扫描的目录
@@ -383,6 +401,38 @@ fn run_scan_sub(dir: &str, recursive: bool, as_json: bool, state_db: Option<&str
         }
     }
     0
+}
+
+/// D13 watcher：监听目录（T0/T1/T2 分派见 core watcher 模块）。
+fn run_watch_sub(
+    dir: &str,
+    level: &str,
+    target: Option<&str>,
+    template: &str,
+    debounce_ms: u64,
+) -> i32 {
+    use musicforge_core::watcher::{WatchLevel, WatcherConfig};
+    let Some(lv) = WatchLevel::parse(level) else {
+        eprintln!("✗ MF-OP-CONFLICT: 未知 level {level}（可选 t0/t1/t2）");
+        return 2;
+    };
+    let cfg = WatcherConfig {
+        level: lv,
+        target_root: target.map(PathBuf::from),
+        template: template.to_string(),
+        debounce_ms,
+    };
+    if cfg.level != WatchLevel::T0Register && cfg.target_root.is_none() {
+        eprintln!("✗ MF-OP-CONFLICT: t1/t2 需要 --target（整理目标根目录）");
+        return 2;
+    }
+    match musicforge_core::watcher::run_watch(Path::new(dir), &cfg, &|line| println!("{line}")) {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("✗ watch: {e}");
+            1
+        }
+    }
 }
 
 fn run_clean_sub(
@@ -1710,6 +1760,13 @@ fn main() {
                 work_root.as_deref(),
                 ekey.as_deref(),
             ),
+            Sub::Watch {
+                level,
+                target,
+                template,
+                debounce_ms,
+                dir,
+            } => run_watch_sub(&dir, &level, target.as_deref(), &template, debounce_ms),
             Sub::Scan {
                 dir,
                 recursive,

@@ -1,4 +1,4 @@
-//! # musicforge-core
+﻿//! # musicforge-core
 //!
 //! MusicForge 核心解密库：离线、流式、CRC 校验的网易云音乐 `.ncm` 解密。
 //!
@@ -36,6 +36,7 @@ pub mod scan;
 pub mod stylecode;
 pub mod synth;
 pub mod template;
+pub mod watcher;
 
 // ── 兼容 facade（P1b/D9）：旧路径保持可编译；P1c 起新代码走 formats/registry ──
 //
