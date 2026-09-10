@@ -191,6 +191,14 @@ jobs:
           ( cd dist && sha256sum "${PKG}.tar.gz" > "${PKG}.tar.gz.sha256" )
 
       # P7 验收：musl 裸容器跑通（alpine 零 glibc 环境可启动执行）
+      # P2-2：生命周期冒烟（含**升级路径**——B27 只在升级时暴露，全新安装测不出）
+      - name: 生命周期冒烟（start/status/重复 start/升级残留/stop/重启）
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          bash scripts/check-lifecycle.sh \
+            target/x86_64-unknown-linux-gnu/release/musicforge-server \
+            musicforge-fpk/cmd/main
+
       - name: musl 裸容器冒烟（alpine）
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |

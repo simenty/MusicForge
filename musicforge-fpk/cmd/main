@@ -15,6 +15,61 @@ UI_DIR="$APPDEST/ui"
 
 mkdir -p "$DATA_DIR" 2>/dev/null
 
+# ---- 跨平台进程识别（B27 后续修复）----
+# ⚠ B27 初版只用 /proc/<pid>/comm 判定「这是本服务进程」——Linux 正确，但
+#   在 macOS / Windows（无 /proc）上判定恒失败 → 清理逻辑整体失效 →
+#   重复 start 时旧进程仍占端口，新实例秒退（os error 10048 / EADDRINUSE）。
+#   生命周期冒烟脚本在非 Linux 环境捕获到该回归，故改为分层判定：
+#     1) /proc/<pid>/comm（Linux，权威）
+#     2) ps -p <pid> -o comm=（macOS/BSD/Git-bash）
+#     3) 都取不到进程名 → 保守按「是本服务」处理（pid 文件由本脚本写入，
+#        误杀风险低于端口占用导致启动失败）
+proc_comm() {
+  if [ -r "/proc/$1/comm" ]; then
+    cat "/proc/$1/comm" 2>/dev/null
+    return
+  fi
+  command -v ps >/dev/null 2>&1 && ps -p "$1" -o comm= 2>/dev/null | tail -1 | tr -d ' '
+}
+
+is_server_pid() {
+  local pid="$1" c
+  [ -n "$pid" ] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  c="$(proc_comm "$pid")"
+  # 无法确认进程名 → **不杀**（安全优先）。
+  # 反例教训：Windows/Git-bash 的 /proc 存在但无 comm，若此处保守「当是本服务」，
+  #   sweep 会把任意存活进程（含脚本自身）杀掉——误杀远比端口占用严重。
+  # Linux（/proc/comm）与 macOS（ps -o comm=）都能取到名字，正常路径不受影响。
+  [ -z "$c" ] && return 1
+  case "$c" in
+    *musicforge-server*) return 0 ;;
+  esac
+  return 1
+}
+
+# 扫描并清理残留实例（pid 文件丢失但进程仍在的升级残留场景）
+sweep_servers() {
+  local p c
+  if [ -d /proc ]; then
+    for pd in /proc/[0-9]*; do
+      p="${pd#/proc/}"
+      # 永不误伤自身与父进程（脚本自杀防护）
+      [ "$p" = "$$" ] && continue
+      [ "$p" = "$PPID" ] && continue
+      if is_server_pid "$p"; then
+        kill "$p" 2>/dev/null && echo "已清理残留实例（pid=$p）"
+      fi
+    done
+  elif command -v ps >/dev/null 2>&1; then
+    ps -eo pid=,comm= 2>/dev/null | while read -r p c; do
+      case "$c" in
+        *musicforge-server*) kill "$p" 2>/dev/null && echo "已清理残留实例（pid=$p）" ;;
+      esac
+    done
+  fi
+}
+
 case "$1" in
   start)
     if [ ! -x "$BIN" ]; then
@@ -31,8 +86,7 @@ case "$1" in
     # 1) 按 pid 文件停止（comm 校验防 PID 回绕误杀）
     if [ -f "$PID_FILE" ]; then
       SPID="$(cat "$PID_FILE" 2>/dev/null)"
-      if [ -n "$SPID" ] && [ -r "/proc/$SPID/comm" ] \
-         && grep -q "^musicforge-server$" "/proc/$SPID/comm" 2>/dev/null; then
+      if is_server_pid "$SPID"; then
         kill "$SPID" 2>/dev/null
         for _ in 1 2 3 4 5 6; do
           kill -0 "$SPID" 2>/dev/null || break
@@ -42,12 +96,8 @@ case "$1" in
       fi
       rm -f "$PID_FILE"
     fi
-    # 2) 兜底：pid 文件丢失但进程仍在——按 comm 精确清理（不用 pgrep，busybox 也有 /proc）
-    for pd in /proc/[0-9]*; do
-      if [ -r "$pd/comm" ] && grep -q "^musicforge-server$" "$pd/comm" 2>/dev/null; then
-        kill "${pd#/proc/}" 2>/dev/null && echo "已清理残留实例（pid=${pd#/proc/}）"
-      fi
-    done
+    # 2) 兜底：pid 文件丢失但进程仍在——跨平台扫描清理
+    sweep_servers
     sleep 0.5
     if [ ! -s "$DATA_DIR/.token" ]; then
       head -c 24 /dev/urandom | base64 > "$DATA_DIR/.token" 2>/dev/null || true
@@ -89,9 +139,9 @@ case "$1" in
     if [ -f "$PID_FILE" ]; then
       SPID="$(cat "$PID_FILE" 2>/dev/null)"
       # AUD-7（修复）：PID 回绕防护——/proc/<pid> 可复用，直接 kill 可能误杀
-      # 无辜进程。仅在 comm 确认为本服务进程时才发送信号；陈旧 pid 文件直接清理。
-      if [ -n "$SPID" ] && [ -r "/proc/$SPID/comm" ] \
-         && grep -q "^musicforge-server$" "/proc/$SPID/comm" 2>/dev/null; then
+      # 无辜进程。仅在确认为本服务进程时才发送信号；陈旧 pid 文件直接清理。
+      # （判定逻辑见 is_server_pid：Linux 走 /proc，其它平台回退 ps）
+      if is_server_pid "$SPID"; then
         kill "$SPID" 2>/dev/null && rm -f "$PID_FILE"
         for _ in 1 2 3 4 5 6 7 8 9 10; do
           [ -f "$PID_FILE" ] || break

@@ -75,6 +75,10 @@ impl Db {
             }
         }
         let conn = Connection::open(path).map_err(|e| NcmError::Db(e.to_string()))?;
+        // P2-1：WAL 提升读写并发（扫描写 + 查询读不再互相阻塞）。
+        // 铁律不变——db 只是**可再生缓存**：WAL 设置失败仅降级，绝不中止流程。
+        // （二级索引暂不加：当前查询模式全部按 path 命中 PRIMARY KEY，加索引无收益。）
+        let _ = conn.pragma_update(None, "journal_mode", "WAL");
         Self::migrate(&conn)?;
         Ok(Self { conn })
     }
