@@ -39,6 +39,10 @@ pub struct ServerConfig {
     pub ui_dir: PathBuf,
     /// P8.2.1：音乐库目录（`MUSICFORGE_LIBRARY_DIR`；scan API 缺省根）
     pub library_dir: Option<PathBuf>,
+    /// P9：可选路径白名单（`MUSICFORGE_ALLOWED_ROOTS`，`:`/`,` 分隔）。
+    /// **空 = 不约束**（家庭内网 + token 闸的默认姿态）；配置后，端点内的
+    /// 目录/文件参数必须落在某个 root 内，否则 `403 MF-PATH-NOT-ALLOWED`。
+    pub allowed_roots: Vec<PathBuf>,
 }
 
 impl ServerConfig {
@@ -65,6 +69,14 @@ impl ServerConfig {
             .ok()
             .filter(|s| !s.trim().is_empty())
             .map(PathBuf::from);
+        // P9 路径域（宽松可配）：未配置 = 不约束（向后兼容）
+        let allowed_roots: Vec<PathBuf> = std::env::var("MUSICFORGE_ALLOWED_ROOTS")
+            .unwrap_or_default()
+            .split([',', ';', ':'])
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+            .collect();
         Ok((
             Self {
                 data_dir,
@@ -72,6 +84,7 @@ impl ServerConfig {
                 token,
                 ui_dir,
                 library_dir,
+                allowed_roots,
             },
             generated,
         ))
@@ -200,6 +213,8 @@ pub struct ServerState {
     pub data_dir: PathBuf,
     /// P8.2.1：scan API 缺省根（fpk `MUSICFORGE_LIBRARY_DIR`）
     pub library_dir: Option<PathBuf>,
+    /// P9：路径域白名单（空 = 不约束）
+    pub allowed_roots: Vec<PathBuf>,
 }
 
 /// 构建路由（health 免鉴权；其余 /api/* 鉴权；非 /api → SPA）。
@@ -259,6 +274,7 @@ mod tests {
             ui_dir: PathBuf::from("ui"),
             data_dir: std::env::temp_dir().join(format!("mf-srv-test-{}", std::process::id())),
             library_dir: None,
+            allowed_roots: Vec::new(),
         }
     }
 

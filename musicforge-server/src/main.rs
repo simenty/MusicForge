@@ -1,4 +1,4 @@
-//! `musicforge-server` 入口：env 配置 → 路由 → 监听（R22：默认回环 + 随机 token）。
+﻿//! `musicforge-server` 入口：env 配置 → 路由 → 监听（R22：默认回环 + 随机 token）。
 
 use musicforge_server::{build_router, ServerConfig, ServerState};
 
@@ -24,6 +24,7 @@ async fn main() {
         ui_dir: cfg.ui_dir.clone(),
         data_dir: cfg.data_dir.clone(),
         library_dir: cfg.library_dir.clone(),
+        allowed_roots: cfg.allowed_roots,
     };
     let app = build_router(state);
 

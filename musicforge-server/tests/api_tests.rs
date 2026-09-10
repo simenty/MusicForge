@@ -1,4 +1,4 @@
-//! P8.2.4 API 集成测试：clean/plan 只读、clean/apply 与 trash/restore 的
+﻿//! P8.2.4 API 集成测试：clean/plan 只读、clean/apply 与 trash/restore 的
 //! safety 强制（confirm !== true → 403 MF-OP-NEEDS-YES）。
 
 use axum::body::Body;
@@ -14,6 +14,7 @@ fn state_with() -> ServerState {
         ui_dir: PathBuf::from("ui"),
         data_dir: std::env::temp_dir().join(format!("mf-int-{}", std::process::id())),
         library_dir: None,
+        allowed_roots: Vec::new(),
     }
 }
 

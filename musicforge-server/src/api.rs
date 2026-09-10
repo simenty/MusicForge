@@ -1,4 +1,4 @@
-//! `/api` 业务面（P8.2.1 首波：scan / version / wizard-status）。
+﻿//! `/api` 业务面（P8.2.1 首波：scan / version / wizard-status）。
 //!
 //! **统一信封**：成功 `{ok:true, data}`；失败 `{ok:false, code:"MF-*", message}`
 //! ——业务码 = `NcmError::mf_code()`（跨端一致，UI/日志/失败清单同码）。
@@ -34,6 +34,31 @@ pub fn err(status: StatusCode, code: &str, message: impl Into<String>) -> Respon
 /// `NcmError` → 4xx 信封（mf_code 透传，跨端同码）。
 fn err_from(e: musicforge_core::NcmError) -> Response {
     err(StatusCode::BAD_REQUEST, e.mf_code(), format!("{e}"))
+}
+
+/// P9 路径域校验：配置 `MUSICFORGE_ALLOWED_ROOTS` 后，参数路径必须落在某个
+/// root 内（自身或其子路径）；**白名单为空 = 不约束**（默认姿态，向后兼容）。
+#[allow(clippy::result_large_err)] // Response 直返（与 parse_organize_req 同处理）
+fn ensure_allowed(state: &ServerState, p: &std::path::Path) -> Result<(), Response> {
+    if state.allowed_roots.is_empty() {
+        return Ok(());
+    }
+    let allowed = state
+        .allowed_roots
+        .iter()
+        .any(|root| p == root.as_path() || p.starts_with(root));
+    if allowed {
+        Ok(())
+    } else {
+        Err(err(
+            StatusCode::FORBIDDEN,
+            "MF-PATH-NOT-ALLOWED",
+            format!(
+                "路径不在允许根目录内: {}（已配置 MUSICFORGE_ALLOWED_ROOTS）",
+                p.display()
+            ),
+        ))
+    }
 }
 
 /// `Category` → 稳定字符串（JSON 形态；不暴露枚举内部）。
@@ -91,6 +116,10 @@ pub async fn scan(State(state): State<ServerState>, body: Option<JsonBody<Value>
             "缺 dir 且服务端未配置 MUSICFORGE_LIBRARY_DIR",
         );
     };
+    // P9 路径域（配置白名单时生效）
+    if let Err(r) = ensure_allowed(&state, &dir) {
+        return r;
+    }
     let max_depth = body
         .as_ref()
         .and_then(|b| b.0.get("max_depth"))
@@ -144,6 +173,10 @@ pub async fn library_refresh(
             "缺 dir 且服务端未配置 MUSICFORGE_LIBRARY_DIR",
         );
     };
+    // P9 路径域（配置白名单时生效）
+    if let Err(r) = ensure_allowed(&state, &dir) {
+        return r;
+    }
     let recursive = body
         .as_ref()
         .and_then(|b| b.0.get("recursive"))
@@ -220,7 +253,10 @@ pub async fn wizard_status(State(state): State<ServerState>) -> Response {
 /// 请求 `{ "plugin", "source", "output_dir"?, "ekey"? }`——与 GUI IPC 同源
 /// （musicforge_cli::format_migrate；ACK 闸/崩溃计数/并发槽位全部内建）。
 /// output_dir 缺省 = 源父目录。ekey 透传（QMC STag 变体，本地传递零网络）。
-pub async fn convert(JsonBody(body): JsonBody<Value>) -> Response {
+pub async fn convert(
+    State(state): State<ServerState>,
+    JsonBody(body): JsonBody<Value>,
+) -> Response {
     let Some(plugin) = body.get("plugin").and_then(|v| v.as_str()) else {
         return err(
             StatusCode::BAD_REQUEST,
@@ -245,6 +281,13 @@ pub async fn convert(JsonBody(body): JsonBody<Value>) -> Response {
     } else {
         output_dir.to_string()
     };
+    // P9 路径域（配置白名单时生效）
+    if let Err(r) = ensure_allowed(&state, std::path::Path::new(source)) {
+        return r;
+    }
+    if let Err(r) = ensure_allowed(&state, std::path::Path::new(&out_dir)) {
+        return r;
+    }
     // AUD-5（并发修复）：插件迁移为同步阻塞（起子进程 + 全文件变换，可达秒级）
     // ——移出 tokio worker 线程。
     let plugin = plugin.to_string();
@@ -301,6 +344,12 @@ pub async fn batch(State(state): State<ServerState>, JsonBody(body): JsonBody<Va
             "MF-API-BAD-REQUEST",
             "inputs 内无有效 path",
         );
+    }
+    // P9 路径域（配置白名单时生效）
+    for (p, _) in &expanded {
+        if let Err(r) = ensure_allowed(&state, p) {
+            return r;
+        }
     }
     let out_dir = body
         .get("out_dir")
@@ -466,11 +515,21 @@ fn plan_json(
 /// `POST /api/organize/plan`：整理计划预览（**只读**，绝不移动）。
 ///
 /// 请求 `{ "dir", "template"?, "target_root"?, "strategy"? }`。
-pub async fn organize_plan(JsonBody(body): JsonBody<Value>) -> Response {
+pub async fn organize_plan(
+    State(state): State<ServerState>,
+    JsonBody(body): JsonBody<Value>,
+) -> Response {
     let r = match parse_organize_req(&body) {
         Ok(r) => r,
         Err(resp) => return resp,
     };
+    // P9 路径域（配置白名单时生效）
+    if let Err(resp) = ensure_allowed(&state, &r.dir) {
+        return resp;
+    }
+    if let Err(resp) = ensure_allowed(&state, &r.target_root) {
+        return resp;
+    }
     // AUD-5：plan 含全库扫描（同步阻塞）——spawn_blocking
     let plan_result = tokio::task::spawn_blocking(move || {
         let opts = OrganizeOptions {
@@ -509,7 +568,10 @@ pub async fn organize_plan(JsonBody(body): JsonBody<Value>) -> Response {
 ///   必须先 plan 预览、再显式 confirm 才落盘）；
 /// - 绝不覆盖（apply 间隙目标被外部创建 → 该项失败）；
 /// - 回滚清单落 target_root/.musicforge/。
-pub async fn organize_apply(JsonBody(body): JsonBody<Value>) -> Response {
+pub async fn organize_apply(
+    State(state): State<ServerState>,
+    JsonBody(body): JsonBody<Value>,
+) -> Response {
     let confirm = body
         .get("confirm")
         .and_then(|v| v.as_bool())
@@ -525,6 +587,13 @@ pub async fn organize_apply(JsonBody(body): JsonBody<Value>) -> Response {
         Ok(r) => r,
         Err(resp) => return resp,
     };
+    // P9 路径域（配置白名单时生效）
+    if let Err(resp) = ensure_allowed(&state, &r.dir) {
+        return resp;
+    }
+    if let Err(resp) = ensure_allowed(&state, &r.target_root) {
+        return resp;
+    }
     let task_id = format!(
         "{}-{}",
         std::time::SystemTime::now()
@@ -583,11 +652,18 @@ fn enabled_rules(body: &Value) -> std::collections::HashSet<&'static str> {
 /// `POST /api/clean/plan`：垃圾清洗计划预览（**只读**——dry-run 语义）。
 ///
 /// 请求 `{ "dir", "rules"? }`（rules 缺省 = 全部 RULE_CARDS）。
-pub async fn clean_plan(JsonBody(body): JsonBody<Value>) -> Response {
+pub async fn clean_plan(
+    State(state): State<ServerState>,
+    JsonBody(body): JsonBody<Value>,
+) -> Response {
     let Some(dir) = body.get("dir").and_then(|v| v.as_str()) else {
         return err(StatusCode::BAD_REQUEST, "MF-API-BAD-REQUEST", "缺 dir");
     };
     let dir = PathBuf::from(dir);
+    // P9 路径域（配置白名单时生效）
+    if let Err(resp) = ensure_allowed(&state, &dir) {
+        return resp;
+    }
     // AUD-5：全库扫描同步阻塞——spawn_blocking
     let plan_result = tokio::task::spawn_blocking(move || {
         let report = scan_library(&dir, &ScanOptions::default())?;
@@ -621,7 +697,10 @@ pub async fn clean_plan(JsonBody(body): JsonBody<Value>) -> Response {
 /// 但仍强制 confirm；P2 语义：dry-run 先行）。
 ///
 /// 请求 `{ "dir", "rules"?, "confirm" }`。回收站 = `<dir>/.musicforge/trash/<task>/`。
-pub async fn clean_apply(JsonBody(body): JsonBody<Value>) -> Response {
+pub async fn clean_apply(
+    State(state): State<ServerState>,
+    JsonBody(body): JsonBody<Value>,
+) -> Response {
     let confirm = body
         .get("confirm")
         .and_then(|v| v.as_bool())
@@ -637,6 +716,10 @@ pub async fn clean_apply(JsonBody(body): JsonBody<Value>) -> Response {
         return err(StatusCode::BAD_REQUEST, "MF-API-BAD-REQUEST", "缺 dir");
     };
     let dir = PathBuf::from(dir);
+    // P9 路径域（配置白名单时生效）
+    if let Err(resp) = ensure_allowed(&state, &dir) {
+        return resp;
+    }
     let task_id = format!(
         "{}-{}",
         std::time::SystemTime::now()
@@ -672,7 +755,10 @@ pub async fn clean_apply(JsonBody(body): JsonBody<Value>) -> Response {
 /// `POST /api/trash/restore`：从回滚清单整体还原（**破坏类**——confirm 强制）。
 ///
 /// 请求 `{ "manifest": "<rollback.jsonl 路径>", "confirm" }`。
-pub async fn trash_restore(JsonBody(body): JsonBody<Value>) -> Response {
+pub async fn trash_restore(
+    State(state): State<ServerState>,
+    JsonBody(body): JsonBody<Value>,
+) -> Response {
     let confirm = body
         .get("confirm")
         .and_then(|v| v.as_bool())
@@ -692,6 +778,10 @@ pub async fn trash_restore(JsonBody(body): JsonBody<Value>) -> Response {
     // 必须位于 `.musicforge` 回收站体系内（*.jsonl）——合法流（clean/organize
     // 的回滚清单）全部满足，其余一律拒绝。
     let manifest_path = std::path::Path::new(manifest);
+    // P9 路径域（配置白名单时生效）
+    if let Err(resp) = ensure_allowed(&state, manifest_path) {
+        return resp;
+    }
     let in_trash = manifest_path
         .components()
         .any(|c| c.as_os_str() == ".musicforge")
@@ -734,7 +824,15 @@ mod tests {
             ui_dir: PathBuf::from("ui"),
             data_dir: std::env::temp_dir().join(format!("mf-api-test-{}", std::process::id())),
             library_dir: lib,
+            allowed_roots: Vec::new(),
         }
+    }
+
+    /// P9 路径域：配置白名单的 state（用于越权拒绝测试）
+    fn state_with_roots(roots: Vec<PathBuf>) -> ServerState {
+        let mut s = state_with(None);
+        s.allowed_roots = roots;
+        s
     }
 
     fn req(method: &str, uri: &str, body: Option<String>) -> Request<Body> {
@@ -1144,6 +1242,78 @@ mod tests {
         assert_eq!(v["data"]["audio"], 1, "1 个音频文件");
         assert_eq!(v["data"]["cacheHits"], 1, "二次刷新命中缓存");
         assert_eq!(v["data"]["hashed"], 0, "二次零重算");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// P9 路径域：配置 `allowed_roots` 后，白名单外路径一律 403 MF-PATH-NOT-ALLOWED。
+    #[tokio::test]
+    async fn path_domain_rejects_outside_roots_when_configured() {
+        let allowed = std::env::temp_dir().join(format!("mf-allowed-{}", std::process::id()));
+        std::fs::create_dir_all(&allowed).unwrap();
+        let outside = std::env::temp_dir().join(format!("mf-outside-{}", std::process::id()));
+        std::fs::create_dir_all(&outside).unwrap();
+        let app = build_router(state_with_roots(vec![allowed.clone()]));
+        for (method, uri, body) in [
+            (
+                "POST",
+                "/api/scan",
+                json!({"dir": outside.display().to_string()}),
+            ),
+            (
+                "POST",
+                "/api/organize/plan",
+                json!({"dir": outside.display().to_string()}),
+            ),
+            (
+                "POST",
+                "/api/clean/plan",
+                json!({"dir": outside.display().to_string()}),
+            ),
+        ] {
+            let res = app
+                .clone()
+                .oneshot(req(method, uri, Some(body.to_string())))
+                .await
+                .unwrap();
+            assert_eq!(
+                res.status(),
+                StatusCode::FORBIDDEN,
+                "{uri} 白名单外必须 403"
+            );
+            let v = body_json(res).await;
+            assert_eq!(v["code"], "MF-PATH-NOT-ALLOWED");
+        }
+        // 白名单内放行（空目录扫描成功）
+        let res = app
+            .clone()
+            .oneshot(req(
+                "POST",
+                "/api/scan",
+                Some(json!({"dir": allowed.display().to_string()}).to_string()),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        std::fs::remove_dir_all(&allowed).ok();
+        std::fs::remove_dir_all(&outside).ok();
+    }
+
+    /// P9：未配置白名单 = 不约束（向后兼容——既有部署行为不变）。
+    #[tokio::test]
+    async fn path_domain_is_off_by_default() {
+        let dir = std::env::temp_dir().join(format!("mf-noroots-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = build_router(state_with(None));
+        let res = app
+            .clone()
+            .oneshot(req(
+                "POST",
+                "/api/scan",
+                Some(json!({"dir": dir.display().to_string()}).to_string()),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "未配置白名单时必须放行");
         std::fs::remove_dir_all(&dir).ok();
     }
 
