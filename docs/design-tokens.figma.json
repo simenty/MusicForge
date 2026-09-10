@@ -1,0 +1,82 @@
+{
+  "_readme": {
+    "purpose": "MusicForge UI 设计系统变量（与 musicforge-gui/ui/src/styles.css 的 :root / prefers-color-scheme(dark) 一一对应）",
+    "how_to_use_in_figma": "在 Figma 创建 Variables → Collection「MF Primitives」→ 建 Light / Dark 两个 mode → 按下面 values 逐条录入；FLOAT 类用 number，COLOR 用 hex。",
+    "sync_rule": "styles.css 是唯一真源；改样式后同步更新本文件（键名与 CSS 变量名一一对应）",
+    "constraints": "离线应用：字体为系统字体栈（禁止 web font / CDN），Figma 出稿时勿使用自定义字体；图标为内联 SVG（icons.tsx），勿用图标字体。"
+  },
+  "collections": [
+    {
+      "name": "MF Primitives",
+      "modes": ["Light", "Dark"],
+      "variables": [
+        { "name": "color/bg", "type": "COLOR", "values": { "Light": "#f6f7f9", "Dark": "#14161a" } },
+        { "name": "color/surface", "type": "COLOR", "values": { "Light": "#ffffff", "Dark": "#1b1e24" } },
+        { "name": "color/surface-2", "type": "COLOR", "values": { "Light": "#fbfcfd", "Dark": "#21252c" } },
+        { "name": "color/border", "type": "COLOR", "values": { "Light": "#e4e7ec", "Dark": "#2c313a" } },
+        { "name": "color/border-strong", "type": "COLOR", "values": { "Light": "#d0d5dd", "Dark": "#3a404b" } },
+        { "name": "color/text", "type": "COLOR", "values": { "Light": "#16191f", "Dark": "#e7e9ec" } },
+        { "name": "color/text-dim", "type": "COLOR", "values": { "Light": "#5c6370", "Dark": "#9aa3b0" } },
+        { "name": "color/text-faint", "type": "COLOR", "values": { "Light": "#8b929e", "Dark": "#6f7885" } },
+        { "name": "color/accent", "type": "COLOR", "values": { "Light": "#3457d5", "Dark": "#7d97ff" } },
+        { "name": "color/accent-hover", "type": "COLOR", "values": { "Light": "#2a48b8", "Dark": "#93a9ff" } },
+        { "name": "color/accent-soft", "type": "COLOR", "values": { "Light": "#eaefff", "Dark": "#232a45" } },
+        { "name": "color/ok", "type": "COLOR", "values": { "Light": "#177a4f", "Dark": "#4ec78d" } },
+        { "name": "color/ok-soft", "type": "COLOR", "values": { "Light": "#e6f5ee", "Dark": "#16281f" } },
+        { "name": "color/warn", "type": "COLOR", "values": { "Light": "#9a6207", "Dark": "#d9a441" } },
+        { "name": "color/warn-soft", "type": "COLOR", "values": { "Light": "#fdf3e2", "Dark": "#2a2314" } },
+        { "name": "color/danger", "type": "COLOR", "values": { "Light": "#c0342b", "Dark": "#ef7a70" } },
+        { "name": "color/danger-soft", "type": "COLOR", "values": { "Light": "#fdeceb", "Dark": "#2d1a19" } },
+        { "name": "color/cat-audio", "type": "COLOR", "values": { "Light": "#177a4f", "Dark": "#4ec78d" } },
+        { "name": "color/cat-lyrics", "type": "COLOR", "values": { "Light": "#3f5ea8", "Dark": "#8aa6e8" } },
+        { "name": "color/cat-cover", "type": "COLOR", "values": { "Light": "#8a5a9e", "Dark": "#c091dc" } },
+        { "name": "color/cat-junk", "type": "COLOR", "values": { "Light": "#b4472f", "Dark": "#e78b73" } },
+        { "name": "color/cat-other", "type": "COLOR", "values": { "Light": "#6b7280", "Dark": "#9aa3b0" } }
+      ]
+    },
+    {
+      "name": "MF Scale",
+      "modes": ["Value"],
+      "variables": [
+        { "name": "space/1", "type": "FLOAT", "values": { "Value": 4 } },
+        { "name": "space/2", "type": "FLOAT", "values": { "Value": 8 } },
+        { "name": "space/3", "type": "FLOAT", "values": { "Value": 12 } },
+        { "name": "space/4", "type": "FLOAT", "values": { "Value": 16 } },
+        { "name": "space/5", "type": "FLOAT", "values": { "Value": 24 } },
+        { "name": "space/6", "type": "FLOAT", "values": { "Value": 32 } },
+        { "name": "space/8", "type": "FLOAT", "values": { "Value": 48 } },
+        { "name": "radius/xs", "type": "FLOAT", "values": { "Value": 4 } },
+        { "name": "radius/sm", "type": "FLOAT", "values": { "Value": 6 } },
+        { "name": "radius/md", "type": "FLOAT", "values": { "Value": 10 } },
+        { "name": "radius/lg", "type": "FLOAT", "values": { "Value": 14 } },
+        { "name": "font-size/xs", "type": "FLOAT", "values": { "Value": 11 } },
+        { "name": "font-size/sm", "type": "FLOAT", "values": { "Value": 12 } },
+        { "name": "font-size/md", "type": "FLOAT", "values": { "Value": 13 } },
+        { "name": "font-size/lg", "type": "FLOAT", "values": { "Value": 15 } },
+        { "name": "font-size/xl", "type": "FLOAT", "values": { "Value": 18 } },
+        { "name": "row/height", "type": "FLOAT", "values": { "Value": 36 } },
+        { "name": "layout/max-width", "type": "FLOAT", "values": { "Value": 1180 } },
+        { "name": "layout/subnav-width", "type": "FLOAT", "values": { "Value": 184 } }
+      ]
+    }
+  ],
+  "layout": {
+    "breakpoints": { "mobile": "<=720px", "narrow": "<=900px" },
+    "shell": "titlebar(52px sticky) + nav(44px sticky, 移动端转 bottom tabbar) + main(max 1180px, gap 24px)",
+    "sections": [
+      { "key": "convert", "structure": "操作卡片(工具条) → 拖放区 → 列表卡片(筛选+表头+虚拟列表) → 进度汇总条" },
+      { "key": "library", "structure": "左侧二级菜单(184px sticky) + 右侧工作区(扫描/去重)" },
+      { "key": "plugins", "structure": "单卡片（默认展开）" },
+      { "key": "settings", "structure": "单卡片（保存位置 / 命名模板 / 选项）" }
+    ],
+    "responsive_rules": [
+      "≤720px：主导航转底部标签栏；转换列表隐藏「输出」列；工具条按钮满宽均分",
+      "≤900px：曲库二级菜单由左侧竖排转顶部横向滚动条"
+    ]
+  },
+  "typography": {
+    "family": "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', Roboto, sans-serif",
+    "mono": "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace",
+    "note": "离线约束：不可引入 web font；Figma 出稿请用系统字体近似（中文 PingFang/微软雅黑，西文 Segoe UI/System）"
+  }
+}
