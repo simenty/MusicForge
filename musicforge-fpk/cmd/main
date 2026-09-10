@@ -59,14 +59,17 @@ is_server_pid() {
   # 无法确认进程名 → **不杀**（安全优先）。
   # 反例教训：Windows/Git-bash 的 /proc 存在但无 comm，若此处保守「当是本服务」，
   #   sweep 会把任意存活进程（含脚本自身）杀掉——误杀远比端口占用严重。
-  [ -z "$c" ] && return 1
-  # ⚠ Linux `comm` 只有 15 字符："musicforge-server" 会被截断为 "musicforge-serve"
-  #   （CI 冒烟实测：精确匹配 "musicforge-server" 恒失败 → 清理逻辑在真机也不生效）。
-  #   故按前缀匹配，同时兼容未截断的平台。
+  if [ -z "$c" ]; then
+    return 1
+  fi
+  # ⚠ Linux `comm` 上限 15 字符："musicforge-server"(17) → **"musicforge-serv"**(15)。
+  #   CI 冒烟两次实测：先按全名精确匹配、再按 "musicforge-serve" 匹配均失败
+  #   （后者恰好 16 字符，比截断值还长一位）——真机上清理逻辑此前**从未生效**。
+  #   故按 15 字符安全前缀匹配（同时兼容未截断的平台）。
   case "$c" in
-    *musicforge-serve*) return 0 ;;
+    *musicforge-serv*) return 0 ;;
+    *) return 1 ;;
   esac
-  return 1
 }
 
 # 扫描并清理残留实例（pid 文件丢失但进程仍在的升级残留场景）
@@ -91,7 +94,7 @@ sweep_servers() {
     ps -eo pid=,comm= 2>/dev/null | while read -r p c; do
       # 前缀匹配（Linux comm 15 字符截断）
       case "$c" in
-        *musicforge-serve*) kill "$p" 2>/dev/null && echo "已清理残留实例（pid=$p）" ;;
+        *musicforge-serv*) kill "$p" 2>/dev/null && echo "已清理残留实例（pid=$p）" ;;
       esac
     done
   fi
@@ -120,6 +123,9 @@ case "$1" in
           sleep 0.5
         done
         echo "已停止旧实例（pid=$SPID）"
+      elif kill -0 "$SPID" 2>/dev/null; then
+        # 进程存在却判定未命中：打印实际进程名（排查 comm 截断/命名差异的一手证据）
+        echo "! pid=$SPID 存活但无法确认为本服务（comm='$(proc_comm "$SPID" 2>/dev/null)'）——跳过清理" >&2
       fi
       rm -f "$PID_FILE"
     fi
@@ -140,13 +146,15 @@ case "$1" in
     nohup "$BIN" >> "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
     # 存活探测改为轮询（最长约 6s）：慢启动/磁盘忙时不再被固定 1s 误判为失败
+    # 存活探测：**先等待再判定**。首帧立即判定会把「正在秒退」的进程算作成功
+    # （CI 冒烟实测：绑定失败的新实例在退出前被判定为已启动，随后 status 立刻失败）。
     started=0
     for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+      sleep 0.5
       if is_alive "$(cat "$PID_FILE" 2>/dev/null)"; then
         started=1
         break
       fi
-      sleep 0.5
     done
     if [ "$started" = "1" ]; then
       echo "musicforge-server 已启动（pid=$(cat "$PID_FILE")，bind=0.0.0.0:${PORT}，data=$DATA_DIR，appdest=$APPDEST）"
