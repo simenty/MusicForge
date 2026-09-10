@@ -616,3 +616,70 @@ export async function trashRestore(manifest: string): Promise<{ restored: number
 
 /** 是否服务端形态（面板据此提示能力边界） */
 export const IS_SERVER_MODE = !IS_DESKTOP;
+
+// ---------------------------------------------------------------------------
+// P2 收尾：契约缺口闭合——服务端元信息（/version、/wizard/status）
+//
+// 这两个端点此前"后端已实现但前端未接"（契约护栏持续提示）。接入后
+// 前端调用面与 server 端点面完全对齐（11/11）。
+// ---------------------------------------------------------------------------
+
+async function httpGet<T>(path: string): Promise<T> {
+  // 与 httpPost 同构（30s 超时 + {ok,data} 解包），method 为 GET、无 body
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 30_000);
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method: "GET",
+      headers: { "x-token": serverToken() },
+      signal: ctl.signal,
+    });
+  } catch (e) {
+    clearTimeout(timer);
+    throw new HttpApiError(
+      "MF-HTTP-FAILED",
+      `服务端不可达或超时（${e instanceof Error && e.name === "AbortError" ? "30s 超时" : String(e)}）`
+    );
+  }
+  clearTimeout(timer);
+  let v: { ok: boolean; data?: T; code?: string; message?: string };
+  try {
+    v = (await res.json()) as typeof v;
+  } catch {
+    throw new HttpApiError("MF-HTTP-FAILED", `服务端响应非 JSON（HTTP ${res.status}）`);
+  }
+  if (!v.ok) {
+    throw new HttpApiError(v.code ?? "MF-HTTP-FAILED", v.message ?? `HTTP ${res.status}`);
+  }
+  return v.data as T;
+}
+
+/** `GET /api/version`：服务端版本与 API 面标识（服务端形态） */
+export interface ServerVersion {
+  name: string;
+  version: string;
+  api_surface: string;
+}
+
+export async function serverVersion(): Promise<ServerVersion> {
+  if (IS_DESKTOP) {
+    throw new HttpApiError("MF-SERVER-ONLY", "服务端信息仅在服务端形态（fnOS / 自建 server）可用");
+  }
+  return httpGet<ServerVersion>("/api/version");
+}
+
+/** `GET /api/wizard/status`：首启自检（token 就绪 / 数据目录可写 / 关键路径） */
+export interface WizardStatus {
+  token_ready: boolean;
+  data_dir_writable: boolean;
+  data_dir: string;
+  library_dir: string | null;
+}
+
+export async function wizardStatus(): Promise<WizardStatus> {
+  if (IS_DESKTOP) {
+    throw new HttpApiError("MF-SERVER-ONLY", "服务端自检仅在服务端形态（fnOS / 自建 server）可用");
+  }
+  return httpGet<WizardStatus>("/api/wizard/status");
+}

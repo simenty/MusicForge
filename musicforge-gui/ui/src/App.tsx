@@ -18,6 +18,7 @@ import OrganizePanel from "./OrganizePanel";
 import CleanPanel from "./CleanPanel";
 import TrashPanel from "./TrashPanel";
 import ErrorBoundary from "./ErrorBoundary";
+import ServerInfoCard from "./ServerInfoCard";
 import {
   IconConvert,
   IconCopy,
@@ -610,6 +611,9 @@ export default function App() {
       )}
 
       </ErrorBoundary>
+
+      {/* P2 收尾：服务端信息（/version + /wizard/status）——仅服务端形态渲染 */}
+      <ServerInfoCard />
 
       </main>
 

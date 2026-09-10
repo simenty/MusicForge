@@ -14,6 +14,8 @@ pub mod organize;
 pub mod plugins;
 pub mod scan_clean;
 pub mod state;
+// P2-3：服务端 token 管理（CLI 新增模块，非迁移块）
+pub mod token;
 
 pub use convert::*;
 pub use dedupe::*;
@@ -21,3 +23,4 @@ pub use organize::*;
 pub use plugins::*;
 pub use scan_clean::*;
 pub use state::*;
+pub use token::*;

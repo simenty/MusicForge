@@ -212,6 +212,11 @@ pub enum Sub {
         #[command(subcommand)]
         cmd: PluginsCmd,
     },
+    /// 服务端 token 管理（P2-3）：查看 / 轮换访问凭据（轮换后需重启服务生效）
+    Token {
+        #[command(subcommand)]
+        action: TokenAction,
+    },
     /// 格式迁移（P6b）：经插件解封装 B/C 级容器（L3 高风险；需 ACK 闸确认）
     FormatMigrate {
         /// 插件名（须已在白名单目录安装并启用；如 kwm-migration）
@@ -265,6 +270,29 @@ pub enum Sub {
         /// JSON 输出（机器可读）
         #[arg(long)]
         json: bool,
+    },
+}
+
+/// 服务端 token 管理动作（P2-3）：凭据轮换 / 查看。
+#[derive(clap::Subcommand, Debug)]
+pub enum TokenAction {
+    /// 轮换 token（生成新值并写回；**需重启服务后生效**）
+    Rotate {
+        /// 数据目录（默认取 MUSICFORGE_DATA_DIR，其次 ./data）
+        #[arg(long)]
+        data_dir: Option<String>,
+        /// 直接指定 token 文件路径（优先于 data_dir）
+        #[arg(long)]
+        token_file: Option<String>,
+    },
+    /// 查看当前 token 与其文件路径
+    Show {
+        /// 数据目录（默认取 MUSICFORGE_DATA_DIR，其次 ./data）
+        #[arg(long)]
+        data_dir: Option<String>,
+        /// 直接指定 token 文件路径（优先于 data_dir）
+        #[arg(long)]
+        token_file: Option<String>,
     },
 }
 
@@ -329,6 +357,7 @@ fn main() {
     if let Some(sub) = args.command {
         let code = match sub {
             Sub::Plugins { cmd } => run_plugins_sub(cmd),
+        Sub::Token { action } => run_token_sub(&action),
             Sub::FormatMigrate {
                 plugin,
                 source,

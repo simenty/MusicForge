@@ -106,6 +106,15 @@ export const en: typeof zh = {
     fnosNoPlugin: (ext: string) =>
       `No migration plugin for .${ext} (kwm/qmc need plugins; .ncm is built-in)`,
   },
+  /** Server info card (P2: exposes /version + /wizard/status) */
+  serverInfo: {
+    head: "Server info (fnOS / self-hosted)",
+    version: (v: string) => `version ${v}`,
+    apiSurface: (s: string) => `api surface ${s}`,
+    tokenReady: "token ready",
+    dataDirWritable: "data dir writable",
+    hint: "When the app fails to start, check these two first: a missing token or an unwritable data dir breaks the service.",
+  },
   /** Library section sub-nav (left rail) */
   library: {
     tabScan: "Scan",

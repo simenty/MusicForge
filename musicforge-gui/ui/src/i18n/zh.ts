@@ -110,6 +110,15 @@ export const zh = {
     fnosNoPlugin: (ext: string) =>
       `格式 .${ext} 无对应迁移插件（kwm/qmc 需插件包；.ncm 为内置转换）`,
   },
+  /** 服务端信息卡（P2 收尾：/version + /wizard/status 两个端点接入） */
+  serverInfo: {
+    head: "服务端信息（fnOS / 自建 server）",
+    version: (v: string) => `版本 ${v}`,
+    apiSurface: (s: string) => `API 面 ${s}`,
+    tokenReady: "token 就绪",
+    dataDirWritable: "数据目录可写",
+    hint: "「启用失败」时优先看这两项：token 未就绪或数据目录不可写都会让服务无法正常工作。",
+  },
   /** 曲库分区二级菜单（左侧导航） */
   library: {
     tabScan: "曲库扫描",
