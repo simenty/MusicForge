@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-11
+
+**UI 全面重构 + 稳定性加固**——界面信息架构重设计、四次 fnOS 真机故障根因闭环、服务端可观测性从零到可用、质量护栏体系成型。
+
+### Added
+- **UI 信息架构重构**：单页纵向堆叠 → **四分区导航**（转换 / 曲库 / 插件 / 设置）；曲库左侧二级菜单五工具
+  （扫描 / 重复去重 / **整理归档** / **垃圾清洗** / **回收站还原**——后三项为后端已实现能力的 UI 首次接入，含 plan 预览 → 二次确认 → 执行 → 一键还原的完整闭环）。
+- **设计系统**：`styles.css` 全量 token 化（4px 间距基准 / 系统字体栈 / 单一强调色 + 语义色分离 / 深色模式 / 降低动效适配）；
+  新增内联 SVG 图标集（零依赖）；响应式（桌面顶栏导航 ↔ 移动端底部标签栏 + 表格列降级）；设计变量导出（`docs/design-tokens.figma.json`，供 Figma 建库）。
+- **服务端可观测性**：`tracing` 结构化日志——启动行（版本/bind/数据目录/路径域数/pid）、请求日志
+  （method/path/status/ms；**不含 query 与 header，token 绝不入日志**）、鉴权失败与路径域拒绝 warn、
+  破坏类操作审计 info（organize/clean：目录 + 计数 + 回滚清单）、绑定失败 error（含残留进程提示）。
+- **认证失败限流**：连续失败 ≥10 次后每次拒绝延迟 1s（**只延迟不封禁**——家庭内网误输 token 是常态）。
+- **`musicforge token rotate|show`**：服务端凭据轮换（24B → 48 hex，0o600；轮换后需重启服务生效）。
+- **服务端信息卡**（设置页）：版本 / API 面 / token 就绪 / 数据目录可写——`/version` 与 `/wizard/status` 首次接入，
+  **前后端契约面完全对齐（11/11）**。
+- **质量护栏（CI）**：契约一致性（server 路由 vs 前端调用）、fpk 结构校验（micro_app / wizard JSON / ui-config 键名）、
+  版本一致性、**生命周期冒烟**（start / status / 重复 start / 升级残留 / stop / 重启）、
+  **覆盖率门禁**（cargo-llvm-cov；基线行覆盖 78.73%，门槛 70%）、发布前门禁一键化（`scripts/release-check.sh`）。
+- **前端测试**：vitest 接入（0 → 19 用例：纯函数边界 + i18n 中英结构同构校验）。
+
+### Changed
+- **前端分层**：`App.tsx` 1138 → 625 行（拆出 `hooks/useBatch` / `hooks/useSettings` / `hooks/useToast` + `lib/format`）；
+  **JSX 零改动、行为逐行保持**。
+- 错误处理：四个分区各自 `ErrorBoundary`——渲染异常降级为局部提示，不再整页白屏（fnOS 上曾表现为「应用初始化异常」弹窗）。
+- 数据层：状态库开启 WAL（失败仅降级，db 是可再生缓存铁律不变；查询全走 path 主键，未加无收益索引）。
+
+### Fixed
+- **fnOS 真机四类故障根因闭环**：B24 绑定（LAN 形态绑 0.0.0.0）、B25 manifest 形态（`micro_app` / 入口名大小写 / 去 checkport）、
+  B26 wizard 协议（JSON 步骤定义，非 HTML）、B27 升级启动清理。
+- **B27 后续修复（由新增生命周期冒烟在 CI 抓出）**：① Linux `comm` 上限 15 字符导致进程名匹配恒失败——
+  **旧实例清理逻辑此前从未真正生效**；② 僵尸进程使 `kill -0` 仍成功 → 启动探测"假成功"；③ `stop` 等待循环空转。
+- HTTP 形态 dry-run 语义（勾选「仅规划」不再真实写文件）；`select_directory` / 文件选择在服务端形态降级为路径输入框；
+  事件订阅失败不再冒泡为应用初始化异常。
+
+### Security
+- 认证失败限流与审计留痕（鉴权失败 / 路径域拒绝 / 破坏类操作）；token 轮换命令；
+  请求日志脱敏（只记 path，不含 query/header）。
+
 ## [0.9.0] - 2026-09-10
 
 **P8（NAS/服务端形态）+ P9 先行收敛**——首个完整支持「桌面 / NAS 原生应用 / 容器」三形态交付的版本。
