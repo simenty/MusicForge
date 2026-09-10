@@ -110,6 +110,92 @@ export const en: typeof zh = {
   library: {
     tabScan: "Scan",
     tabDedupe: "Duplicates",
+    tabOrganize: "Organize",
+    tabClean: "Clean",
+    tabTrash: "Recycle bin",
+  },
+  /** P1: organize — archive by template (read-only preview + confirm + rollback) */
+  organize: {
+    head: "Organize (archive by naming template)",
+    readonlyNote: "Preview is read-only — nothing is moved",
+    serverOnly:
+      "Organize is a server-mode capability (fnOS / self-hosted server); on desktop use the CLI: musicforge organize",
+    dirPlaceholder: "Enter or choose the library directory to organize",
+    targetPlaceholder: "Target root (blank = organize in place)",
+    templateTip: "Template: {title} {artist} {album} {track:02d} {format}; '/' creates subfolders",
+    pickDirTitle: "Choose the library directory to organize",
+    pickTargetTitle: "Choose the target root directory",
+    browse: "Browse",
+    planBtn: "Build plan",
+    planning: "Planning…",
+    applyBtn: (n: number) => `Apply organize (${n})`,
+    applying: "Applying…",
+    applyHint: "Second confirmation before apply · rollback manifest restores everything",
+    confirmApply: (n: number) =>
+      `Archive ${n} files by template?\n\nA rollback manifest lets you restore everything.`,
+    confirmRestore:
+      "Restore everything from the rollback manifest? Existing files at target paths will be overwritten.",
+    countPlanned: (n: number) => `to move ${n}`,
+    countInPlace: (n: number) => `in place ${n}`,
+    countSkipped: (n: number) => `conflict skipped ${n}`,
+    countConflict: (n: number) => `conflict never ${n}`,
+    colSource: "Source",
+    colTarget: "Target",
+    resultLine: (moved: number, skipped: number, failed: number) =>
+      `moved ${moved} · skipped ${skipped} · failed ${failed}`,
+    rollbackLine: (p: string) => `Rollback manifest: ${p}`,
+    restoreBtn: "Restore all",
+    restoring: "Restoring…",
+    restored: (n: number) => `Restored ${n} item(s)`,
+    truncated: (total: number, shown: number) => `${total} items total, showing first ${shown}`,
+    noChanges: "✓ Nothing to organize (all files already in place)",
+  },
+  /** P1: clean — move junk to the recycle bin (restorable) */
+  clean: {
+    head: "Clean (junk / orphaned files → recycle bin)",
+    trashNote: "Moved to the recycle bin — never deleted",
+    serverOnly:
+      "Clean is a server-mode capability (fnOS / self-hosted server); on desktop use the CLI: musicforge clean",
+    dirPlaceholder: "Enter or choose the library directory to clean",
+    rulesPlaceholder: "Rules (comma separated, blank = all)",
+    rulesTip: "Blank = enable all clean rules; example: junk,orphan_lyrics",
+    pickDirTitle: "Choose the library directory to clean",
+    browse: "Browse",
+    planBtn: "Build plan",
+    planning: "Planning…",
+    applyBtn: (n: number) => `Move to recycle bin (${n})`,
+    applying: "Applying…",
+    applyHint: "Second confirmation before apply · restorable from the recycle bin",
+    confirmApply: (n: number) => `Move ${n} files to the recycle bin (restorable)?`,
+    confirmRestore:
+      "Restore everything from the recycle bin? Existing files at target paths will be overwritten.",
+    nActions: (n: number) => `to clean ${n}`,
+    nEmptyDirs: (n: number) => `empty dirs ${n}`,
+    trashRoot: (p: string) => `Recycle bin: ${p}`,
+    colRule: "Rule",
+    colPath: "File",
+    resultLine: (moved: number, dirs: number) => `moved ${moved} · empty dirs removed ${dirs}`,
+    rollbackLine: (p: string) => `Rollback manifest: ${p}`,
+    restoreBtn: "Restore all",
+    restoring: "Restoring…",
+    restored: (n: number) => `Restored ${n} item(s)`,
+    truncated: (total: number, shown: number) => `${total} items total, showing first ${shown}`,
+    nothingToClean: "✓ Nothing to clean",
+  },
+  /** P1: trash restore (restore everything from a rollback manifest) */
+  trash: {
+    head: "Restore from recycle bin",
+    note: "Restore everything listed in a rollback manifest (organize/clean output)",
+    serverOnly:
+      "Restore is a server-mode capability (fnOS / self-hosted server); on desktop use the CLI: musicforge trash restore",
+    manifestPlaceholder: "Rollback manifest path (.musicforge/**/*.jsonl)",
+    manifestHint:
+      "The manifest must be a *.jsonl inside the .musicforge recycle-bin tree (server-side check prevents restoring arbitrary paths)",
+    restoreBtn: "Restore all",
+    restoring: "Restoring…",
+    confirmRestore:
+      "Restore everything from this manifest? Existing files at target paths will be overwritten.",
+    restored: (n: number) => `Restored ${n} item(s)`,
   },
   dedupe: {
     toggle: "▍Duplicate finder (side-by-side · suggested keep · your call)",

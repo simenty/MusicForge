@@ -26,6 +26,9 @@ import { useLang, type Lang } from "./i18n";
 import DedupePanel from "./DedupePanel";
 import ScanPanel from "./ScanPanel";
 import PluginPanel from "./PluginPanel";
+import OrganizePanel from "./OrganizePanel";
+import CleanPanel from "./CleanPanel";
+import TrashPanel from "./TrashPanel";
 import ErrorBoundary from "./ErrorBoundary";
 import {
   IconConvert,
@@ -37,7 +40,10 @@ import {
   IconPlay,
   IconPlugin,
   IconPlus,
+  IconOrganize,
+  IconRestore,
   IconScan,
+  IconClean,
   IconSettings,
   IconStop,
   IconTrash,
@@ -88,8 +94,10 @@ export default function App() {
   const { t, lang, setLang } = useLang();
   /** 当前主分区（默认「转换」——核心流程零跳转可达） */
   const [view, setView] = useState<ViewKey>("convert");
-  /** 曲库分区的二级菜单（左侧导航）：扫描 / 去重 */
-  const [libraryTab, setLibraryTab] = useState<"scan" | "dedupe">("scan");
+  /** 曲库分区的二级菜单（左侧导航）：扫描 / 去重 / 整理 / 清洗 / 回收站 */
+  const [libraryTab, setLibraryTab] = useState<
+    "scan" | "dedupe" | "organize" | "clean" | "trash"
+  >("scan");
   // P8.2.5：fnOS 服务端形态的访问 token（HTTP 形态标题栏可见可改）
   const [serverTokenInput, setServerTokenInput] = useState<string>(serverToken());
   const [settings, setSettings] = useState<Settings>(loadSettings);
@@ -921,10 +929,35 @@ export default function App() {
               <IconCopy />
               <span>{t.library.tabDedupe}</span>
             </button>
+            <button
+              className={"subnav-item" + (libraryTab === "organize" ? " on" : "")}
+              onClick={() => setLibraryTab("organize")}
+            >
+              <IconOrganize />
+              <span>{t.library.tabOrganize}</span>
+            </button>
+            <button
+              className={"subnav-item" + (libraryTab === "clean" ? " on" : "")}
+              onClick={() => setLibraryTab("clean")}
+            >
+              <IconClean />
+              <span>{t.library.tabClean}</span>
+            </button>
+            <button
+              className={"subnav-item" + (libraryTab === "trash" ? " on" : "")}
+              onClick={() => setLibraryTab("trash")}
+            >
+              <IconRestore />
+              <span>{t.library.tabTrash}</span>
+            </button>
           </nav>
           <div className="library-main">
             {libraryTab === "scan" && <ScanPanel hideCollapse />}
             {libraryTab === "dedupe" && <DedupePanel hideCollapse />}
+            {/* P1：整理 / 清洗 / 回收站还原——后端能力已就绪，此前无 UI 入口 */}
+            {libraryTab === "organize" && <OrganizePanel />}
+            {libraryTab === "clean" && <CleanPanel />}
+            {libraryTab === "trash" && <TrashPanel />}
           </div>
         </div>
       )}

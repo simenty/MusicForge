@@ -143,6 +143,42 @@ export function IconCopy({ size = 16, className }: IconProps) {
   );
 }
 
+/** 整理（按模板归档） */
+export function IconOrganize({ size = 16, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M3.5 7.5A1.5 1.5 0 0 1 5 6h3.6l1.8 2.2H19a1.5 1.5 0 0 1 1.5 1.5v7.3A1.5 1.5 0 0 1 19 18.5H5A1.5 1.5 0 0 1 3.5 17Z" />
+      <path d="M8 13.5h8M8 16h5" />
+    </>,
+    size,
+    className
+  );
+}
+
+/** 清洗（垃圾清理） */
+export function IconClean({ size = 16, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M14.5 4.5 20 10l-7.5 7.5H7L4.5 15V9.5Z" />
+      <path d="M7.5 9.5h4" />
+    </>,
+    size,
+    className
+  );
+}
+
+/** 回收站还原 */
+export function IconRestore({ size = 16, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M4 10.5a8 8 0 1 1 2.4 6.2" />
+      <path d="M4 5.5v5h5" />
+    </>,
+    size,
+    className
+  );
+}
+
 export function IconDownload({ size = 16, className }: IconProps) {
   return svg(
     <>

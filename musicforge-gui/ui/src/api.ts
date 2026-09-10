@@ -478,3 +478,141 @@ export function onDragDropEvent(
   }
   return getCurrentWebview().onDragDropEvent((ev) => handler(ev.payload));
 }
+
+// ---------------------------------------------------------------------------
+// P1：曲库治理——整理 / 清洗 / 回收站还原（**服务端形态专属**）
+//
+// 形态差异：桌面（Tauri）未暴露这三类命令（CLI 与 server 已有），因此
+// IS_DESKTOP 时抛 MF-SERVER-ONLY——显式可见，绝不静默（项目一贯原则）。
+//
+// 破坏类语义（与后端一致）：必须 plan（只读预览）→ 人工确认 → apply（confirm:true）。
+// 后端对 confirm !== true 一律 403 MF-OP-NEEDS-YES。
+// ---------------------------------------------------------------------------
+
+export interface OrganizeItem {
+  source: string;
+  target: string;
+  status: "planned" | "in_place" | "skipped_conflict" | "conflict_never";
+  note: string | null;
+}
+
+export interface OrganizeCounts {
+  planned: number;
+  in_place: number;
+  skipped_conflict: number;
+  conflict_never: number;
+}
+
+export interface OrganizePlan {
+  counts: OrganizeCounts;
+  plan: { items: OrganizeItem[]; template: string; strategy: string };
+}
+
+export interface OrganizeApplyResult {
+  moved: number;
+  skipped: number;
+  failed: number;
+  rollback_manifest: string | null;
+}
+
+export interface OrganizeArgs {
+  dir: string;
+  template?: string;
+  targetRoot?: string | null;
+  strategy?: string;
+}
+
+/** `POST /api/organize/plan`：整理计划预览（只读，绝不移动） */
+export async function organizePlan(args: OrganizeArgs): Promise<OrganizePlan> {
+  if (IS_DESKTOP) {
+    throw new HttpApiError(
+      "MF-SERVER-ONLY",
+      "整理为服务端形态能力（fnOS / 自建 server）；桌面版请用 CLI：musicforge organize"
+    );
+  }
+  return httpPost<OrganizePlan>("/api/organize/plan", {
+    dir: args.dir,
+    template: args.template ?? undefined,
+    target_root: args.targetRoot ?? undefined,
+    strategy: args.strategy ?? undefined,
+  });
+}
+
+/** `POST /api/organize/apply`：执行整理（破坏类，confirm 强制） */
+export async function organizeApply(args: OrganizeArgs): Promise<OrganizeApplyResult> {
+  if (IS_DESKTOP) {
+    throw new HttpApiError(
+      "MF-SERVER-ONLY",
+      "整理为服务端形态能力（fnOS / 自建 server）；桌面版请用 CLI：musicforge organize"
+    );
+  }
+  return httpPost<OrganizeApplyResult>("/api/organize/apply", {
+    dir: args.dir,
+    template: args.template ?? undefined,
+    target_root: args.targetRoot ?? undefined,
+    strategy: args.strategy ?? undefined,
+    confirm: true,
+  });
+}
+
+export interface CleanAction {
+  path: string;
+  rule_id: string;
+}
+
+export interface CleanPlan {
+  actions: CleanAction[];
+  empty_dirs: string[];
+  trash_root: string;
+}
+
+export interface CleanApplyResult {
+  moved: number;
+  dirs_removed: number;
+  rollback_manifest: string | null;
+}
+
+/** `POST /api/clean/plan`：垃圾清洗计划预览（只读 dry-run）；rules 缺省 = 全部规则 */
+export async function cleanPlan(dir: string, rules?: string): Promise<CleanPlan> {
+  if (IS_DESKTOP) {
+    throw new HttpApiError(
+      "MF-SERVER-ONLY",
+      "清洗为服务端形态能力（fnOS / 自建 server）；桌面版请用 CLI：musicforge clean"
+    );
+  }
+  return httpPost<CleanPlan>("/api/clean/plan", { dir, rules: rules || undefined });
+}
+
+/** `POST /api/clean/apply`：执行清洗（进回收站可整体还原，confirm 强制） */
+export async function cleanApply(dir: string, rules?: string): Promise<CleanApplyResult> {
+  if (IS_DESKTOP) {
+    throw new HttpApiError(
+      "MF-SERVER-ONLY",
+      "清洗为服务端形态能力（fnOS / 自建 server）；桌面版请用 CLI：musicforge clean"
+    );
+  }
+  return httpPost<CleanApplyResult>("/api/clean/apply", {
+    dir,
+    rules: rules || undefined,
+    confirm: true,
+  });
+}
+
+/**
+ * `POST /api/trash/restore`：按回滚清单整体还原。
+ *
+ * 服务端约束（AUD-6）：manifest 必须位于 `.musicforge` 体系内且为 *.jsonl，
+ * 否则 403 MF-TRASH-MANIFEST-INVALID（防越权还原任意路径）。
+ */
+export async function trashRestore(manifest: string): Promise<{ restored: number }> {
+  if (IS_DESKTOP) {
+    throw new HttpApiError(
+      "MF-SERVER-ONLY",
+      "回收站还原为服务端形态能力（fnOS / 自建 server）；桌面版请用 CLI：musicforge trash restore"
+    );
+  }
+  return httpPost<{ restored: number }>("/api/trash/restore", { manifest, confirm: true });
+}
+
+/** 是否服务端形态（面板据此提示能力边界） */
+export const IS_SERVER_MODE = !IS_DESKTOP;
