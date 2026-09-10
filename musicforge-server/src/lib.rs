@@ -30,6 +30,20 @@ pub mod api;
 /// 默认绑定地址（R22：仅回环；B22——常量化供测试断言，测试不再读环境变量）
 pub const DEFAULT_BIND: &str = "127.0.0.1:8787";
 
+/// P1-2 可观测性：初始化结构化日志（此前 server 零日志，线上问题只能靠猜）。
+///
+/// - 输出目标：**stdout**（fpk `cmd/main` 已把 stdout 重定向到 `data/logs/server.log`，
+///   因此无需额外文件 writer，即可自然落盘）；
+/// - 级别：`MUSICFORGE_LOG`（默认 `info`；排障时可设 `debug`）；
+/// - 幂等：`try_init()` —— 测试内多次调用不会 panic。
+pub fn init_logging() {
+    let filter = std::env::var("MUSICFORGE_LOG").unwrap_or_else(|_| "info".to_string());
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::new(filter))
+        .with_target(false)
+        .try_init();
+}
+
 /// 服务配置（env 注入；fpk `cmd/main` 为主要调用方）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerConfig {
@@ -185,6 +199,8 @@ async fn auth_middleware(
         .unwrap_or("");
     // B21: 空 token 的 ServerState 属误配置——拒绝服务而非放行（ct_eq("","")=true）
     if state.token.is_empty() {
+        // P1-2：误配置（空 token）显式 error——此前完全静默
+        tracing::error!("server token is empty (misconfiguration): refusing all /api requests");
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({"ok": false, "code": "MF-AUTH-REQUIRED",
@@ -195,6 +211,8 @@ async fn auth_middleware(
     if ct_eq(provided, &state.token) {
         next.run(req).await
     } else {
+        // P1-2：鉴权失败是安全事件——记 warn（**只记路径，绝不记 token**）
+        tracing::warn!(path = %req.uri().path(), "auth rejected: missing or invalid X-Token");
         (
             StatusCode::UNAUTHORIZED,
             Json(json!({"ok": false, "code": "MF-AUTH-REQUIRED",
@@ -254,6 +272,31 @@ pub fn build_router(state: ServerState) -> Router {
                 )),
         )
         .fallback_service(spa_service(ui_dir))
+        // P1-2：请求日志（method / path / status / 耗时）——只记路径，**不含
+        // query 与 header**，因此 token 不会进入日志。
+        .layer(
+            tower_http::trace::TraceLayer::new_for_http()
+                .make_span_with(|req: &Request<Body>| {
+                    tracing::info_span!(
+                        "req",
+                        method = %req.method(),
+                        path = %req.uri().path()
+                    )
+                })
+                .on_response(
+                    |res: &Response, latency: std::time::Duration, _span: &tracing::Span| {
+                        let ms = latency.as_millis();
+                        let status = res.status().as_u16();
+                        if status >= 500 {
+                            tracing::error!(status, ms, "request failed");
+                        } else if status >= 400 {
+                            tracing::warn!(status, ms, "request rejected");
+                        } else {
+                            tracing::info!(status, ms, "request done");
+                        }
+                    },
+                ),
+        )
         .with_state(state)
 }
 

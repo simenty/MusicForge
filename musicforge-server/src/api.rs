@@ -50,6 +50,12 @@ fn ensure_allowed(state: &ServerState, p: &std::path::Path) -> Result<(), Respon
     if allowed {
         Ok(())
     } else {
+        // P1-2：路径域拒绝 = 安全事件（可能是越权尝试或配置过窄）→ warn 留痕
+        tracing::warn!(
+            path = %p.display(),
+            roots = state.allowed_roots.len(),
+            "path rejected: outside MUSICFORGE_ALLOWED_ROOTS"
+        );
         Err(err(
             StatusCode::FORBIDDEN,
             "MF-PATH-NOT-ALLOWED",
@@ -594,6 +600,8 @@ pub async fn organize_apply(
     if let Err(resp) = ensure_allowed(&state, &r.target_root) {
         return resp;
     }
+    // P1-2：r 稍后被 move 进 spawn_blocking——先留一份用于审计日志
+    let dir_display = r.dir.display().to_string();
     let task_id = format!(
         "{}-{}",
         std::time::SystemTime::now()
@@ -614,12 +622,24 @@ pub async fn organize_apply(
     })
     .await;
     match apply_result {
-        Ok(Ok(outcome)) => ok(json!({
+        Ok(Ok(outcome)) => {
+            // P1-2：破坏类操作审计留痕（谁/对哪个目录/结果/回滚清单位置）
+            tracing::info!(
+                op = "organize_apply",
+                dir = %dir_display,
+                moved = outcome.moved,
+                skipped = outcome.skipped,
+                failed = outcome.failed,
+                rollback = ?outcome.rollback_manifest.as_ref().map(|p| p.display().to_string()),
+                "destructive op applied"
+            );
+            ok(json!({
             "moved": outcome.moved,
             "skipped": outcome.skipped,
             "failed": outcome.failed,
             "rollback_manifest": outcome.rollback_manifest.map(|p| p.display().to_string()),
-        })),
+        }))
+        }
         Ok(Err(e)) => err_from(e),
         Err(e) => err(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -720,6 +740,8 @@ pub async fn clean_apply(
     if let Err(resp) = ensure_allowed(&state, &dir) {
         return resp;
     }
+    // P1-2：dir 稍后被 move 进 spawn_blocking——先留一份用于审计日志
+    let dir_display = dir.display().to_string();
     let task_id = format!(
         "{}-{}",
         std::time::SystemTime::now()
@@ -738,11 +760,22 @@ pub async fn clean_apply(
     })
     .await;
     match apply_result {
-        Ok(Ok(outcome)) => ok(json!({
+        Ok(Ok(outcome)) => {
+            // P1-2：破坏类操作审计留痕（清洗：移入回收站数量 + 回滚清单）
+            tracing::info!(
+                op = "clean_apply",
+                dir = %dir_display,
+                moved = outcome.moved,
+                dirs_removed = outcome.dirs_removed,
+                rollback = ?outcome.rollback_manifest.as_ref().map(|p| p.display().to_string()),
+                "destructive op applied"
+            );
+            ok(json!({
             "moved": outcome.moved,
             "dirs_removed": outcome.dirs_removed,
             "rollback_manifest": outcome.rollback_manifest.map(|p| p.display().to_string()),
-        })),
+        }))
+        }
         Ok(Err(e)) => err_from(e),
         Err(e) => err(
             StatusCode::INTERNAL_SERVER_ERROR,

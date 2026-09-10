@@ -10,7 +10,10 @@ description = "MusicForge headless HTTP server shell (axum) — SPA serving + to
 axum = "0.7"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "fs"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["fs"] }
+# P1-2 可观测性：trace feature 用于请求日志中间件
+tower-http = { version = "0.6", features = ["fs", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde_json = "1"
 musicforge-core = { path = "../musicforge-core" }
 # P8.2.2：convert API 经 cli 桥接（显式启用 plugin-host——NAS fpk 发行形态；
