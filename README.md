@@ -115,6 +115,24 @@ tar xzf musicforge-v0.8.2-aarch64-apple-darwin.tar.gz
 - musl 静态二进制在 Alpine/scratch 等裸容器可直接运行（CI 裸容器冒烟覆盖）。
 - GUI（.dmg/.app 与 AppImage/deb）尚未提供——Tauri 2 多平台打包后续补齐。
 
+### Docker（P8：GHCR，<40MB 零插件 scratch 镜像）
+
+```bash
+# 服务形态（SPA + /api/*；token 首启随机生成于容器 /data/.token，docker logs 可见）
+docker run -d --name musicforge \
+  -p 8787:8787 \
+  -v /your/music/library:/music:ro \
+  -v musicforge-data:/data \
+  -e MUSICFORGE_LIBRARY_DIR=/music \
+  ghcr.io/simenty/musicforge:latest
+
+# 浏览器访问 http://<host>:8787（标题栏填入 token 后启用业务 API）
+```
+
+- 镜像 = **scratch 基底零 shell/零包管理器**，业务网络面为零；**零插件**（格式迁移插件独立分发，挂载白名单目录安装）。
+- 只读授权演示：`:ro` 挂载的目录上执行破坏类操作 → 拒绝并报 `MF-DIR-NOT-AUTHORIZED`。
+- CLI 亦在同一镜像内（`docker run --entrypoint /usr/local/bin/musicforge ghcr.io/simenty/musicforge ...`）。
+
 ## 使用
 
 ### CLI

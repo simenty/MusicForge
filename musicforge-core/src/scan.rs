@@ -13,8 +13,13 @@
 //!
 //! 刻意不做的事：不引入 walkdir/ignore/rayon（依赖面最小）；walker 为
 //! 有界深度的迭代实现，符号链接一律不跟随（防环）。
+//!
+//! X25（2026-09-10，主理人裁决「并行」）：标准库 `thread::scope` 有界 worker 池
+//! 实现**目录级并行**——**零新依赖**（原「不引入 rayon」约束保持）；目录间完全
+//! 独立，`scan_one_dir` 为纯函数单元；输出 items/empty_dirs/unauthorized_dirs
+//! 全局按路径排序（确定性跨运行一致）。
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
@@ -125,6 +130,8 @@ pub struct ScanOptions {
     pub max_depth: usize,
     /// 是否递归子目录（false = 只扫根目录一层）
     pub recursive: bool,
+    /// X25：并行 walker 工作线程数（0 = 自动 `min(cpus, 8)`；1 = 单线程等价）
+    pub parallel_jobs: usize,
 }
 
 impl Default for ScanOptions {
@@ -133,6 +140,7 @@ impl Default for ScanOptions {
             max_path_chars: 260,
             max_depth: 64,
             recursive: true,
+            parallel_jobs: 0,
         }
     }
 }
@@ -243,142 +251,255 @@ fn has_replacement_char(name: &str) -> bool {
     name.contains('\u{FFFD}')
 }
 
+/// 单目录扫描产物（X25：目录间完全独立——并行化的纯函数单元）。
+struct DirOutcome {
+    dir: PathBuf,
+    scanned_files: usize,
+    audio: usize,
+    lyrics: usize,
+    covers: usize,
+    junk: usize,
+    other: usize,
+    rule_hits: BTreeMap<&'static str, usize>,
+    items: Vec<ScanItem>,
+    empty_dir: bool,
+    unauthorized: bool,
+    /// 本目录音频 stems（孤儿歌词判定用）
+    dir_audio: HashSet<String>,
+    child_dirs: Vec<PathBuf>,
+}
+
+/// 处理单个目录：readdir + 逐文件分类 + 收集子目录（X25 抽取自原 while 体内，
+/// 纯函数——除 fs 读取外无共享态）。
+fn scan_one_dir(dir: PathBuf, root: &Path, options: &ScanOptions) -> DirOutcome {
+    let mut out = DirOutcome {
+        dir: dir.clone(),
+        scanned_files: 0,
+        audio: 0,
+        lyrics: 0,
+        covers: 0,
+        junk: 0,
+        other: 0,
+        rule_hits: BTreeMap::new(),
+        items: Vec::new(),
+        empty_dir: false,
+        unauthorized: false,
+        dir_audio: HashSet::new(),
+        child_dirs: Vec::new(),
+    };
+    // 约定目录剪枝：`.musicforge/`（回收站/清单/回滚清单等工具自身状态）
+    // 绝不进入扫描结果——否则去重会把回收站副本当新重复组、organize 会
+    // 把待还原文件搬走（真机实测发现，G5「兜底伪装」同族教训）。
+    if dir.file_name().and_then(|n| n.to_str()) == Some(".musicforge") {
+        return out;
+    }
+    let rd = match std::fs::read_dir(&dir) {
+        Ok(rd) => rd,
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            // P8（fnOS 授权模型）：未授权目录显式上报（部分授权语义：
+            // 不中断扫描）；调用方按 `MF-DIR-NOT-AUTHORIZED` 聚合呈现
+            out.unauthorized = true;
+            return out;
+        }
+        Err(_) => return out,
+    };
+    let mut file_count = 0usize;
+    for entry in rd.flatten() {
+        // 不跟随符号链接（symlink_metadata 只取链接本身）
+        let Ok(md) = std::fs::symlink_metadata(entry.path()) else {
+            continue;
+        };
+        if md.is_dir() {
+            out.child_dirs.push(entry.path());
+            continue;
+        }
+        if !md.is_file() {
+            continue; // 符号链接等非常规条目跳过
+        }
+        file_count += 1;
+        out.scanned_files += 1;
+
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let size = md.len();
+        let mtime = md
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64);
+        let ext = Path::new(&name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase());
+
+        let (category, rule): (Category, Option<&'static str>) =
+            if let Some(rule) = is_junk_name(&name) {
+                (Category::Junk, Some(rule))
+            } else if size == 0 {
+                (Category::Junk, Some("MF-CLEAN-003"))
+            } else if ext.as_deref() == Some("lrc") {
+                (Category::Lyrics, None)
+            } else if ext.as_deref().map(is_audio_ext).unwrap_or(false) {
+                (Category::Audio, None)
+            } else if is_cover_name(&name) {
+                (Category::Cover, None)
+            } else {
+                (Category::Other, None)
+            };
+
+        // 记录音频 stem（孤儿判定用）
+        if category == Category::Audio {
+            if let Some(stem) = Path::new(&name).file_stem().and_then(|s| s.to_str()) {
+                out.dir_audio.insert(stem.to_string());
+            }
+        }
+
+        let full = dir.join(&name);
+        let path_chars = full.to_string_lossy().chars().count();
+
+        let mut rule_final = rule;
+        if category != Category::Junk {
+            // 非垃圾文件也可命中异常规则（优先级：文件名异常 > 零字节已判）
+            if has_illegal_chars(&name) {
+                rule_final = Some("MF-CLEAN-007");
+            } else if has_replacement_char(&name) {
+                rule_final = Some("MF-CLEAN-009");
+            } else if path_chars > options.max_path_chars {
+                rule_final = Some("MF-CLEAN-008");
+            } else if size == 0 {
+                rule_final = Some("MF-CLEAN-003");
+            }
+        }
+
+        match category {
+            Category::Audio => out.audio += 1,
+            Category::Lyrics => out.lyrics += 1,
+            Category::Cover => out.covers += 1,
+            Category::Junk => out.junk += 1,
+            Category::Other => out.other += 1,
+        }
+        if let Some(rid) = rule_final {
+            *out.rule_hits.entry(rid).or_default() += 1;
+        }
+        out.items.push(ScanItem {
+            path: full,
+            category,
+            rule_id: rule_final,
+            size,
+            mtime,
+        });
+    }
+    // 空目录（无文件也无子目录）
+    out.empty_dir = file_count == 0 && out.child_dirs.is_empty() && dir != root;
+    out
+}
+
+/// X25 并行 walker 调度态（队列 + 未完成任务计数共享一把锁；Condvar 免忙等）。
+struct WalkState {
+    queue: VecDeque<(PathBuf, usize)>,
+    /// 队列中 + 处理中的任务总数（归零 = 扫描完成）
+    remaining: usize,
+    outcomes: Vec<DirOutcome>,
+}
+
 /// 递归扫描 `root`：分类文件、收集垃圾与异常项、记录空目录。
 ///
 /// 只读，不改动任何文件；符号链接一律不跟随；超深目录按 `options.max_depth` 截断。
+///
+/// X25 并行化：目录间完全独立 → 标准库 `thread::scope` 有界 worker 池
+///（`parallel_jobs`，0 = 自动 `min(cpus, 8)`；1 = 单线程等价）——**零新依赖**。
+/// 输出确定性：`items`/`empty_dirs`/`unauthorized_dirs` 全局按路径排序
+///（原 DFS 栈序依赖实现细节，排序后跨运行/跨并行度逐字节一致）。
 pub fn scan_library(root: &Path, options: &ScanOptions) -> Result<ScanReport, NcmError> {
-    let mut report = ScanReport::default();
     if !root.is_dir() {
         return Err(NcmError::Db(format!(
             "scan: 目录不存在或不可读: {}",
             root.display()
         )));
     }
+    let jobs = if options.parallel_jobs == 0 {
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .min(8)
+    } else {
+        options.parallel_jobs
+    };
+    let state = std::sync::Mutex::new(WalkState {
+        queue: VecDeque::from(vec![(root.to_path_buf(), 0usize)]),
+        remaining: 1,
+        outcomes: Vec::new(),
+    });
+    let cv = std::sync::Condvar::new();
 
-    // dir path -> (audio stems set, has_audio)
-    let mut dir_audio: HashMap<PathBuf, HashSet<String>> = HashMap::new();
-
-    let mut stack: Vec<(PathBuf, usize)> = vec![(root.to_path_buf(), 0)];
-    while let Some((dir, depth)) = stack.pop() {
-        // 约定目录剪枝：`.musicforge/`（回收站/清单/回滚清单等工具自身状态）
-        // 绝不进入扫描结果——否则去重会把回收站副本当新重复组、organize 会
-        // 把待还原文件搬走（真机实测发现，G5「兜底伪装」同族教训）。
-        if dir.file_name().and_then(|n| n.to_str()) == Some(".musicforge") {
-            continue;
-        }
-        report.scanned_dirs += 1;
-        let rd = match std::fs::read_dir(&dir) {
-            Ok(rd) => rd,
-            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                // P8（fnOS 授权模型）：未授权目录显式上报（部分授权语义：
-                // 不中断扫描）；调用方按 `MF-DIR-NOT-AUTHORIZED` 聚合呈现
-                report.unauthorized_dirs.push(dir);
-                continue;
-            }
-            Err(_) => continue,
-        };
-        let mut child_dirs: Vec<PathBuf> = Vec::new();
-        let mut file_count = 0usize;
-
-        for entry in rd.flatten() {
-            // 不跟随符号链接（symlink_metadata 只取链接本身）
-            let Ok(md) = std::fs::symlink_metadata(entry.path()) else {
-                continue;
-            };
-            if md.is_dir() {
-                child_dirs.push(entry.path());
-                continue;
-            }
-            if !md.is_file() {
-                continue; // 符号链接等非常规条目跳过
-            }
-            file_count += 1;
-            report.scanned_files += 1;
-
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let size = md.len();
-            let mtime = md
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs() as i64);
-            let ext = Path::new(&name)
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|e| e.to_ascii_lowercase());
-
-            let (category, rule): (Category, Option<&'static str>) =
-                if let Some(rule) = is_junk_name(&name) {
-                    (Category::Junk, Some(rule))
-                } else if size == 0 {
-                    (Category::Junk, Some("MF-CLEAN-003"))
-                } else if ext.as_deref() == Some("lrc") {
-                    (Category::Lyrics, None)
-                } else if ext.as_deref().map(is_audio_ext).unwrap_or(false) {
-                    (Category::Audio, None)
-                } else if is_cover_name(&name) {
-                    (Category::Cover, None)
-                } else {
-                    (Category::Other, None)
-                };
-
-            // 记录音频 stem（孤儿判定用）
-            if category == Category::Audio {
-                if let Some(stem) = Path::new(&name).file_stem().and_then(|s| s.to_str()) {
-                    dir_audio
-                        .entry(dir.clone())
-                        .or_default()
-                        .insert(stem.to_string());
+    std::thread::scope(|scope| {
+        for _ in 0..jobs {
+            scope.spawn(|| {
+                loop {
+                    // 取任务（队列空且 remaining>0 → 等；remaining==0 → 退出）
+                    let task = {
+                        let mut st = state.lock().unwrap();
+                        loop {
+                            if let Some(t) = st.queue.pop_front() {
+                                break Some(t);
+                            }
+                            if st.remaining == 0 {
+                                break None;
+                            }
+                            st = cv.wait(st).unwrap();
+                        }
+                    };
+                    let Some((dir, depth)) = task else { break };
+                    let outcome = scan_one_dir(dir.clone(), root, options);
+                    let mut st = state.lock().unwrap();
+                    st.remaining -= 1;
+                    if depth < options.max_depth && options.recursive {
+                        for d in outcome.child_dirs.clone() {
+                            st.queue.push_back((d, depth + 1));
+                            st.remaining += 1;
+                        }
+                    }
+                    st.outcomes.push(outcome);
+                    cv.notify_all();
                 }
-            }
-
-            let full = dir.join(&name);
-            let path_chars = full.to_string_lossy().chars().count();
-
-            let mut rule_final = rule;
-            if category != Category::Junk {
-                // 非垃圾文件也可命中异常规则（优先级：文件名异常 > 零字节已判）
-                if has_illegal_chars(&name) {
-                    rule_final = Some("MF-CLEAN-007");
-                } else if has_replacement_char(&name) {
-                    rule_final = Some("MF-CLEAN-009");
-                } else if path_chars > options.max_path_chars {
-                    rule_final = Some("MF-CLEAN-008");
-                } else if size == 0 {
-                    rule_final = Some("MF-CLEAN-003");
-                }
-            }
-
-            match category {
-                Category::Audio => report.audio += 1,
-                Category::Lyrics => report.lyrics += 1,
-                Category::Cover => report.covers += 1,
-                Category::Junk => report.junk += 1,
-                Category::Other => report.other += 1,
-            }
-            if let Some(rid) = rule_final {
-                *report.rule_hits.entry(rid).or_default() += 1;
-            }
-            report.items.push(ScanItem {
-                path: full,
-                category,
-                rule_id: rule_final,
-                size,
-                mtime,
             });
         }
+    });
 
-        // 空目录（无文件也无子目录）
-        if file_count == 0 && child_dirs.is_empty() && dir != root {
-            report.empty_dirs.push(dir.clone());
+    let st = state.into_inner().unwrap();
+    let mut report = ScanReport::default();
+    // dir path -> (audio stems set, has_audio)（孤儿歌词判定，跨目录合并）
+    let mut dir_audio: HashMap<PathBuf, HashSet<String>> = HashMap::new();
+    for o in &st.outcomes {
+        report.scanned_dirs += 1;
+        report.scanned_files += o.scanned_files;
+        report.audio += o.audio;
+        report.lyrics += o.lyrics;
+        report.covers += o.covers;
+        report.junk += o.junk;
+        report.other += o.other;
+        for (rid, n) in &o.rule_hits {
+            *report.rule_hits.entry(rid).or_default() += n;
         }
-
-        if depth < options.max_depth && options.recursive {
-            for d in child_dirs {
-                stack.push((d, depth + 1));
-            }
+        if !o.dir_audio.is_empty() {
+            dir_audio.insert(o.dir.clone(), o.dir_audio.clone());
+        }
+        if o.empty_dir {
+            report.empty_dirs.push(o.dir.clone());
+        }
+        if o.unauthorized {
+            report.unauthorized_dirs.push(o.dir.clone());
         }
     }
+    // X25 输出确定性：items / empty_dirs / unauthorized_dirs 全局按路径排序
+    report.items = st
+        .outcomes
+        .iter()
+        .flat_map(|o| o.items.iter().cloned())
+        .collect::<Vec<_>>();
+    report.items.sort_by(|a, b| a.path.cmp(&b.path));
+    report.empty_dirs.sort();
+    report.unauthorized_dirs.sort();
+    let _ = &mut dir_audio; // 下方孤儿判定沿用
 
     // 孤儿歌词：.lrc 的 stem 在同目录无音频
     let audio_stems =

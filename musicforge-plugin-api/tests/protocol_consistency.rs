@@ -9,7 +9,10 @@
 //! - §4.1 plugin.init 握手 / §5 方法集 / §6 事件 / §7 权限模型 / §8 错误模型
 //! - §13 版本治理（HOST_API_MAJOR=1 区间协商 D20）
 
-use musicforge_plugin_api::{codes, events, methods, v1, PluginError, PluginKind, PluginManifest, PluginPermissions, Request, Response};
+use musicforge_plugin_api::{
+    codes, events, methods, v1, PluginError, PluginKind, PluginManifest, PluginPermissions,
+    Request, Response,
+};
 
 // ---------------------------------------------------------------- 常量冻结 --
 
@@ -167,8 +170,17 @@ fn response_envelope_shape_frozen() {
 #[test]
 fn plugin_error_shape_frozen() {
     let plain = serde_json::to_value(PluginError::new(codes::TIMEOUT, "超时")).unwrap();
-    let keys: Vec<&str> = plain.as_object().unwrap().keys().map(String::as_str).collect();
-    assert_eq!(keys, vec!["code", "message"], "无业务码时不序列化 source_code");
+    let keys: Vec<&str> = plain
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        vec!["code", "message"],
+        "无业务码时不序列化 source_code"
+    );
 
     let sourced = serde_json::to_value(PluginError::with_source(
         codes::FAILED,

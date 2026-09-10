@@ -1,0 +1,11 @@
+target/
+node_modules/
+dist/
+.codebuddy/
+dist-fpk/
+docs/
+*.md
+.git/
+.github/
+musicforge-fpk/
+installer/

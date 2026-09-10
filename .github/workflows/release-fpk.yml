@@ -21,6 +21,11 @@ on:
       - "musicforge-gui/ui/src/**"
       - "musicforge-gui/ui/package.json"
       - "musicforge-gui/ui/package-lock.json"
+      # X25 补漏：core/cli 是 fpk 内全部二进制的依赖——改动必须重打包
+      - "musicforge-core/**"
+      - "musicforge-cli/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
   workflow_dispatch:
 
 env:
