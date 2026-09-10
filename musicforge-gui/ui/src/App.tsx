@@ -1,28 +1,16 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useState } from "react";
 import {
-  cancelBatch,
-  collectFiles,
-  previewTemplate,
-  saveFailures,
   selectDirectory,
   selectNcmFiles,
-  formatMigrate,
-  runBatchHttp,
-  onBatchDone,
-  onBatchFile,
-  onDragDropEvent,
-  planBatch,
-  startBatch,
-  IS_DESKTOP,
   serverToken,
   setServerToken,
-  type BatchSummary,
-  type FileResult,
-  type PlannedItem,
-  type UnlistenFn,
+  IS_DESKTOP,
 } from "./api";
-import { loadSettings, saveSettings, type Settings } from "./settings";
 import { useLang, type Lang } from "./i18n";
+import { useToast } from "./hooks/useToast";
+import { useSettings } from "./hooks/useSettings";
+import { useBatch, ROW_H, type FilterKey, type RowStatus } from "./hooks/useBatch";
+import { fileName, relOutput, formatDuration } from "./lib/format";
 import DedupePanel from "./DedupePanel";
 import ScanPanel from "./ScanPanel";
 import PluginPanel from "./PluginPanel";
@@ -49,27 +37,8 @@ import {
   IconTrash,
 } from "./icons";
 
-/** 主分区（信息架构：转换 / 曲库 / 插件 / 设置——原单页纵向堆叠改为分区导航） */
+/** 主分区（信息架构：转换 / 曲库 / 插件 / 设置） */
 type ViewKey = "convert" | "library" | "plugins" | "settings";
-
-/**
- * 行状态。
- * 后端批处理只在每个文件**到达终态**时推送一次事件（`batch-file`），
- * 没有「开始处理」事件 —— 所以这里不做「处理中」这个假状态：
- * 与其靠并发数去猜哪几个文件在跑，不如老老实实显示「等待」+ 底部进度。
- */
-type RowStatus = "pending" | FileResult["status"];
-
-interface Row {
-  source: string;
-  /** G3：目录输入的根（散文件为 null）——start_batch 随行回传，保留源目录树 */
-  root: string | null;
-  status: RowStatus;
-  output: string | null;
-  reason: string | null;
-}
-
-type FilterKey = "all" | "pending" | "ok" | "skipped" | "failed" | "cancelled";
 
 /** 状态视觉元数据（文案走 i18n：RowStatus 键与字典 status 命名空间同名） */
 const STATUS_META: Record<RowStatus, { cls: string; icon: string }> = {
@@ -83,13 +52,13 @@ const STATUS_META: Record<RowStatus, { cls: string; icon: string }> = {
 /** 筛选键（label = all → t.filter.all；其余键与 t.status 同名） */
 const FILTERS: FilterKey[] = ["all", "pending", "ok", "skipped", "failed", "cancelled"];
 
-/** 虚拟滚动行高（px）。与 CSS 中 .grid-row 的 height 必须一致 */
-const ROW_H = 36;
-/** 缓冲区行数：上下各多渲染一些，避免快速滚动时白屏 */
-const OVERSCAN = 8;
-/** 进度事件合并刷新间隔（ms）——5701 个文件若逐条 setState 会拖垮渲染 */
-const FLUSH_MS = 100;
-
+/**
+ * App：只负责**分区导航 + 视图编排 + 渲染**。
+ *
+ * P1-3 拆分后，批处理编排下沉到 `hooks/useBatch`、设置下沉到 `hooks/useSettings`、
+ * 轻提示下沉到 `hooks/useToast`、纯字符串变换下沉到 `lib/format`——本文件的
+ * 每个 useEffect/useCallback 都只服务于界面本身。
+ */
 export default function App() {
   const { t, lang, setLang } = useLang();
   /** 当前主分区（默认「转换」——核心流程零跳转可达） */
@@ -100,258 +69,39 @@ export default function App() {
   >("scan");
   // P8.2.5：fnOS 服务端形态的访问 token（HTTP 形态标题栏可见可改）
   const [serverTokenInput, setServerTokenInput] = useState<string>(serverToken());
-  const [settings, setSettings] = useState<Settings>(loadSettings);
-  const [rows, setRows] = useState<Row[]>([]);
-  const [summary, setSummary] = useState<BatchSummary | null>(null);
-  /** 计划预览（dry-run）：planBatch 的结果，展示在列表上方的预览面板 */
-  const [plannedRows, setPlannedRows] = useState<PlannedItem[] | null>(null);
-  const [running, setRunning] = useState(false);
   const [filter, setFilter] = useState<FilterKey>("all");
-  const [dragOver, setDragOver] = useState(false);
-  const [preview, setPreview] = useState<string[]>([]);
-  const [toast, setToast] = useState<string | null>(null);
-  const [elapsedMs, setElapsedMs] = useState(0);
-  /** 致命错误（事件订阅失败等）——置顶横幅，绝不能静默 */
-  const [fatal, setFatal] = useState<string | null>(null);
 
-  // ---- 虚拟滚动 ----
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewH, setViewH] = useState(320);
-  const viewRef = useRef<HTMLDivElement | null>(null);
-
-  // ---- 批处理事件缓冲 ----
-  // G3 后 Row 增加了 root（事件载荷不含 root）——缓冲只存状态补丁，落行时合并
-  type RowPatch = Pick<Row, "source" | "status" | "output" | "reason">;
-  const pendingRef = useRef<RowPatch[]>([]);
-  const indexRef = useRef(new Map<string, number>());
-
-  // 事件订阅只在挂载时做一次；下面两个 ref 让回调始终读到最新的值，
-  // 避免闭包捕获到挂载时的旧状态（拖拽导入时 running 会失效）
-  const recursiveRef = useRef(settings.recursive);
-  const importRef = useRef<(paths: string[], recursive: boolean) => Promise<void>>(
-    async () => {}
-  );
-
-  // 设置持久化（防抖 300ms，避免连续输入时频繁写入）
-  useEffect(() => {
-    const t = setTimeout(() => saveSettings(settings), 300);
-    return () => clearTimeout(t);
-  }, [settings]);
-
-  const patch = useCallback((p: Partial<Settings>) => {
-    setSettings((s) => ({ ...s, ...p }));
-  }, []);
-
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    window.setTimeout(() => setToast((cur) => (cur === msg ? null : cur)), 3600);
-  }, []);
-
-  // ---- 模板实时预览（debounce 300ms）----
-  useEffect(() => {
-    const t = setTimeout(() => {
-      if (settings.template.trim()) {
-        previewTemplate(settings.template).then(setPreview).catch(() => setPreview([]));
-      } else {
-        setPreview([]);
-      }
-    }, 300);
-    return () => clearTimeout(t);
-  }, [settings.template]);
-
-  // ---- 导入文件（追加 + 去重）----
-  // 工具条提示「可继续添加」、拖放区提示「拖动更多文件」，因此语义必须是**追加**
-  // 而非替换：用户从多个文件夹收集是常态，替换会静默丢掉前一批。
-  const importPaths = useCallback(
-    async (paths: string[], recursive: boolean) => {
-      if (running || paths.length === 0) return;
-      const ncm = await collectFiles(paths, recursive);
-      if (ncm.length === 0) {
-        showToast(t.app.noNcmFound(paths.length));
-        return;
-      }
-      // 在事件处理里基于当前 rows 计算 next（不在 setState 更新器里改 ref）
-      const known = new Set(rows.map((r) => r.source));
-      const fresh = ncm.filter((f) => !known.has(f.path));
-      if (fresh.length === 0) {
-        showToast(t.app.alreadyInList(ncm.length));
-        return;
-      }
-      const next = [
-        ...rows,
-        ...fresh.map((f) => ({
-          source: f.path,
-          root: f.root,
-          status: "pending" as const,
-          output: null,
-          reason: null,
-        })),
-      ];
-      indexRef.current = new Map(next.map((r, i) => [r.source, i]));
-      setRows(next);
-      setSummary(null);
-      setElapsedMs(0);
-      setScrollTop(0);
-      if (viewRef.current) viewRef.current.scrollTop = 0;
-      const skippedDup = ncm.length - fresh.length;
-      const nonNcm = paths.length - ncm.length;
-      const parts: string[] = [t.app.added(fresh.length)];
-      if (skippedDup > 0) parts.push(t.app.deduped(skippedDup));
-      if (nonNcm > 0) parts.push(t.app.ignoredNonNcm(nonNcm));
-      showToast(parts.join(" · ") + t.app.listTotal(next.length));
-    },
-    [running, rows, showToast, t]
-  );
-
-  // ref 同步：让只订阅一次的事件回调读到最新值
-  recursiveRef.current = settings.recursive;
-  importRef.current = importPaths;
-
-  // ---- 事件订阅 ----
-  // ⚠ 注册失败绝不能静默吞掉：曾经 listen() 被 ACL 拒绝（event.listen not allowed）
-  //   而 void p.then() 把错误吞了，表现为后台正常转换、UI 永远停在 0/N 且无任何报错。
-  useEffect(() => {
-    let cancelled = false;
-    const cleanups: UnlistenFn[] = [];
-
-    const register = (p: Promise<UnlistenFn>, name: string) => {
-      p.then((un) => {
-        if (cancelled) un();
-        else cleanups.push(un);
-      }).catch((e) => {
-        if (!cancelled) {
-          setFatal(t.app.eventSubFailed(name, String(e)));
-        }
-      });
-    };
-
-    register(
-      onDragDropEvent((ev) => {
-        if (ev.type === "enter" || ev.type === "over") {
-          setDragOver(true);
-        } else if (ev.type === "leave") {
-          setDragOver(false);
-        } else if (ev.type === "drop") {
-          setDragOver(false);
-          // QA 第二轮：拖放导入的失败此前是 unhandled rejection，
-          // 表现为「拖进来什么都没发生」。
-          void importRef.current(ev.paths, recursiveRef.current).catch((e) =>
-            setFatal(t.app.importFailed(String(e)))
-          );
-        }
-      }),
-      "drag-drop"
-    );
-    register(
-      onBatchFile((r) => {
-        // 只入缓冲，不 setState —— 由下面的定时器批量刷新
-        pendingRef.current.push({
-          source: r.source,
-          status: r.status,
-          output: r.output,
-          reason: r.reason,
-        });
-      }),
-      "progress"
-    );
-    register(
-      onBatchDone((s) => {
-        setSummary(s);
-        setRunning(false);
-      }),
-      "summary"
-    );
-
-    return () => {
-      cancelled = true;
-      cleanups.forEach((un) => un());
-    };
-    // 只在挂载时订阅一次；importPaths / recursive 均通过 ref 取最新值
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // 合并刷新：O(batch) 增量更新，而不是每个文件一次全量重渲染。
-  // 计数不在这里维护 —— 由 rows 派生（见下方 useMemo），追加导入时不会算错。
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      const batch = pendingRef.current;
-      if (batch.length === 0) return;
-      pendingRef.current = [];
-      setRows((prev) => {
-        const next = prev.slice();
-        for (const u of batch) {
-          const i = indexRef.current.get(u.source);
-          if (i === undefined) continue;
-          // 只接受「等待 → 终态」的首次跃迁，忽略重复事件；合并而非整行替换（root 保留）
-          if (next[i].status !== "pending") continue;
-          next[i] = { ...next[i], status: u.status, output: u.output, reason: u.reason };
-        }
-        return next;
-      });
-    }, FLUSH_MS);
-    return () => clearInterval(id);
-  }, []);
-
-  // ---- 计时 ----
-  useEffect(() => {
-    if (!running) return;
-    const t0 = Date.now();
-    const id = window.setInterval(() => setElapsedMs(Date.now() - t0), 250);
-    return () => clearInterval(id);
-  }, [running]);
-
-  // ---- 视口高度测量（虚拟滚动需要）----
-  useEffect(() => {
-    const el = viewRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setViewH(el.clientHeight));
-    ro.observe(el);
-    setViewH(el.clientHeight);
-    return () => ro.disconnect();
-  }, []);
-
-  // ---- 筛选 + 虚拟窗口 ----
-  const filtered = useMemo(
-    () => (filter === "all" ? rows : rows.filter((r) => r.status === filter)),
-    [rows, filter]
-  );
-
-  const filterCounts = useMemo(() => {
-    const c: Record<RowStatus | "all", number> = {
-      all: rows.length,
-      pending: 0,
-      ok: 0,
-      skipped: 0,
-      failed: 0,
-      cancelled: 0,
-    };
-    for (const r of rows) c[r.status]++;
-    return c;
-  }, [rows]);
-
-  // 计数从 rows 派生（而非增量累加）：追加导入/重跑/清除时天然正确，
-  // 不存在「计数与列表脱节」这类状态同步 bug。O(n) 每次 flush 可忽略。
-  const counts = filterCounts;
-
-  // 输入行变化后，旧的计划预览即失效
-  useEffect(() => {
-    setPlannedRows(null);
-  }, [rows.length]);
-
-  const start = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
-  const end = Math.min(filtered.length, Math.ceil((scrollTop + viewH) / ROW_H) + OVERSCAN);
-  const visible = filtered.slice(start, end);
-
-  // ---- 动作 ----
-  // QA 第二轮：所有 async 动作都必须有拒绝分支。此前 `onClick={addFiles}` 之类的
-  // 写法把 invoke 失败变成 unhandled rejection —— 按钮点了没反应、控制台一行报错，
-  // 用户完全不知道发生了什么。统一经 `guard` 兜住并提示。
-  const guard = useCallback(
-    (label: string, p: Promise<unknown>) => {
-      p.catch((e) => showToast(t.app.actionFailed(label, String(e))));
-    },
-    [showToast, t]
-  );
+  const { toast, setToast, showToast } = useToast();
+  const { settings, patch, preview } = useSettings();
+  const b = useBatch({ t, settings, showToast, filter });
+  const {
+    rows,
+    summary,
+    plannedRows,
+    setPlannedRows,
+    running,
+    fatal,
+    setFatal,
+    dragOver,
+    viewRef,
+    setScrollTop,
+    filtered,
+    visible,
+    start,
+    filterCounts,
+    counts,
+    doneCount,
+    total,
+    pct,
+    finishedMs,
+    startRun,
+    doCancel,
+    clearList,
+    removeRow,
+    exportFailures,
+    importPaths,
+    guard,
+  } = b;
 
   const addFiles = useCallback(() => {
     guard(
@@ -379,247 +129,6 @@ export default function App() {
       })
     );
   }, [guard, patch, settings.outDir, t]);
-
-  const clearList = () => {
-    if (running) return;
-    pendingRef.current = [];
-    indexRef.current = new Map();
-    setRows([]);
-    setSummary(null);
-    setElapsedMs(0);
-  };
-
-  const removeRow = (source: string) => {
-    if (running) return;
-    // 直接在事件处理里算出 next，不在 setState 更新器里改 ref
-    // （StrictMode 下更新器会被调用两次，副作用放进去是坏味道）
-    const next = rows.filter((r) => r.source !== source);
-    indexRef.current = new Map(next.map((r, i) => [r.source, i]));
-    setRows(next);
-  };
-
-  const startRun = async () => {
-    if (running) return;
-    if (rows.length === 0) {
-      showToast(t.app.emptyList);
-      return;
-    }
-    if (settings.saveTo === "custom" && !settings.outDir.trim()) {
-      showToast(t.app.needOutDir);
-      return;
-    }
-    // dry-run：不进入执行流，改走计划预览（plan_batch 只规划不落盘）
-    if (settings.dryRun) {
-      try {
-        const items = await planBatch({
-          inputs: rows.map((r) => ({ path: r.source, root: r.root })),
-          outDir: settings.saveTo === "custom" ? settings.outDir.trim() : null,
-          template: settings.template,
-          skipExisting: settings.skipExisting,
-          recursive: settings.recursive,
-          jobs: settings.jobs,
-          dryRun: true,
-        });
-        const failed = items.filter((i) => i.error !== null).length;
-        setPlannedRows(items);
-        showToast(
-          t.app.planOk(items.length - failed) +
-            (failed > 0 ? t.app.planFailed(failed) : t.app.planNoChange)
-        );
-      } catch (e) {
-        showToast(String(e));
-      }
-      return;
-    }
-
-    // 允许重跑：先把所有行重置为等待。
-    // （竞品在这里直接拒绝、逼用户重新导入，属于没必要的限制）
-    pendingRef.current = [];
-    setPlannedRows(null);
-    setRows((prev) =>
-      prev.map((r) => ({ ...r, status: "pending" as const, output: null, reason: null }))
-    );
-    setSummary(null);
-    setElapsedMs(0);
-    setRunning(true);
-    if (!IS_DESKTOP) {
-      // P8.2.6：fnOS 服务端形态——逐文件 HTTP 插件迁移（无批处理进程/事件）。
-      // .ncm = 内置 core 转换（server 尚无该域端点）→ 显式失败标注（P8.2.7 待办）；
-      // kwm/qmc 系 → /api/convert（需已安装并启用对应插件包）。
-      const PLUGIN_BY_EXT: Record<string, string> = {
-        kwm: "kwm-migration",
-        qmc0: "qmc-migration",
-        qmc3: "qmc-migration",
-        qmcflac: "qmc-migration",
-        qmc2: "qmc-migration",
-        qmcogg: "qmc-migration",
-        qmcmp3: "qmc-migration",
-        qmflac: "qmc-migration",
-        bkcflac: "qmc-migration",
-        bkcmp3: "qmc-migration",
-        mflac: "qmc-migration",
-        mflac0: "qmc-migration",
-        mflac1: "qmc-migration",
-        mgg: "qmc-migration",
-        mgg0: "qmc-migration",
-        mgg1: "qmc-migration",
-        mggl: "qmc-migration",
-      };
-      const t0 = Date.now();
-      // AUD-1（严重修复）：此前 HTTP 分支完全忽略 dryRun——勾选「仅规划（不写文件）」
-      // 仍会真实执行迁移写文件（数据面风险）。对齐桌面语义：planned = 仅规划数。
-      if (settings.dryRun) {
-        setSummary({
-          planned: rows.length,
-          ok: 0,
-          skipped: 0,
-          cancelled: 0,
-          failed: 0,
-          durationMs: Date.now() - t0,
-          isCancelled: false,
-          results: [],
-        });
-        setRunning(false);
-        return;
-      }
-      let ok = 0;
-      let failed = 0;
-      let skipped = 0;
-      const results: FileResult[] = [];
-      const ncmRows: typeof rows = [];
-      // 循环 1：插件格式逐文件迁移（kwm/qmc 系 → /api/convert）；
-      // .ncm 收集走内置批处理（P8.2.7）；未知扩展名显式失败
-      for (const r of rows) {
-        const ext = (/\.(?:([A-Za-z0-9]+))$/.exec(r.source)?.[1] ?? "").toLowerCase();
-        if (ext === "ncm") {
-          ncmRows.push(r);
-          continue;
-        }
-        const plugin = PLUGIN_BY_EXT[ext];
-        if (!plugin) {
-          failed += 1;
-          const reason = t.app.fnosNoPlugin(ext || "?");
-          results.push({ source: r.source, status: "failed", output: null, reason });
-          setRows((prev) =>
-            prev.map((x) => (x.source === r.source ? { ...x, status: "failed" as const, output: null, reason } : x))
-          );
-          continue;
-        }
-        try {
-          const out = await formatMigrate(
-            plugin,
-            r.source,
-            settings.saveTo === "custom" ? settings.outDir.trim() : undefined
-          );
-          ok += 1;
-          results.push({ source: r.source, status: "ok", output: out.outputPath, reason: null });
-          setRows((prev) =>
-            prev.map((x) => (x.source === r.source ? { ...x, status: "ok" as const, output: out.outputPath, reason: null } : x))
-          );
-        } catch (e) {
-          failed += 1;
-          const reason = String(e);
-          results.push({ source: r.source, status: "failed", output: null, reason });
-          setRows((prev) =>
-            prev.map((x) => (x.source === r.source ? { ...x, status: "failed" as const, output: null, reason } : x))
-          );
-        }
-      }
-      // 循环 2：.ncm 单次内置批处理（P8.2.7——与桌面 startBatch 同源引擎；
-      // HTTP 同步形态无进度事件，一次调用取终态 summary）
-      if (ncmRows.length > 0) {
-        try {
-          const s = await runBatchHttp({
-            inputs: ncmRows.map((r) => ({ path: r.source, root: r.root })),
-            outDir: settings.saveTo === "custom" ? settings.outDir.trim() : null,
-            template: settings.template,
-            skipExisting: settings.skipExisting,
-            recursive: true,
-            jobs: settings.jobs,
-            dryRun: false,
-          });
-          for (const r of s.results) {
-            results.push({ source: r.source, status: r.status, output: r.output, reason: r.reason });
-            if (r.status === "ok") ok += 1;
-            else if (r.status === "skipped") skipped += 1;
-            else if (r.status === "failed") failed += 1;
-            setRows((prev) =>
-              prev.map((x) =>
-                x.source === r.source ? { ...x, status: r.status, output: r.output, reason: r.reason } : x
-              )
-            );
-          }
-        } catch (e) {
-          // batch 调用整体失败（网络/服务端错误）：全部 ncm 行显式标失败
-          for (const r of ncmRows) {
-            failed += 1;
-            const reason = String(e);
-            results.push({ source: r.source, status: "failed", output: null, reason });
-            setRows((prev) =>
-              prev.map((x) => (x.source === r.source ? { ...x, status: "failed" as const, output: null, reason } : x))
-            );
-          }
-        }
-      }
-      const durationMs = Date.now() - t0;
-      setElapsedMs(durationMs); // AUD-3：HTTP 分支此前结束时不清零计时显示
-      setSummary({
-        planned: 0,
-        ok,
-        skipped,
-        cancelled: 0,
-        failed,
-        durationMs,
-        isCancelled: false,
-        results,
-      });
-      setRunning(false);
-      return;
-    }
-    try {
-      await startBatch({
-        inputs: rows.map((r) => ({ path: r.source, root: r.root })),
-        outDir: settings.saveTo === "custom" ? settings.outDir.trim() : null,
-        template: settings.template,
-        skipExisting: settings.skipExisting,
-        recursive: settings.recursive,
-        jobs: settings.jobs,
-        dryRun: settings.dryRun,
-      });
-    } catch (e) {
-      setRunning(false);
-      showToast(String(e));
-    }
-  };
-
-  // QA 第二轮：`cancelBatch()` 若被拒绝，此前既没有提示也没有任何痕迹，
-  // 用户点了「取消」却完全不知道请求有没有送到后端。
-  const doCancel = useCallback(() => {
-    guard(
-      t.app.labelCancel,
-      cancelBatch().then((ok) =>
-        showToast(ok ? t.app.cancelRequested : t.app.nothingToCancel)
-      )
-    );
-  }, [guard, showToast, t]);
-
-  const exportFailures = async () => {
-    const failedRows = rows.filter((r) => r.status === "failed");
-    if (failedRows.length === 0) return;
-    try {
-      const path = await saveFailures(
-        failedRows.map((r) => ({ source: r.source, status: "failed", reason: r.reason }))
-      );
-      if (path) showToast(t.app.failureExported(path));
-    } catch (e) {
-      showToast(t.app.exportFailed(String(e)));
-    }
-  };
-
-  const doneCount = counts.ok + counts.skipped + counts.failed + counts.cancelled;
-  const total = rows.length;
-  const pct = total > 0 ? Math.min(100, Math.round((doneCount / total) * 100)) : 0;
-  const finishedMs = summary ? summary.durationMs : elapsedMs;
 
   const filterLabel = (key: FilterKey): string =>
     key === "all" ? t.filter.all : t.status[key];
@@ -1113,26 +622,4 @@ export default function App() {
       )}
     </div>
   );
-}
-
-/** 取路径最后一段（跨平台分隔符） */
-function fileName(p: string): string {
-  const i = Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/"));
-  return i >= 0 ? p.slice(i + 1) : p;
-}
-
-/** 输出路径只显示末两段，避免长路径撑破表格 */
-function relOutput(p: string): string {
-  const norm = p.replace(/\\/g, "/");
-  const parts = norm.split("/").filter(Boolean);
-  return parts.length <= 2 ? norm : "…/" + parts.slice(-2).join("/");
-}
-
-function formatDuration(ms: number): string {
-  if (ms <= 0) return "—";
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}.${Math.floor((ms % 1000) / 100)}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m${String(s % 60).padStart(2, "0")}s`;
-  return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}m`;
 }
