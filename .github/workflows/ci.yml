@@ -16,6 +16,25 @@ defaults:
     shell: bash
 
 jobs:
+  # ---- 形态/契约护栏（P0）：把"靠人记的约束"变成 CI 断言 ----
+  # 起因：B24–B27 四次真机故障的共同根因是约束无自动化校验。
+  #   - 契约一致性 → 前后端漂移 / 后端能力未露出
+  #   - fpk 结构   → B25（micro_app 缺失）/ B26（wizard 非 JSON）应在 CI 拦截
+  #   - 版本一致性 → 版本-内容漂移
+  guardrails:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 契约一致性（server 路由 vs 前端调用）
+        run: bash scripts/check-api-contract.sh
+
+      - name: fpk 结构校验（manifest / wizard / ui-config）
+        run: bash scripts/check-fpk-structure.sh
+
+      - name: 版本一致性（core / fpk / tauri）
+        run: bash scripts/check-version-consistency.sh
+
   # ---- 测试 + lint（三平台）----
   test:
     strategy:

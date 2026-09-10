@@ -26,6 +26,7 @@ import { useLang, type Lang } from "./i18n";
 import DedupePanel from "./DedupePanel";
 import ScanPanel from "./ScanPanel";
 import PluginPanel from "./PluginPanel";
+import ErrorBoundary from "./ErrorBoundary";
 import {
   IconConvert,
   IconCopy,
@@ -712,6 +713,12 @@ export default function App() {
       </nav>
 
       <main className="main">
+      {/* P0-2：分区级错误边界——任一分区渲染异常只降级该分区，不带走整个应用 */}
+      <ErrorBoundary
+        title={t.app.errorTitle}
+        hint={t.app.errorHint}
+        retry={t.app.errorRetry}
+      >
       {view === "convert" && (
         <>
       {/* ---------- 导入操作区 ---------- */}
@@ -893,7 +900,10 @@ export default function App() {
         </>
       )}
 
+      </ErrorBoundary>
+
       {/* ---------- 曲库治理：左侧二级菜单 + 右侧工作区 ---------- */}
+      <ErrorBoundary title={t.app.errorTitle} hint={t.app.errorHint} retry={t.app.errorRetry}>
       {view === "library" && (
         <div className="library">
           <nav className="subnav" aria-label="library">
@@ -918,9 +928,15 @@ export default function App() {
           </div>
         </div>
       )}
+      </ErrorBoundary>
+
       {/* ---------- 插件面板（X37：零请求） ---------- */}
+      <ErrorBoundary title={t.app.errorTitle} hint={t.app.errorHint} retry={t.app.errorRetry}>
       {view === "plugins" && <PluginPanel />}
+      </ErrorBoundary>
+
       {/* ---------- 设置（转换参数集中区） ---------- */}
+      <ErrorBoundary title={t.app.errorTitle} hint={t.app.errorHint} retry={t.app.errorRetry}>
       {view === "settings" && (
         <div className="panel">
           <div className="panel-head">
@@ -1050,6 +1066,8 @@ export default function App() {
 
         </div>
       )}
+
+      </ErrorBoundary>
 
       </main>
 

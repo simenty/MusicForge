@@ -29,6 +29,10 @@ export const zh = {
     navLibrary: "曲库",
     navPlugins: "插件",
     navSettings: "设置",
+    // P0-2：分区级错误边界（渲染异常降级，不再整页白屏）
+    errorTitle: "此模块渲染出错",
+    errorHint: "已阻止错误扩散，其余模块仍可正常使用。",
+    errorRetry: "重试",
     offlineChip: "零网络 · 离线运行",
     addFiles: "添加文件",
     addFolder: "添加目录",

@@ -25,6 +25,10 @@ export const en: typeof zh = {
     navLibrary: "Library",
     navPlugins: "Plugins",
     navSettings: "Settings",
+    // P0-2: section-level error boundary (render failure no longer blanks the whole app)
+    errorTitle: "This module failed to render",
+    errorHint: "The error was contained — other modules remain usable.",
+    errorRetry: "Retry",
     offlineChip: "Zero network · Offline",
     addFiles: "Add files",
     addFolder: "Add folder",
