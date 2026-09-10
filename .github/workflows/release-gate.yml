@@ -1,0 +1,39 @@
+name: Release Gate
+
+# 发布前门禁（tag 触发）。
+#
+# 为什么独立于 CI：CI 的 on.push 只列分支（避免 tag push 重复跑三平台测试 + 六目标构建），
+# 因此放在 CI 里、以 `if: startsWith(github.ref, 'refs/tags/v')` 为条件的 job **永远不会运行**
+# （v0.10.0 发布时实测发现）。门禁必须与 CI 分离：CI 管分支，本 workflow 管 tag。
+#
+# 本 workflow 只做一件事：在 tag 上把「发布前门禁」跑一遍（契约 / fpk 结构 / 版本 /
+# CHANGELOG / tag 身份 / 前端测试），确保任何 tag 都对应一个通过全部门禁的提交。
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+# 与 CI 一致：统一 bash（避免 shell 差异；本 workflow 在 ubuntu 上跑，bash 原生可用）
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 完整历史：门禁内的 git 检查（工作区/tag）语义与本地一致
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 前端依赖（门禁会跑 vitest）
+        run: npm --prefix musicforge-gui/ui ci
+
+      - name: 发布前门禁（一键跑全部门禁）
+        run: bash scripts/release-check.sh
