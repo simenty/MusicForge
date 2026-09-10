@@ -53,8 +53,11 @@ jobs:
   coverage:
     runs-on: ubuntu-latest
     env:
-      # 首轮保守值；拿到 CI 实测基线后精调（见提交信息与 docs/audit-full-2026-09-10-v2.md）
-      COVERAGE_MIN: 30
+      # 阈值策略：基线 − 余量。CI 实测基线（2026-09-11 首轮）：行覆盖 78.73%
+      # （Regions 79.22% / Functions 76.71% / 9769 行）。
+      # 70 = 基线留 ~8.7 个百分点余量：小幅波动不红，实质性退步（新增代码大量无测）必红。
+      # 调整规则：覆盖率上升后随之上调；下调需在提交信息说明理由。
+      COVERAGE_MIN: 70
     steps:
       - uses: actions/checkout@v4
 
@@ -84,6 +87,16 @@ jobs:
         run: |
           cargo llvm-cov --workspace --exclude musicforge-gui \
             --fail-under-lines "$COVERAGE_MIN" --summary-only
+
+      - name: 覆盖率汇总写入 Job Summary（一眼可见，无需翻日志）
+        if: always()
+        run: |
+          {
+            echo "## 覆盖率（cargo-llvm-cov · 行覆盖门禁 $COVERAGE_MIN%）"
+            echo '```'
+            cargo llvm-cov report --summary-only || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" || true
 
       - name: 生成 lcov 报告（供本地消费 / 后续趋势分析）
         if: always()
