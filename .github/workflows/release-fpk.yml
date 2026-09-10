@@ -133,6 +133,23 @@ jobs:
           ls -la fpk-out/
           if ls fpk-out/*.fpk >/dev/null 2>&1; then ( cd fpk-out && sha256sum ./*.fpk > SHA256SUMS-fpk.txt ); else echo "::error::no .fpk produced" && exit 1; fi
 
+      # P3（签名评估方案 A）：产物来源可验证性——对 fpk 与校验和逐个 minisign 签名。
+      # 未配置 MINISIGN_SECRET_KEY 时脚本自会跳过并打印配置指引（**不阻断发布**）。
+      # 公钥放仓库根 `minisign.pub`（可公开），签名文件 *.minisig 随 artifact 一起分发。
+      - name: Sign artifacts (minisign)
+        run: |
+          if [ -n "$MINISIGN_KEY" ]; then
+            printf '%s' "$MINISIGN_KEY" > "$RUNNER_TEMP/minisign.key"
+            chmod 600 "$RUNNER_TEMP/minisign.key"
+            export MINISIGN_SECRET_KEY="$RUNNER_TEMP/minisign.key"
+          fi
+          command -v minisign >/dev/null 2>&1 || {
+            sudo apt-get update -qq && sudo apt-get install -y -qq minisign
+          }
+          bash scripts/sign-artifacts.sh fpk-out
+        env:
+          MINISIGN_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+
       - uses: actions/upload-artifact@v4
         with:
           name: musicforge-fpk-${{ matrix.arch }}
