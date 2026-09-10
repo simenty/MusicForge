@@ -56,6 +56,18 @@ pub struct WatcherConfig {
     pub template: String,
     /// 防抖窗口（毫秒）——同路径事件最后一次出现起算
     pub debounce_ms: u64,
+    /// T2 全自动**白名单**（D13 命名语义）：仅这些目录内的垃圾才自动清洗；
+    /// **空 = 不自动清洗**（保守默认——自动化+破坏性组合必须有显式授权）。
+    pub whitelist: Vec<PathBuf>,
+}
+
+impl WatcherConfig {
+    /// 目录是否在 T2 自动清洗白名单内（自身或其子目录）。
+    fn in_whitelist(&self, dir: &Path) -> bool {
+        self.whitelist
+            .iter()
+            .any(|w| dir == w.as_path() || dir.starts_with(w))
+    }
 }
 
 // ---------------------------------------------------------------- 防抖 --
@@ -170,7 +182,11 @@ pub fn handle_event_batch(
                     }
                     _ => {}
                 }
-                if cfg.level == WatchLevel::T2AutoWhitelist && is_junk_path(p) {
+                // P9：T2 自动清洗仅在白名单目录内生效（自动化+破坏性=需显式授权）
+                if cfg.level == WatchLevel::T2AutoWhitelist
+                    && is_junk_path(p)
+                    && p.parent().map(|d| cfg.in_whitelist(d)).unwrap_or(false)
+                {
                     if let Some(d) = p.parent() {
                         if seen_junk.insert(d.to_path_buf()) {
                             junk_dirs.push(d.to_path_buf());

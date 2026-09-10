@@ -12,6 +12,7 @@ fn cfg(level: WatchLevel, target: Option<&str>) -> WatcherConfig {
         target_root: target.map(PathBuf::from),
         template: "{title} - {artist}".into(),
         debounce_ms: 1500,
+        whitelist: Vec::new(),
     }
 }
 
@@ -142,14 +143,13 @@ fn t2_cleans_junk_into_trash_never_direct_delete() {
     let junk = watch.join("Thumbs.db");
     std::fs::write(&junk, b"").unwrap();
 
-    let a = handle_event_batch(
-        std::slice::from_ref(&junk),
-        &cfg(
-            WatchLevel::T2AutoWhitelist,
-            Some(target.path().to_str().unwrap()),
-        ),
-    )
-    .unwrap();
+    // P9：显式授权该目录进 T2 白名单（自动化清洗需授权）
+    let mut c = cfg(
+        WatchLevel::T2AutoWhitelist,
+        Some(target.path().to_str().unwrap()),
+    );
+    c.whitelist = vec![watch.clone()];
+    let a = handle_event_batch(std::slice::from_ref(&junk), &c).unwrap();
     assert!(a.cleaned >= 1, "垃圾应被清洗进回收站: {a:?}");
     assert!(!junk.exists(), "原位置垃圾已移除");
     // 铁律：进回收站（.musicforge/trash）而非直接删除
@@ -160,6 +160,47 @@ fn t2_cleans_junk_into_trash_never_direct_delete() {
             .iter()
             .any(|p| p.file_name() == Some(std::ffi::OsStr::new("Thumbs.db"))),
         "垃圾必须在回收站内: {trashed:?}"
+    );
+}
+
+/// P9 安全收敛：T2 自动清洗**仅在白名单目录内**生效——未授权目录的垃圾不被自动搬动
+///（自动化 + 破坏性组合必须有显式授权；D13「全自动白名单」语义）。
+#[test]
+fn t2_whitelist_gates_automatic_clean() {
+    let root = tempfile::tempdir().unwrap();
+    let target = tempfile::tempdir().unwrap();
+    let outsider = root.path().join("outsider");
+    std::fs::create_dir_all(&outsider).unwrap();
+    let junk_out = outsider.join("Thumbs.db");
+    std::fs::write(&junk_out, b"").unwrap();
+
+    // 未授权（空白名单）→ 不清洗
+    let a = handle_event_batch(
+        std::slice::from_ref(&junk_out),
+        &cfg(
+            WatchLevel::T2AutoWhitelist,
+            Some(target.path().to_str().unwrap()),
+        ),
+    )
+    .unwrap();
+    assert_eq!(a.cleaned, 0, "白名单外绝不自动清洗");
+    assert!(junk_out.exists(), "垃圾仍在原位");
+
+    // 授权（白名单含该目录）→ 清洗进回收站
+    let mut c = cfg(
+        WatchLevel::T2AutoWhitelist,
+        Some(target.path().to_str().unwrap()),
+    );
+    c.whitelist = vec![outsider.clone()];
+    let a = handle_event_batch(std::slice::from_ref(&junk_out), &c).unwrap();
+    assert!(a.cleaned >= 1, "白名单内应清洗: {a:?}");
+    assert!(!junk_out.exists());
+    let trash = outsider.join(".musicforge").join("trash");
+    assert!(
+        walk(&trash)
+            .iter()
+            .any(|p| p.file_name() == Some(std::ffi::OsStr::new("Thumbs.db"))),
+        "仍只进回收站（铁律）"
     );
 }
 

@@ -87,6 +87,9 @@ enum Sub {
         /// 防抖窗口毫秒（同路径事件稳定后才处理）
         #[arg(long, default_value_t = 1500)]
         debounce_ms: u64,
+        /// T2 自动清洗白名单（可多次；缺省 = 不自动清洗——自动化破坏面需显式授权）
+        #[arg(long = "whitelist", value_name = "DIR")]
+        whitelist: Vec<String>,
         /// 要监听的目录
         #[arg(value_name = "DIR")]
         dir: String,
@@ -410,6 +413,7 @@ fn run_watch_sub(
     target: Option<&str>,
     template: &str,
     debounce_ms: u64,
+    whitelist: &[String],
 ) -> i32 {
     use musicforge_core::watcher::{WatchLevel, WatcherConfig};
     let Some(lv) = WatchLevel::parse(level) else {
@@ -421,6 +425,7 @@ fn run_watch_sub(
         target_root: target.map(PathBuf::from),
         template: template.to_string(),
         debounce_ms,
+        whitelist: whitelist.iter().map(PathBuf::from).collect(),
     };
     if cfg.level != WatchLevel::T0Register && cfg.target_root.is_none() {
         eprintln!("✗ MF-OP-CONFLICT: t1/t2 需要 --target（整理目标根目录）");
@@ -1765,8 +1770,16 @@ fn main() {
                 target,
                 template,
                 debounce_ms,
+                whitelist,
                 dir,
-            } => run_watch_sub(&dir, &level, target.as_deref(), &template, debounce_ms),
+            } => run_watch_sub(
+                &dir,
+                &level,
+                target.as_deref(),
+                &template,
+                debounce_ms,
+                &whitelist,
+            ),
             Sub::Scan {
                 dir,
                 recursive,
