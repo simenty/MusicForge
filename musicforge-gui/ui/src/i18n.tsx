@@ -1,3 +1,6 @@
+/* eslint-disable react-refresh/only-export-components --
+   Provider（组件）与 detectLang/useLang（函数）属同一关注点：拆文件会把
+   「上下文 + 语言检测 + 字典注册」割裂；此处 HMR 退化为整页刷新可接受。 */
 import {
   createContext,
   useContext,

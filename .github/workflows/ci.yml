@@ -33,8 +33,11 @@ jobs:
       - name: 前端依赖（vitest 属 devDependency，不进产物）
         run: npm --prefix musicforge-gui/ui ci
 
-      - name: 前端测试（纯函数 + i18n 字典同构）
+      - name: 前端测试（纯函数 + i18n 字典同构 + 组件交互/确认闸）
         run: npm --prefix musicforge-gui/ui test
+
+      - name: ESLint（前端静态检查：hooks 依赖 / 未用变量 / 正确性）
+        run: npm --prefix musicforge-gui/ui run lint
 
       - name: 契约一致性（server 路由 vs 前端调用）
         run: bash scripts/check-api-contract.sh

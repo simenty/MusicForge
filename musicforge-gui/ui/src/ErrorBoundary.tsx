@@ -29,7 +29,6 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(err: Error, info: ErrorInfo): void {
     // 最小可观测性：渲染异常落到控制台（后续接 tracing/上报时可复用此点）
-    // eslint-disable-next-line no-console
     console.error("[musicforge] render error:", err, info.componentStack);
   }
 
