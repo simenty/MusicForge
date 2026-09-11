@@ -83,21 +83,25 @@ describe("OrganizePanel（整理）", () => {
     expect(screen.getByRole("button", { name: zh.organize.applyBtn(0) })).toBeDisabled();
   });
 
-  it("二次确认被拒绝 → 绝不调用 organizeApply", async () => {
+  it("三级闸：弹层未勾选时确认禁用；取消 → 绝不调用 organizeApply", async () => {
     const user = userEvent.setup();
     mockPlan.mockResolvedValue(PLAN_2);
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     renderPanel();
 
     await user.type(screen.getByPlaceholderText(zh.organize.dirPlaceholder), DIR);
     await user.click(screen.getByRole("button", { name: zh.organize.planBtn }));
     await user.click(await screen.findByRole("button", { name: zh.organize.applyBtn(2) }));
 
-    expect(confirmSpy).toHaveBeenCalledOnce();
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: zh.confirm.btnOrganize })).toBeDisabled();
+    expect(mockApply).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: zh.confirm.cancel }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(mockApply).not.toHaveBeenCalled();
   });
 
-  it("确认执行 → 显示结果与回滚清单，计划表被清空", async () => {
+  it("勾选确认后执行 → 显示结果与回滚清单，计划表被清空", async () => {
     const user = userEvent.setup();
     mockPlan.mockResolvedValue(PLAN_2);
     mockApply.mockResolvedValue({
@@ -106,12 +110,14 @@ describe("OrganizePanel（整理）", () => {
       failed: 0,
       rollback_manifest: "/m/library/.musicforge/trash/t9/rollback.jsonl",
     });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     renderPanel();
 
     await user.type(screen.getByPlaceholderText(zh.organize.dirPlaceholder), DIR);
     await user.click(screen.getByRole("button", { name: zh.organize.planBtn }));
     await user.click(await screen.findByRole("button", { name: zh.organize.applyBtn(2) }));
+
+    await user.click(await screen.findByRole("checkbox", { name: zh.confirm.ackRestore }));
+    await user.click(screen.getByRole("button", { name: zh.confirm.btnOrganize }));
 
     expect(mockApply).toHaveBeenCalledWith({
       dir: DIR,

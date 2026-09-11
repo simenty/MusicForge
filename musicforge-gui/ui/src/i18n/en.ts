@@ -245,6 +245,24 @@ export const en: typeof zh = {
       "Restore everything from this manifest? Existing files at target paths will be overwritten.",
     restored: (n: number) => `Restored ${n} item(s)`,
   },
+  /** Shared confirm dialog (spec §4.1 three-step gate: preview list -> explicit ack) */
+  confirm: {
+    cancel: "Cancel",
+    ackRestore: "I understand: this action can be fully restored from the recycle bin",
+    noteTrash:
+      "Target: <library>/.musicforge/trash/ — moved, never deleted; a rollback manifest is generated",
+    titleClean: "Confirm cleanup",
+    cleanSummary: (n: number) => `Move ${n} file${n === 1 ? "" : "s"} to the recycle bin`,
+    btnClean: "Confirm cleanup",
+    titleOrganize: "Confirm organize",
+    organizeSummary: (n: number) =>
+      `Archive ${n} file${n === 1 ? "" : "s"} into the target root by template`,
+    btnOrganize: "Confirm organize",
+    titleDedupe: "Confirm dedupe",
+    dedupeSummary: (n: number) =>
+      `Move ${n} duplicate${n === 1 ? "" : "s"} to the recycle bin (kept member untouched)`,
+    btnDedupe: "Confirm dedupe",
+  },
   dedupe: {
     toggle: "▍Duplicate finder (side-by-side · suggested keep · your call)",
     head: "Duplicate finder (byte-identical files; sacrificed copies go to the recycle bin)",
@@ -356,6 +374,13 @@ export const en: typeof zh = {
     flowDedupe: "Dedupe: compare identical-content groups, sacrifices go to the recycle bin.",
     flowOrganize: "Organize: archive by naming template, fully rollback-able.",
     flowClean: "Clean: junk / orphans / naming anomalies move to the recycle bin (restorable).",
+    // —— State-spec backport (2026-09-11): error state + filter ——
+    errTitle: "Scan failed",
+    errRecover: "Dismiss",
+    errDetail: "Technical details",
+    filterAll: "All",
+    filterHint: "Filter",
+    filterEmpty: "No matches under the current filter",
   },
   plugin: {
     toggle: "▍AI & plugins",

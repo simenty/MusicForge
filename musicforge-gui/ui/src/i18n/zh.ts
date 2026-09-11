@@ -239,6 +239,21 @@ export const zh = {
     confirmRestore: "按此清单整体还原？恢复路径上的同名文件（如存在）将被覆盖。",
     restored: (n: number) => `已还原 ${n} 项`,
   },
+  /** 通用确认弹层（规格 §4.1 三级闸：预览清单 → 勾选确认） */
+  confirm: {
+    cancel: "取消",
+    ackRestore: "我了解：本次操作可通过回收站整体还原",
+    noteTrash: "目标：<曲库>/.musicforge/trash/ —— 移动而非删除，回滚清单随执行生成",
+    titleClean: "批量清理确认",
+    cleanSummary: (n: number) => `将把 ${n} 个文件移入回收站`,
+    btnClean: "确认清理",
+    titleOrganize: "整理执行确认",
+    organizeSummary: (n: number) => `将按命名模板归档 ${n} 个文件到目标根`,
+    btnOrganize: "确认整理",
+    titleDedupe: "去重执行确认",
+    dedupeSummary: (n: number) => `将把 ${n} 个重复项移入回收站（组内保留项不受影响）`,
+    btnDedupe: "确认去重",
+  },
   dedupe: {
     toggle: "▍重复文件去重（组内对比 · 建议保留 · 可改选）",
     head: "重复文件去重（内容完全相同的文件，牺牲项进回收站）",
@@ -347,6 +362,13 @@ export const zh = {
     flowDedupe: "重复去重：内容完全相同的文件组内对比，牺牲项进回收站。",
     flowOrganize: "整理归档：按命名模板归档到目标根，可整体回滚。",
     flowClean: "清洗：垃圾 / 孤立 / 命名异常移入回收站（可整体还原）。",
+    // —— 状态规格回灌（2026-09-11）：错误态 + 筛选 ——
+    errTitle: "扫描失败",
+    errRecover: "知道了",
+    errDetail: "技术详情",
+    filterAll: "全部",
+    filterHint: "筛选",
+    filterEmpty: "当前筛选下无匹配项",
   },
   plugin: {
     toggle: "▍AI 与插件",

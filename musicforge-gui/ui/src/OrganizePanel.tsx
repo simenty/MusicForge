@@ -1,9 +1,10 @@
 // P1：整理（organize）——按命名模板把曲库归档到目标根。
-// 2026-09-11 界面重构：设计稿布局（左配置卡 / 右统计卡 + 归档映射表）。
+// 2026-09-11 界面重构 + 状态规格回灌：设计稿布局（左配置卡 / 右统计卡 + 归档映射表），
+// 执行确认由 window.confirm 升级为**三级闸弹层**（规格 §4.1：预览清单 → 勾选确认）。
 //
 // 安全语义（与后端 /api/organize/* 一致）：
 // - **预览只读**：plan 绝不移动任何文件；
-// - **执行需二次确认**：window.confirm + 后端 confirm:true（403 MF-OP-NEEDS-YES 兜底）；
+// - **执行需二次确认**：三级闸弹层 + 后端 confirm:true（403 MF-OP-NEEDS-YES 兜底）；
 // - **可整体还原**：执行后给出 rollback_manifest，可一键还原。
 //
 // 形态边界：桌面（Tauri）无对应命令 → api 层抛 MF-SERVER-ONLY，面板顶部显式提示。
@@ -16,11 +17,14 @@ import {
   trashRestore,
   type OrganizePlan,
 } from "./api";
+import ConfirmDialog from "./ConfirmDialog";
 import { IconBan, IconCheckBox, IconFolder, IconWarnTri } from "./icons";
 import { useLang } from "./i18n";
 
 const MAX_ROWS = 80;
 const DEFAULT_TPL = "{artist}/{album}/{title}";
+/** 弹层内清单预览条数（其余折叠为"…还有 M 条"） */
+const PREVIEW_ROWS = 3;
 
 function shortPath(p: string): string {
   const norm = p.replace(/\\/g, "/");
@@ -40,6 +44,8 @@ export default function OrganizePanel() {
   const [result, setResult] = useState<string | null>(null);
   const [manifest, setManifest] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** 三级闸弹层开关 */
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const busy = planning || applying || restoring;
 
@@ -74,10 +80,16 @@ export default function OrganizePanel() {
     }
   };
 
-  const runApply = async () => {
-    if (!plan || busy) return;
-    const n = plan.counts.planned;
-    if (!window.confirm(t.organize.confirmApply(n))) return;
+  /** 点击「执行整理」→ 打开三级闸弹层（不在此时调用 API） */
+  const requestApply = () => {
+    if (!plan || busy || plan.counts.planned === 0) return;
+    setConfirmOpen(true);
+  };
+
+  /** 弹层确认后执行（核心不变量：未经勾选确认，绝不调用 organizeApply） */
+  const doApply = async () => {
+    if (!plan || applying) return;
+    setConfirmOpen(false);
     setApplying(true);
     setError(null);
     try {
@@ -268,7 +280,7 @@ export default function OrganizePanel() {
                 <button
                   className="btn sm primary"
                   style={{ marginLeft: "auto" }}
-                  onClick={() => void runApply()}
+                  onClick={requestApply}
                   disabled={busy || plan.counts.planned === 0}
                 >
                   {applying ? t.organize.applying : t.organize.applyBtn(plan.counts.planned)}
@@ -318,6 +330,22 @@ export default function OrganizePanel() {
           </>
         )}
       </section>
+
+      {/* ---------- 三级闸：预览清单 → 勾选确认 → 执行（规格 §4.1） ---------- */}
+      <ConfirmDialog
+        open={confirmOpen}
+        title={t.confirm.titleOrganize}
+        summary={t.confirm.organizeSummary(plan?.counts.planned ?? 0)}
+        items={plan ? plan.plan.items.slice(0, PREVIEW_ROWS).map((i) => `${i.source} → ${i.target}`) : []}
+        moreCount={plan ? Math.max(0, plan.plan.items.length - PREVIEW_ROWS) : 0}
+        note={t.confirm.noteTrash}
+        ackLabel={t.confirm.ackRestore}
+        confirmLabel={t.confirm.btnOrganize}
+        cancelLabel={t.confirm.cancel}
+        busy={applying}
+        onConfirm={() => void doApply()}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   );
 }

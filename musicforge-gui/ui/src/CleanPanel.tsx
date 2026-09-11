@@ -1,5 +1,6 @@
 // P1：清洗（clean）——按规则把垃圾/孤立文件移入回收站（可整体还原）。
-// 2026-09-11 界面重构：设计稿布局（左配置卡 / 右统计卡 + 计划清单）。
+// 2026-09-11 界面重构 + 状态规格回灌：设计稿布局（左配置卡 / 右统计卡 + 计划清单），
+// 执行确认由 window.confirm 升级为**三级闸弹层**（规格 §4.1：预览清单 → 勾选确认）。
 //
 // 安全语义（与后端 /api/clean/* 一致）：
 // - 预览只读（dry-run）；执行需二次确认 + confirm:true；
@@ -14,10 +15,13 @@ import {
   trashRestore,
   type CleanPlan,
 } from "./api";
+import ConfirmDialog from "./ConfirmDialog";
 import { IconFolder, IconWarnTri } from "./icons";
 import { useLang } from "./i18n";
 
 const MAX_ROWS = 80;
+/** 弹层内清单预览条数（其余折叠为"…还有 M 条"，完整清单走导出 CSV） */
+const PREVIEW_ROWS = 3;
 
 function shortPath(p: string): string {
   const norm = p.replace(/\\/g, "/");
@@ -36,6 +40,8 @@ export default function CleanPanel() {
   const [result, setResult] = useState<string | null>(null);
   const [manifest, setManifest] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** 三级闸弹层开关（确认后才真正执行） */
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const busy = planning || applying || restoring;
 
@@ -60,9 +66,16 @@ export default function CleanPanel() {
     }
   };
 
-  const runApply = async () => {
+  /** 点击「移入回收站」→ 打开三级闸弹层（不在此时调用 API） */
+  const requestApply = () => {
     if (!plan || busy || plan.actions.length === 0) return;
-    if (!window.confirm(t.clean.confirmApply(plan.actions.length))) return;
+    setConfirmOpen(true);
+  };
+
+  /** 弹层确认后执行（核心不变量：未经勾选确认，绝不调用 cleanApply） */
+  const doApply = async () => {
+    if (!plan || applying) return;
+    setConfirmOpen(false);
     setApplying(true);
     setError(null);
     try {
@@ -211,7 +224,7 @@ export default function CleanPanel() {
                 <button
                   className="btn sm primary"
                   style={{ marginLeft: "auto" }}
-                  onClick={() => void runApply()}
+                  onClick={requestApply}
                   disabled={busy || plan.actions.length === 0}
                 >
                   {applying ? t.clean.applying : t.clean.applyBtn(plan.actions.length)}
@@ -264,6 +277,22 @@ export default function CleanPanel() {
           </>
         )}
       </section>
+
+      {/* ---------- 三级闸：预览清单 → 勾选确认 → 执行（规格 §4.1） ---------- */}
+      <ConfirmDialog
+        open={confirmOpen}
+        title={t.confirm.titleClean}
+        summary={t.confirm.cleanSummary(plan?.actions.length ?? 0)}
+        items={plan ? plan.actions.slice(0, PREVIEW_ROWS).map((a) => a.path) : []}
+        moreCount={plan ? Math.max(0, plan.actions.length - PREVIEW_ROWS) : 0}
+        note={t.confirm.noteTrash}
+        ackLabel={t.confirm.ackRestore}
+        confirmLabel={t.confirm.btnClean}
+        cancelLabel={t.confirm.cancel}
+        busy={applying}
+        onConfirm={() => void doApply()}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   );
 }

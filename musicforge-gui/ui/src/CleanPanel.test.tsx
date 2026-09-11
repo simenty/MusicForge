@@ -74,21 +74,28 @@ describe("CleanPanel（清洗）", () => {
     expect(screen.getByRole("button", { name: zh.clean.applyBtn(0) })).toBeDisabled();
   });
 
-  it("二次确认被拒绝 → 绝不调用 cleanApply", async () => {
+  it("三级闸：弹层未勾选时确认禁用；取消 → 绝不调用 cleanApply", async () => {
     const user = userEvent.setup();
     mockPlan.mockResolvedValue(PLAN_1);
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     renderPanel();
 
     await user.type(screen.getByPlaceholderText(zh.clean.dirPlaceholder), DIR);
     await user.click(screen.getByRole("button", { name: zh.clean.planBtn }));
     await user.click(await screen.findByRole("button", { name: zh.clean.applyBtn(1) }));
 
-    expect(confirmSpy).toHaveBeenCalledOnce();
+    // 弹层出现：预览清单可见；确认按钮在勾选前禁用（比 window.confirm 更强的约束）
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText(zh.confirm.cleanSummary(1))).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: zh.confirm.btnClean })).toBeDisabled();
+    expect(mockApply).not.toHaveBeenCalled();
+
+    // 取消 → 弹层关闭，仍未调用
+    await user.click(screen.getByRole("button", { name: zh.confirm.cancel }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(mockApply).not.toHaveBeenCalled();
   });
 
-  it("确认执行 → 显示结果与回滚清单，并提供还原入口", async () => {
+  it("勾选确认后执行 → 显示结果与回滚清单，并提供还原入口", async () => {
     const user = userEvent.setup();
     mockPlan.mockResolvedValue(PLAN_1);
     mockApply.mockResolvedValue({
@@ -96,12 +103,16 @@ describe("CleanPanel（清洗）", () => {
       dirs_removed: 1,
       rollback_manifest: "/m/library/.musicforge/trash/t1/rollback.jsonl",
     });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     renderPanel();
 
     await user.type(screen.getByPlaceholderText(zh.clean.dirPlaceholder), DIR);
     await user.click(screen.getByRole("button", { name: zh.clean.planBtn }));
     await user.click(await screen.findByRole("button", { name: zh.clean.applyBtn(1) }));
+
+    await user.click(await screen.findByRole("checkbox", { name: zh.confirm.ackRestore }));
+    const confirmBtn = screen.getByRole("button", { name: zh.confirm.btnClean });
+    expect(confirmBtn).toBeEnabled();
+    await user.click(confirmBtn);
 
     expect(mockApply).toHaveBeenCalledWith(DIR, undefined);
     expect(await screen.findByText(`✓ ${zh.clean.resultLine(1, 1)}`)).toBeInTheDocument();

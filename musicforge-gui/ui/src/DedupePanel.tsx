@@ -1,4 +1,5 @@
-// P4.5 重复组视图（2026-09-11 界面重构：设计稿布局 —— 左配置卡 / 右统计卡 + 组清单）
+// P4.5 重复组视图（2026-09-11 界面重构 + 状态规格回灌：设计稿布局 —— 左配置卡 / 右统计卡 + 组清单；
+// 执行确认由 window.confirm 升级为**三级闸弹层**（规格 §4.1：预览清单 → 勾选确认））。
 //
 // 设计边界（蓝图 §P4「GUI 重复组视图」+ 项目破坏性操作分级闸门）：
 // - 扫描只读；「建议保留」来自可复算评分（core 解释器），前端高亮；
@@ -6,7 +7,7 @@
 // - 执行走 `dedupe_apply`：服务端逐条强校验路径在曲库目录内（防逃逸），
 //   牺牲项全部进回收站（rollback.jsonl），**绝不直接删除**；
 // - 同名候选默认仅报告（同名≠同歌；CLI `--include-same-name` 才执行）；
-// - 执行前 window.confirm 二次确认（破坏性操作的最后一道人工闸）。
+// - 执行前经三级闸弹层（预览牺牲清单 + 勾选确认）。
 import { useState } from "react";
 import {
   dedupeApply,
@@ -15,8 +16,12 @@ import {
   type DedupeReport,
   type DupGroup,
 } from "./api";
+import ConfirmDialog from "./ConfirmDialog";
 import { IconBan, IconCheckBox, IconCopy, IconWarnTri } from "./icons";
 import { useLang } from "./i18n";
+
+/** 弹层内清单预览条数（其余折叠为"…还有 M 条"） */
+const PREVIEW_ROWS = 3;
 
 function fmtSize(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -43,6 +48,8 @@ export default function DedupePanel({ hideCollapse = false }: { hideCollapse?: b
   const [result, setResult] = useState<string | null>(null);
   /** 用户改选：sha256 -> 保留路径（缺省 = 建议保留） */
   const [keeps, setKeeps] = useState<Map<string, string>>(new Map());
+  /** 三级闸弹层开关 */
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const browse = async () => {
     const d = await selectDirectory(dir.trim() || null, t.dedupe.pickDirTitle);
@@ -88,12 +95,16 @@ export default function DedupePanel({ hideCollapse = false }: { hideCollapse?: b
       }, 0)
     : 0;
 
-  const execute = async () => {
+  /** 点击「执行去重」→ 打开三级闸弹层（不在此时调用 API） */
+  const requestExecute = () => {
     if (!report || applying || finalSacrifices.length === 0) return;
-    const ok = window.confirm(
-      t.dedupe.confirmSacrifice(finalSacrifices.length, finalSacrifices.map(shortPath).join("\n"))
-    );
-    if (!ok) return;
+    setConfirmOpen(true);
+  };
+
+  /** 弹层确认后执行（核心不变量：未经勾选确认，绝不调用 dedupeApply） */
+  const doExecute = async () => {
+    if (!report || applying) return;
+    setConfirmOpen(false);
     setApplying(true);
     setError(null);
     try {
@@ -218,7 +229,7 @@ export default function DedupePanel({ hideCollapse = false }: { hideCollapse?: b
                 <button
                   className="btn sm primary"
                   style={{ marginLeft: "auto" }}
-                  onClick={execute}
+                  onClick={requestExecute}
                   disabled={applying || finalSacrifices.length === 0}
                 >
                   {applying ? t.dedupe.executing : t.dedupe.execute(finalSacrifices.length)}
@@ -306,6 +317,22 @@ export default function DedupePanel({ hideCollapse = false }: { hideCollapse?: b
           </>
         )}
       </section>
+
+      {/* ---------- 三级闸：预览牺牲清单 → 勾选确认 → 执行（规格 §4.1） ---------- */}
+      <ConfirmDialog
+        open={confirmOpen}
+        title={t.confirm.titleDedupe}
+        summary={t.confirm.dedupeSummary(finalSacrifices.length)}
+        items={finalSacrifices.slice(0, PREVIEW_ROWS).map(shortPath)}
+        moreCount={Math.max(0, finalSacrifices.length - PREVIEW_ROWS)}
+        note={t.confirm.noteTrash}
+        ackLabel={t.confirm.ackRestore}
+        confirmLabel={t.confirm.btnDedupe}
+        cancelLabel={t.confirm.cancel}
+        busy={applying}
+        onConfirm={() => void doExecute()}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   );
 }

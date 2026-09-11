@@ -1558,3 +1558,42 @@ code,
 @media (max-width: 480px) {
   .stat-grid.c2, .stat-grid.c3 { grid-template-columns: minmax(0, 1fr); }
 }
+/* =========================================================================
+ * 状态规格回灌（2026-09-11，来自 ui-spec「Music Toolkit 原型补齐规格」）
+ * 确认弹层（三级闸，替代 window.confirm）/ 错误状态卡 / 分类筛选 chips
+ * ======================================================================= */
+
+/* ---- 确认弹层（规格 §4.1）---- */
+.modal-mask { position: fixed; inset: 0; z-index: var(--z-modal); background: rgba(8, 12, 18, .55); display: grid; place-items: center; padding: var(--sp-4); }
+.modal { width: min(540px, 100%); max-height: 86vh; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-lg); box-shadow: var(--sh-3); }
+.modal-head { padding: var(--sp-4) var(--sp-5) 0; }
+.modal-head h3 { margin: 0; font-size: var(--fs-lg); font-weight: 600; }
+.modal-body { padding: var(--sp-3) var(--sp-5); overflow: auto; display: flex; flex-direction: column; gap: var(--sp-3); }
+.modal-summary { font-size: var(--fs-md); }
+.modal-summary b { color: var(--danger); }
+.modal-list { margin: 0; padding: var(--sp-3); list-style: none; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); display: flex; flex-direction: column; gap: var(--sp-1); max-height: 160px; overflow: auto; }
+.modal-list li { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-dim); word-break: break-all; }
+.modal-list .more { font-family: var(--font); color: var(--text-faint); }
+.modal-note { font-size: var(--fs-sm); color: var(--text-dim); line-height: 1.6; }
+.modal-note code { font-family: var(--mono); font-size: var(--fs-xs); }
+.modal-ack { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-md); cursor: pointer; }
+.modal-ack input { width: 15px; height: 15px; accent-color: var(--accent); flex: none; }
+.modal-foot { padding: 0 var(--sp-5) var(--sp-4); display: flex; justify-content: flex-end; gap: var(--sp-2); }
+
+/* ---- 错误状态卡 / 状态英雄区（规格 §2 错误态）---- */
+.state-hero { display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--sp-3); padding: var(--sp-5) var(--sp-4); }
+.state-hero h2 { margin: 0; font-size: var(--fs-lg); font-weight: 600; }
+.state-hero p { margin: 0; font-size: var(--fs-md); color: var(--text-dim); max-width: 460px; line-height: 1.7; }
+.state-ico { width: 46px; height: 46px; border-radius: var(--r-md); display: grid; place-items: center; }
+.state-ico.bad { color: var(--danger); background: var(--danger-soft); }
+.state-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; justify-content: center; }
+.err-code { font-family: var(--mono); font-size: var(--fs-sm); color: var(--danger); background: var(--danger-soft); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); padding: 3px 10px; border-radius: var(--r-sm); }
+.err-detail { width: min(520px, 100%); text-align: left; font-size: var(--fs-sm); color: var(--text-dim); }
+.err-detail summary { cursor: pointer; }
+.err-detail pre { margin: var(--sp-2) 0 0; padding: var(--sp-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); overflow: auto; font-family: var(--mono); font-size: var(--fs-xs); }
+
+/* ---- 分类筛选 chips（规格 §6.3：导出 = 当前筛选结果）---- */
+.filter-chips { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; }
+.filter-chip { height: 26px; padding: 0 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim); font-size: var(--fs-xs); cursor: pointer; transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease); }
+.filter-chip:hover { color: var(--text); border-color: var(--border-strong); }
+.filter-chip.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-soft); }
