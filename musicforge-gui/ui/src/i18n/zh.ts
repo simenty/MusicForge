@@ -266,6 +266,13 @@ export const zh = {
     where: "取到后，粘贴到页面顶部右侧的「server token」输入框——自动保存并立即生效。",
     hint: "提示：数据目录可在下方「服务端信息」中查看（data_dir）；fnOS 默认在 /vol1/@appdata/musicforge 或 /vol1/@appcenter/musicforge/data。",
     retry: "重新检测",
+    // —— M2 上线后「旧 SPA 缓存」症状（2026-09-12 真机反馈）——
+    staleTitle: "前端版本过旧，需刷新页面",
+    staleBody:
+      "服务端已启用请求签名校验（M2），而当前页面是浏览器缓存的旧版前端——刷新即可加载新版。",
+    staleReload: "强制刷新页面",
+    staleHint:
+      "若刷新后仍未恢复：按 Ctrl+F5（Windows）/ Cmd+Shift+R（macOS）强制重载，或清除该站点缓存。",
   },
   dedupe: {
     toggle: "▍重复文件去重（组内对比 · 建议保留 · 可改选）",
@@ -426,6 +433,12 @@ export const zh = {
     refresh: "刷新",
     dirsHead: "插件目录（白名单）",
     learnMore: "了解插件：github.com/simenty/MusicForge/blob/master/PLUGIN_POLICY.md",
+    // —— 服务端形态说明（2026-09-12：此前把 MF-DESKTOP-ONLY 渲染成红色错误条）——
+    serverOnlyTitle: "插件能力为桌面版专属",
+    serverOnlyBody:
+      "当前是服务端形态（fnOS / 浏览器访问）。插件运行时与 AI 能力请在桌面版中使用。",
+    serverOnlyServe: "服务端形态提供：扫描 / 格式迁移 / 整理 / 清洗",
+    serverOnlyLocal: "本地五域功能（扫描 / 清洗 / 去重 / 转换 / 整轨切分）无需插件即可完整使用",
   },
 };
 // 注意：刻意不加 `as const`——加了会把字符串收窄成字面量类型，

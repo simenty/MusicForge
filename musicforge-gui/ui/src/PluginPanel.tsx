@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  IS_DESKTOP,
   formatMigrate,
   pluginsAcknowledge,
   pluginsSetEnabled,
@@ -35,6 +36,9 @@ export default function PluginPanel() {
   const [ekey, setEkey] = useState("");
 
   const load = useCallback(async () => {
+    // 服务端形态：插件能力为桌面专属——**不发起请求**，由渲染层显示形态说明
+    // （此前会请求失败并把 `MF-DESKTOP-ONLY` 渲染成红色 Error，观感如缺陷）
+    if (!IS_DESKTOP) return;
     setError(null);
     try {
       const s = await pluginsStatus();
@@ -157,6 +161,43 @@ export default function PluginPanel() {
       <button className="scan-toggle" onClick={() => setOpen(true)}>
         {t.plugin.toggle}
       </button>
+    );
+  }
+
+  // 服务端形态（fnOS / 自建 server）：插件与 AI 能力为**桌面版专属**——
+  // 显示形态说明卡（能力边界显式可见），而不是"请求失败"的红色错误条。
+  if (!IS_DESKTOP) {
+    return (
+      <div className="panel">
+        <div className="panel-head">
+          <h2 style={{ margin: 0, fontSize: "var(--fs-lg)" }}>{t.plugin.head}</h2>
+        </div>
+        <div className="state-hero" style={{ padding: "28px 16px" }}>
+          <span className="state-ico dim" aria-hidden="true">
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="3" width="7" height="7" rx="1.5" />
+              <rect x="14" y="3" width="7" height="7" rx="1.5" />
+              <rect x="3" y="14" width="7" height="7" rx="1.5" />
+              <rect x="14" y="14" width="7" height="7" rx="1.5" />
+            </svg>
+          </span>
+          <h2 style={{ fontSize: "var(--fs-md)" }}>{t.plugin.serverOnlyTitle}</h2>
+          <p>{t.plugin.serverOnlyBody}</p>
+          <ul className="state-facts" style={{ textAlign: "left" }}>
+            <li>{t.plugin.serverOnlyServe}</li>
+            <li>{t.plugin.serverOnlyLocal}</li>
+          </ul>
+        </div>
+      </div>
     );
   }
 

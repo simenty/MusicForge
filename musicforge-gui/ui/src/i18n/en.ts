@@ -276,6 +276,13 @@ export const en: typeof zh = {
       "Then paste it into the “server token” field at the top right — it saves and applies immediately.",
     hint: "Tip: the data directory is shown under “Server info” below (data_dir); on fnOS it defaults to /vol1/@appdata/musicforge or /vol1/@appcenter/musicforge/data.",
     retry: "Re-check",
+    // —— Stale-SPA symptom after M2 (2026-09-12 field report) ——
+    staleTitle: "Frontend is out of date — reload required",
+    staleBody:
+      "The server now enforces signed requests (M2) while this page is a cached older frontend — a reload loads the new build.",
+    staleReload: "Reload now",
+    staleHint:
+      "If it still fails: hard-reload with Ctrl+F5 (Windows) / Cmd+Shift+R (macOS), or clear this site's cache.",
   },
   dedupe: {
     toggle: "▍Duplicate finder (side-by-side · suggested keep · your call)",
@@ -441,5 +448,12 @@ export const en: typeof zh = {
     refresh: "Refresh",
     dirsHead: "Plugin folders (whitelist)",
     learnMore: "Plugin policy: github.com/simenty/MusicForge/blob/master/PLUGIN_POLICY.md",
+    // —— Server-build notice (2026-09-12: MF-DESKTOP-ONLY used to render as a red error) ——
+    serverOnlyTitle: "Plugins are desktop-only",
+    serverOnlyBody:
+      "You are on the server build (fnOS / browser access). Plugin runtime and AI features live in the desktop app.",
+    serverOnlyServe: "Server build provides: scan / format migration / organize / clean",
+    serverOnlyLocal:
+      "All five local domains (scan / clean / dedupe / convert / track-split) work without plugins",
   },
 };

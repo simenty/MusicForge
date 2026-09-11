@@ -24,6 +24,7 @@ use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post, Router};
 use serde_json::json;
 use tower_http::services::{ServeDir, ServeFile};
+use tower_http::set_header::SetResponseHeaderLayer;
 
 pub mod api;
 
@@ -562,6 +563,14 @@ pub fn build_router(state: ServerState) -> Router {
                 )),
         )
         .fallback_service(spa_service(ui_dir))
+        // 静态资源缓存策略（2026-09-12 真机问题根治）：`no-cache` = 每次协商（304 极廉价），
+        // 但**杜绝"升级 fpk 后浏览器仍运行旧 SPA"**——旧前端不带请求签名，
+        // 会让所有 API 报 MF-AUTH-SIG-MISSING（M2 上线后升级必现）。
+        // assets 文件名带内容 hash 本可长缓存；局域网下协商成本可忽略，统一策略换"升级即生效"。
+        .layer(SetResponseHeaderLayer::if_not_present(
+            axum::http::header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-cache"),
+        ))
         // P1-2：请求日志（method / path / status / 耗时）——只记路径，**不含
         // query 与 header**，因此 token 不会进入日志。
         .layer(
@@ -911,5 +920,34 @@ mod tests {
         let v: serde_json::Value =
             serde_json::from_slice(&to_bytes(res2.into_body(), 1 << 20).await.unwrap()).unwrap();
         assert_eq!(v["code"], "MF-AUTH-REPLAY");
+    }
+
+    // ------------------------------------------------------ SPA 缓存策略 --
+    // 2026-09-12 真机问题：升级 fpk 后浏览器仍运行**缓存的旧 SPA**，而旧前端不带
+    // 请求签名 → 所有 API 报 MF-AUTH-SIG-MISSING。修复：SPA 响应统一 `no-cache`
+    // （每次协商，304 极廉价），本断言防回归。
+    #[tokio::test]
+    async fn spa_responses_carry_no_cache() {
+        let dir = std::env::temp_dir().join(format!("mf-spa-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("index.html"), "<html>ok</html>").unwrap();
+        let mut st = test_state("tok-123");
+        st.ui_dir = dir.clone();
+        let app = build_router(st);
+        // 深链（走 fallback → index.html）与根路径都必须带 no-cache
+        for uri in ["/", "/library/scan"] {
+            let res = app
+                .clone()
+                .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(res.status(), StatusCode::OK, "SPA 请求 {uri} 应命中 index.html");
+            assert_eq!(
+                res.headers().get("cache-control").map(|v| v.to_str().unwrap()),
+                Some("no-cache"),
+                "SPA 响应 {uri} 必须 no-cache（否则升级后浏览器运行旧 JS）"
+            );
+        }
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

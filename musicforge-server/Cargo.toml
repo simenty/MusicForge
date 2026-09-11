@@ -11,7 +11,8 @@ axum = "0.7"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "fs"] }
 tower = "0.5"
 # P1-2 可观测性：trace feature 用于请求日志中间件
-tower-http = { version = "0.6", features = ["fs", "trace"] }
+# set-header：SPA 缓存策略（杜绝升级后旧 JS 被缓存 → MF-AUTH-SIG-MISSING）
+tower-http = { version = "0.6", features = ["fs", "trace", "set-header"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde_json = "1"

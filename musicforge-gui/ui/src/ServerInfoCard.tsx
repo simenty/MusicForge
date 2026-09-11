@@ -56,8 +56,10 @@ export default function ServerInfoCard() {
 
   if (!IS_SERVER_MODE) return null;
 
-  /** token 类错误（未配置 / 错误）→ 可操作引导卡，而非一行裸文本 */
-  const isAuthError = errCode === "MF-AUTH-REQUIRED" || /X-Token/i.test(error ?? "");
+  /** token 未配置/错误（R22）→ 取 token 引导卡 */
+  const isTokenError = errCode === "MF-AUTH-REQUIRED" || /X-Token/i.test(error ?? "");
+  /** 客户端过旧（M2：缺签名头）→ 强刷引导（升级 fpk 后浏览器缓存旧 SPA 的典型症状） */
+  const isStaleClient = errCode === "MF-AUTH-SIG-MISSING";
 
   return (
     <div className="panel">
@@ -65,7 +67,36 @@ export default function ServerInfoCard() {
         <h2>{t.serverInfo.head}</h2>
       </div>
 
-      {isAuthError ? (
+      {isStaleClient ? (
+        <div className="state-hero" role="alert" style={{ padding: "20px 16px" }}>
+          <span className="state-ico bad" aria-hidden="true">
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M20 11a8 8 0 10-2.3 5.7" />
+              <path d="M20 4v7h-7" />
+            </svg>
+          </span>
+          <h2 style={{ fontSize: "var(--fs-md)" }}>{t.auth.staleTitle}</h2>
+          <p>{t.auth.staleBody}</p>
+          <div className="state-actions">
+            <button className="btn sm primary" onClick={() => window.location.reload()}>
+              {t.auth.staleReload}
+            </button>
+            <button className="btn sm" onClick={() => setReload((n) => n + 1)}>
+              {t.auth.retry}
+            </button>
+          </div>
+          <p className="hint">{t.auth.staleHint}</p>
+        </div>
+      ) : isTokenError ? (
         <div className="state-hero" role="alert" style={{ padding: "20px 16px" }}>
           <span className="state-ico bad" aria-hidden="true">
             <svg
