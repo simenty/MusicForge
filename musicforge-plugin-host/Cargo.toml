@@ -8,6 +8,8 @@ description = "Plugin process management: spawn, D20 handshake, NDJSON calls wit
 [dependencies]
 musicforge-plugin-api = { path = "../musicforge-plugin-api" }
 serde = { version = "1", features = ["derive"] }
+# P3：协议违规（超限等）可观测——调用方初始化 subscriber 后可见（server 已初始化）
+tracing = "0.1"
 serde_json = "1"
 
 [dev-dependencies]

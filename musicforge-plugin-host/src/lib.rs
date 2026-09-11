@@ -231,7 +231,19 @@ impl PluginProcess {
                         Ok(_) => {}
                     }
                     if buf.len() > musicforge_plugin_api::v1::MAX_MESSAGE_BYTES {
-                        vio.fetch_add(1, Ordering::Relaxed); // 超限：丢该行（P9 沙箱再做流式强化）
+                        // 超限：丢该行（协议 v1 硬上限 16MB；流式强化属**协议演进**，
+                        // 评估与触发条件见 docs/plugin-sandbox-streaming.md）。
+                        //
+                        // P3：从「静默丢行」升级为可观测——否则真机上无法判断是否真有
+                        // 插件撞限，也就无法回答「是否该做流式通道」这个决策问题。
+                        // 只记字节数：内容可能含用户路径/歌词且体量巨大，不入日志。
+                        let n = vio.fetch_add(1, Ordering::Relaxed) + 1;
+                        tracing::warn!(
+                            bytes = buf.len(),
+                            limit = musicforge_plugin_api::v1::MAX_MESSAGE_BYTES,
+                            violations = n,
+                            "plugin 消息超过协议上限，已丢弃该行"
+                        );
                         continue;
                     }
                     let line = String::from_utf8_lossy(&buf);
