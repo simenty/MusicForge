@@ -32,3 +32,5 @@ notify = "6.1"
 
 [dev-dependencies]
 tempfile = "3"
+# P3：属性测试（仅测试依赖，不进产物；MIT/Apache 许可在 deny 白名单内）
+proptest = "1"
