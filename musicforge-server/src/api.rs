@@ -859,6 +859,9 @@ mod tests {
             data_dir: std::env::temp_dir().join(format!("mf-api-test-{}", std::process::id())),
             library_dir: lib,
             allowed_roots: Vec::new(),
+            // 端点业务测试不带签名 → legacy（M2 签名路径见 lib.rs 专项测试）
+            auth_require_sign: false,
+            nonce_seen: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
 

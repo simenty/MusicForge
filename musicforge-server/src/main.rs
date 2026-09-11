@@ -32,7 +32,14 @@ async fn main() {
         data_dir: cfg.data_dir.clone(),
         library_dir: cfg.library_dir.clone(),
         allowed_roots: cfg.allowed_roots,
+        auth_require_sign: cfg.auth_require_sign,
+        nonce_seen: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
     };
+    if !cfg.auth_require_sign {
+        tracing::warn!(
+            "MUSICFORGE_AUTH_LEGACY=1：请求签名校验关闭（仅静态 token）——仅用于排查，勿长期启用"
+        );
+    }
     let app = build_router(state);
 
     let listener = match tokio::net::TcpListener::bind(&cfg.bind).await {

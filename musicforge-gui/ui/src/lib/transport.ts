@@ -9,6 +9,7 @@
 // 其内部解包逻辑的重复留待有测试覆盖时再合并。
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { type UnlistenFn } from "@tauri-apps/api/event";
+import { makeNonce, signRequest } from "./hmac";
 
 export type { UnlistenFn };
 
@@ -41,8 +42,29 @@ export class HttpApiError extends Error {
   }
 }
 
+/**
+ * M2（RFC-0003 §4.2）：统一构造带签名的请求头。
+ *
+ * - token 为空时**不签名**——让后端报「缺 token」（可操作）而不是「签名无效」（误导）；
+ * - 签名覆盖 method + 完整 path + body 摘要 + 时间戳 + nonce（服务端另有 60s 时间窗与 nonce 去重）；
+ * - 与服务端约定：path 为**完整路径**（含 `/api` 前缀；服务端用 OriginalUri 取，见 lib.rs）。
+ */
+function signedHeaders(method: "GET" | "POST", path: string, body: string): Record<string, string> {
+  const tok = serverToken();
+  const headers: Record<string, string> = { "x-token": tok };
+  if (tok) {
+    const ts = String(Math.floor(Date.now() / 1000));
+    const nonce = makeNonce();
+    headers["x-mf-ts"] = ts;
+    headers["x-mf-nonce"] = nonce;
+    headers["x-mf-sign"] = signRequest(tok, method, path, body, ts, nonce);
+  }
+  return headers;
+}
+
 export async function httpPost<T>(path: string, body?: unknown): Promise<T> {
   // B19: 30s 超时——网络挂起时显式失败而非永久 pending
+  const json = JSON.stringify(body ?? {});
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 30_000);
   let res: Response;
@@ -51,9 +73,9 @@ export async function httpPost<T>(path: string, body?: unknown): Promise<T> {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-token": serverToken(),
+        ...signedHeaders("POST", path, json),
       },
-      body: JSON.stringify(body ?? {}),
+      body: json,
       signal: ctl.signal,
     });
   } catch (e) {
@@ -84,7 +106,7 @@ export async function httpGet<T>(path: string): Promise<T> {
   try {
     res = await fetch(path, {
       method: "GET",
-      headers: { "x-token": serverToken() },
+      headers: signedHeaders("GET", path, ""),
       signal: ctl.signal,
     });
   } catch (e) {

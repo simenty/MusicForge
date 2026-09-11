@@ -16,6 +16,9 @@ fn state_with() -> ServerState {
         data_dir: std::env::temp_dir().join(format!("mf-int-{}", std::process::id())),
         library_dir: None,
         allowed_roots: Vec::new(),
+        // 集成测试聚焦端点语义（不带签名）→ legacy 模式；M2 签名路径见 lib.rs 专项测试
+        auth_require_sign: false,
+        nonce_seen: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
     }
 }
 

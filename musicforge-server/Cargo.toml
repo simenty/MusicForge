@@ -15,6 +15,10 @@ tower-http = { version = "0.6", features = ["fs", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde_json = "1"
+# M2（RFC-0003 §4.2）：请求签名校验（HMAC-SHA256）——RustCrypto 官方 crate
+# （MIT OR Apache-2.0，符合 dependency-policy 许可白名单；避免手写密码学）
+hmac = "0.12"
+sha2 = "0.10"
 musicforge-core = { path = "../musicforge-core" }
 # P8.2.2：convert API 经 cli 桥接（显式启用 plugin-host——NAS fpk 发行形态；
 # D8 语义 = cli/core **默认 feature** 不含 host，server 为显式 opt-in）

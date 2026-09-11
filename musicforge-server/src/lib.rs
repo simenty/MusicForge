@@ -57,6 +57,8 @@ pub struct ServerConfig {
     /// **空 = 不约束**（家庭内网 + token 闸的默认姿态）；配置后，端点内的
     /// 目录/文件参数必须落在某个 root 内，否则 `403 MF-PATH-NOT-ALLOWED`。
     pub allowed_roots: Vec<PathBuf>,
+    /// M2：是否要求请求签名（默认 true；`MUSICFORGE_AUTH_LEGACY=1` → false）。
+    pub auth_require_sign: bool,
 }
 
 impl ServerConfig {
@@ -91,6 +93,10 @@ impl ServerConfig {
             .filter(|s| !s.is_empty())
             .map(PathBuf::from)
             .collect();
+        // M2：签名校验默认开启；MUSICFORGE_AUTH_LEGACY=1 退回 legacy（迁移逃生门）
+        let auth_require_sign = std::env::var("MUSICFORGE_AUTH_LEGACY")
+            .map(|v| v.trim() != "1")
+            .unwrap_or(true);
         Ok((
             Self {
                 data_dir,
@@ -99,6 +105,7 @@ impl ServerConfig {
                 ui_dir,
                 library_dir,
                 allowed_roots,
+                auth_require_sign,
             },
             generated,
         ))
@@ -186,17 +193,102 @@ pub fn ct_eq(a: &str, b: &str) -> bool {
         == 0
 }
 
-/// `X-Token` 鉴权中间件（/api/* 除 health 外全量）。
+// ---------------------------------------------------------------- M2：请求签名 --
+///
+/// M2（RFC-0003 §4.2）：请求签名——防御**重放**（现状静态 X-Token 被抓包后可无限重放）。
+///
+/// 规范（与前端 `lib/hmac.ts` 逐字节一致，两侧测试共用同一组向量）：
+/// ```text
+/// canonical = METHOD \n path \n sha256hex(body) \n ts \n nonce
+/// sign      = hex(hmac_sha256(key = token, msg = canonical))
+/// ```
+/// - METHOD 大写；path 不含 query；无 body 时按空串取 sha256；
+/// - ts 为 unix 秒；nonce 为 16 字节 hex（32 字符）；签名 64 hex。
+pub mod sign {
+    use hmac::{Hmac, Mac};
+    use sha2::{Digest, Sha256};
+
+    /// 时间窗（秒）：`|now - ts| > WINDOW` 即 `MF-AUTH-STALE`（容忍两端轻微时钟差）。
+    pub const WINDOW_SECS: u64 = 60;
+    /// nonce 记忆窗口（秒）：取时间窗两倍——过窗的 nonce 已不可能通过 STALE 检查，无需再记。
+    pub const NONCE_TTL_SECS: u64 = 120;
+
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    /// sha256 → 小写 hex。
+    pub fn sha256_hex(data: &[u8]) -> String {
+        let mut h = Sha256::new();
+        h.update(data);
+        hex(&h.finalize())
+    }
+
+    /// 规范化串（签名输入）。
+    pub fn canonical(method: &str, path: &str, body: &[u8], ts: &str, nonce: &str) -> String {
+        format!(
+            "{}\n{}\n{}\n{}\n{}",
+            method.to_uppercase(),
+            path,
+            sha256_hex(body),
+            ts,
+            nonce
+        )
+    }
+
+    /// 计算签名（hex）——测试/工具复用。
+    pub fn compute(
+        token: &str,
+        method: &str,
+        path: &str,
+        body: &[u8],
+        ts: &str,
+        nonce: &str,
+    ) -> String {
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(token.as_bytes()).expect("HMAC 接受任意长度 key");
+        mac.update(canonical(method, path, body, ts, nonce).as_bytes());
+        hex(&mac.finalize().into_bytes())
+    }
+
+    /// 校验（时间窗 → 格式 → 签名常量时间比较）。`Err(稳定码)` 由调用方转 401。
+    pub fn verify(
+        token: &str,
+        method: &str,
+        path: &str,
+        body: &[u8],
+        ts: &str,
+        nonce: &str,
+        sig: &str,
+        now: u64,
+    ) -> Result<(), &'static str> {
+        let ts_num: u64 = ts.parse().map_err(|_| "MF-AUTH-STALE")?;
+        if ts_num.abs_diff(now) > WINDOW_SECS {
+            return Err("MF-AUTH-STALE");
+        }
+        let ok_hex = |s: &str, n: usize| s.len() == n && s.bytes().all(|b| b.is_ascii_hexdigit());
+        if !ok_hex(nonce, 32) || !ok_hex(sig, 64) {
+            return Err("MF-AUTH-SIG-INVALID");
+        }
+        let expect = compute(token, method, path, body, ts, nonce);
+        if crate::ct_eq(&expect, &sig.to_lowercase()) {
+            Ok(())
+        } else {
+            Err("MF-AUTH-SIG-INVALID")
+        }
+    }
+}
+
+/// `/api/*` 鉴权中间件（除 health 外全量）。
+///
+/// 两种模式（M2，RFC-0003 §4.2）：
+/// - **签名模式（默认严格）**：校验 `x-mf-ts / x-mf-nonce / x-mf-sign` —— 时间窗 + nonce 防重放 + HMAC；
+/// - **legacy 模式**（`MUSICFORGE_AUTH_LEGACY=1`）：仅静态 token 比较（M2 前行为，迁移逃生门）。
 async fn auth_middleware(
     axum::extract::State(state): axum::extract::State<ServerState>,
     req: Request<Body>,
     next: Next,
 ) -> Response {
-    let provided = req
-        .headers()
-        .get("X-Token")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
     // B21: 空 token 的 ServerState 属误配置——拒绝服务而非放行（ct_eq("","")=true）
     if state.token.is_empty() {
         // P1-2：误配置（空 token）显式 error——此前完全静默
@@ -208,27 +300,113 @@ async fn auth_middleware(
         )
             .into_response();
     }
-    if ct_eq(provided, &state.token) {
-        state.auth_guard.on_ok();
-        next.run(req).await
-    } else {
-        // P1-2：鉴权失败是安全事件——记 warn（**只记路径，绝不记 token**）
-        // P2-3：连续失败达阈值后附加延迟（防暴力）；只延迟不封禁
+
+    if !req.headers().contains_key("x-mf-sign") {
+        // 严格模式：缺签名 → 明确拒绝（提示客户端升级）
+        if state.auth_require_sign {
+            let delay_ms = state.auth_guard.on_fail();
+            tracing::warn!(path = %req.uri().path(), code = "MF-AUTH-SIG-MISSING", delay_ms, "auth rejected");
+            if delay_ms > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            }
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"ok": false, "code": "MF-AUTH-SIG-MISSING",
+                    "message": "缺少请求签名（请升级客户端：x-mf-ts / x-mf-nonce / x-mf-sign）"})),
+            )
+                .into_response();
+        }
+        // legacy 模式（MUSICFORGE_AUTH_LEGACY=1）：仅静态 token 比较（M2 前行为）
+        let provided = req
+            .headers()
+            .get("X-Token")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        if ct_eq(provided, &state.token) {
+            state.auth_guard.on_ok();
+            return next.run(req).await;
+        }
         let delay_ms = state.auth_guard.on_fail();
-        tracing::warn!(
-            path = %req.uri().path(),
-            delay_ms,
-            "auth rejected: missing or invalid X-Token"
-        );
+        tracing::warn!(path = %req.uri().path(), code = "MF-AUTH-REQUIRED", delay_ms, "auth rejected");
         if delay_ms > 0 {
             tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
         }
-        (
+        return (
             StatusCode::UNAUTHORIZED,
             Json(json!({"ok": false, "code": "MF-AUTH-REQUIRED",
                 "message": "缺失或错误的 X-Token（token 见服务端首启日志）"})),
         )
-            .into_response()
+            .into_response();
+    }
+
+    // 取签名头（在消耗请求体之前）
+    let (ts, nonce, sig) = {
+        let h = req.headers();
+        let g = |k: &str| h.get(k).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+        (g("x-mf-ts"), g("x-mf-nonce"), g("x-mf-sign"))
+    };
+
+    // body 参与签名（防"换体重放"）→ 缓冲后重建请求；本产品请求体为小 JSON，32MB 为防御上限
+    let (parts, body) = req.into_parts();
+    let bytes = match axum::body::to_bytes(body, 32 * 1024 * 1024).await {
+        Ok(b) => b,
+        Err(_) => {
+            return (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                Json(json!({"ok": false, "code": "MF-BODY-TOO-LARGE", "message": "请求体过大"})),
+            )
+                .into_response()
+        }
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let method = parts.method.as_str().to_string();
+    // 关键：本中间件挂在 `nest("/api")` 内——`parts.uri.path()` 已被剥离前缀（`/version`），
+    // 而客户端签的是**完整路径**（`/api/version`）。故优先取 `OriginalUri`（axum 在 nest 时注入）。
+    let path = parts
+        .extensions
+        .get::<axum::extract::OriginalUri>()
+        .map(|u| u.0.path().to_string())
+        .unwrap_or_else(|| parts.uri.path().to_string());
+
+    let verdict = sign::verify(&state.token, &method, &path, &bytes, &ts, &nonce, &sig, now);
+    match verdict {
+        Ok(()) => {
+            if state.nonce_replay(&nonce, now) {
+                let delay_ms = state.auth_guard.on_fail();
+                tracing::warn!(path = %path, code = "MF-AUTH-REPLAY", delay_ms, "auth rejected");
+                if delay_ms > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                }
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({"ok": false, "code": "MF-AUTH-REPLAY",
+                        "message": "重复的请求签名（nonce 已被使用）"})),
+                )
+                    .into_response();
+            }
+            state.auth_guard.on_ok();
+            next.run(Request::from_parts(parts, Body::from(bytes))).await
+        }
+        Err(code) => {
+            let delay_ms = state.auth_guard.on_fail();
+            tracing::warn!(path = %path, code, delay_ms, "auth rejected: bad request signature");
+            if delay_ms > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            }
+            let msg = if code == "MF-AUTH-STALE" {
+                "请求时间戳超出窗口（请校准系统时间后重试）"
+            } else {
+                "请求签名无效"
+            };
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"ok": false, "code": code, "message": msg})),
+            )
+                .into_response()
+        }
     }
 }
 
@@ -313,6 +491,25 @@ pub struct ServerState {
     pub library_dir: Option<PathBuf>,
     /// P9：路径域白名单（空 = 不约束）
     pub allowed_roots: Vec<PathBuf>,
+    /// M2（RFC-0003 §4.2）：是否要求请求签名（**默认 true**）。
+    /// `MUSICFORGE_AUTH_LEGACY=1` 时关闭（退回仅静态 token 比较）——迁移逃生门。
+    pub auth_require_sign: bool,
+    /// M2：已见 nonce（防重放）——nonce → 过期 unix 秒
+    pub nonce_seen: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, u64>>>,
+}
+
+impl ServerState {
+    /// M2：nonce 去重（返回 `true` = 重放）。
+    /// 检查与插入在同一临界区完成（原子）；顺带清理过期项，避免 map 无限增长。
+    pub fn nonce_replay(&self, nonce: &str, now: u64) -> bool {
+        let mut m = self.nonce_seen.lock().unwrap_or_else(|e| e.into_inner());
+        m.retain(|_, exp| *exp > now);
+        if m.contains_key(nonce) {
+            return true;
+        }
+        m.insert(nonce.to_string(), now + sign::NONCE_TTL_SECS);
+        false
+    }
 }
 
 /// 构建路由（health 免鉴权；其余 /api/* 鉴权；非 /api → SPA）。
@@ -399,6 +596,10 @@ mod tests {
             data_dir: std::env::temp_dir().join(format!("mf-srv-test-{}", std::process::id())),
             library_dir: None,
             allowed_roots: Vec::new(),
+            // 既有集成测试聚焦业务逻辑（不带签名）→ legacy 模式；
+            // M2 签名路径由下方专项测试覆盖。
+            auth_require_sign: false,
+            nonce_seen: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -532,5 +733,141 @@ mod tests {
             DEFAULT_BIND.starts_with("127.0.0.1"),
             "默认绑定必须仅回环: {DEFAULT_BIND}"
         );
+    }
+
+    // ------------------------------------------------------------ M2：请求签名 --
+    // 跨语言测试向量（与前端 `src/lib/hmac.test.ts` 共用同一组；由 node:crypto 生成）——
+    // 任一侧的 canonical/HMAC 实现发生漂移，本组测试会立即变红。
+
+    const VEC_TOKEN: &str = "test-token";
+    const VEC_TS: &str = "1760000000";
+    const VEC_NONCE: &str = "00112233445566778899aabbccddeeff";
+    const VEC_SIG_POST: &str = "0a759dd225ade9ae7d3fdda28cfa090f0854d05347aba5886be5d6f2c55db3f4";
+    const VEC_SIG_GET: &str = "fe03de00ac0eaecc8faf137667db7097d61b8243e572e25ed26f5ea58df5edc4";
+
+    #[test]
+    fn sign_matches_cross_language_vector() {
+        assert_eq!(
+            sign::compute(VEC_TOKEN, "POST", "/api/batch", br#"{"a":1}"#, VEC_TS, VEC_NONCE),
+            VEC_SIG_POST
+        );
+        assert_eq!(
+            sign::compute(VEC_TOKEN, "GET", "/api/version", b"", VEC_TS, VEC_NONCE),
+            VEC_SIG_GET
+        );
+    }
+
+    #[test]
+    fn sign_verify_window_format_and_tamper() {
+        let body = br#"{"a":1}"#;
+        let at = 1760000000u64;
+        // 正确 + 窗口边界（±60s）
+        assert!(
+            sign::verify(VEC_TOKEN, "POST", "/api/batch", body, VEC_TS, VEC_NONCE, VEC_SIG_POST, at)
+                .is_ok()
+        );
+        assert!(sign::verify(
+            VEC_TOKEN, "POST", "/api/batch", body, VEC_TS, VEC_NONCE, VEC_SIG_POST, at + 60
+        )
+        .is_ok());
+        // 超窗 / ts 非数字 → STALE
+        assert_eq!(
+            sign::verify(VEC_TOKEN, "POST", "/api/batch", body, VEC_TS, VEC_NONCE, VEC_SIG_POST, at + 61),
+            Err("MF-AUTH-STALE")
+        );
+        assert_eq!(
+            sign::verify(VEC_TOKEN, "POST", "/api/batch", body, "abc", VEC_NONCE, VEC_SIG_POST, at),
+            Err("MF-AUTH-STALE")
+        );
+        // body 篡改（换体重放）→ 签名不符
+        assert_eq!(
+            sign::verify(VEC_TOKEN, "POST", "/api/batch", br#"{"a":2}"#, VEC_TS, VEC_NONCE, VEC_SIG_POST, at),
+            Err("MF-AUTH-SIG-INVALID")
+        );
+        // path 篡改（同一签名挪到别的端点）→ 拒绝
+        assert_eq!(
+            sign::verify(VEC_TOKEN, "POST", "/api/clean/apply", body, VEC_TS, VEC_NONCE, VEC_SIG_POST, at),
+            Err("MF-AUTH-SIG-INVALID")
+        );
+        // token 不对 → 签名不符
+        assert_eq!(
+            sign::verify("other-token", "POST", "/api/batch", body, VEC_TS, VEC_NONCE, VEC_SIG_POST, at),
+            Err("MF-AUTH-SIG-INVALID")
+        );
+        // nonce 格式非法 → 拒绝（不进 nonce 表）
+        assert_eq!(
+            sign::verify(VEC_TOKEN, "POST", "/api/batch", body, VEC_TS, "zz", VEC_SIG_POST, at),
+            Err("MF-AUTH-SIG-INVALID")
+        );
+    }
+
+    #[tokio::test]
+    async fn strict_mode_rejects_missing_signature() {
+        let mut st = test_state("tok-123");
+        st.auth_require_sign = true;
+        let app = build_router(st);
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/version")
+                    .header("x-token", "tok-123")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+        let v: serde_json::Value =
+            serde_json::from_slice(&to_bytes(res.into_body(), 1 << 20).await.unwrap()).unwrap();
+        assert_eq!(v["code"], "MF-AUTH-SIG-MISSING");
+    }
+
+    #[tokio::test]
+    async fn legacy_mode_still_accepts_static_token() {
+        // test_state 默认 auth_require_sign=false（legacy）——静态 token 应通过
+        let app = build_router(test_state("tok-123"));
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/version")
+                    .header("x-token", "tok-123")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "legacy 模式静态 token 应通过");
+    }
+
+    #[tokio::test]
+    async fn signed_request_accepted_and_replay_blocked() {
+        let mut st = test_state("tok-123");
+        st.auth_require_sign = true;
+        let app = build_router(st);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let ts = now.to_string();
+        let nonce = "aabbccddeeff00112233445566778899";
+        let mk = |n: &str| {
+            let s = sign::compute("tok-123", "GET", "/api/version", b"", &ts, n);
+            Request::builder()
+                .uri("/api/version")
+                .header("x-token", "tok-123")
+                .header("x-mf-ts", ts.clone())
+                .header("x-mf-nonce", n)
+                .header("x-mf-sign", s)
+                .body(Body::empty())
+                .unwrap()
+        };
+        let res = app.clone().oneshot(mk(nonce)).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "带正确签名的请求应通过");
+        // 同 nonce 重放 → MF-AUTH-REPLAY
+        let res2 = app.oneshot(mk(nonce)).await.unwrap();
+        assert_eq!(res2.status(), StatusCode::UNAUTHORIZED);
+        let v: serde_json::Value =
+            serde_json::from_slice(&to_bytes(res2.into_body(), 1 << 20).await.unwrap()).unwrap();
+        assert_eq!(v["code"], "MF-AUTH-REPLAY");
     }
 }
