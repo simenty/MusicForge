@@ -1597,3 +1597,8 @@ code,
 .filter-chip { height: 26px; padding: 0 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim); font-size: var(--fs-xs); cursor: pointer; transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease); }
 .filter-chip:hover { color: var(--text); border-color: var(--border-strong); }
 .filter-chip.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-soft); }
+/* ---- 服务端 token 引导（MF-AUTH-REQUIRED 可操作化｜R22 无默认口令）---- */
+.auth-cmds { width: 100%; display: flex; flex-direction: column; gap: var(--sp-3); text-align: left; }
+.auth-cmds code { display: block; margin-top: var(--sp-1); padding: 6px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-dim); overflow-x: auto; white-space: nowrap; }
+/* 顶栏 token 输入框：未配置时描边警示（填好后自动消失） */
+.server-token.needs-token { border-color: var(--warn); }

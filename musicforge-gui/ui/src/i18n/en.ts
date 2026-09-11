@@ -25,6 +25,7 @@ export const en: typeof zh = {
     navLibrary: "Library",
     navPlugins: "Plugins",
     navSettings: "Settings",
+    tokenPlaceholder: "Paste server token (required for API access)",
     // P0-2: section-level error boundary (render failure no longer blanks the whole app)
     errorTitle: "This module failed to render",
     errorHint: "The error was contained — other modules remain usable.",
@@ -262,6 +263,19 @@ export const en: typeof zh = {
     dedupeSummary: (n: number) =>
       `Move ${n} duplicate${n === 1 ? "" : "s"} to the recycle bin (kept member untouched)`,
     btnDedupe: "Confirm dedupe",
+  },
+  /** Server token guidance (makes MF-AUTH-REQUIRED actionable | R22 no-default-credentials) */
+  auth: {
+    title: "Server access token required",
+    body: "The server ships with no default credentials: the token is generated randomly on first start, kept only in the data directory, and printed once to the startup log.",
+    cmdFileLabel: "Option 1: read the token file",
+    cmdFile: "sudo cat <data-dir>/.token",
+    cmdLogLabel: "Option 2: search the first-start log",
+    cmdLog: 'sudo grep -A1 "随机访问 token" <data-dir>/logs/server.log',
+    where:
+      "Then paste it into the “server token” field at the top right — it saves and applies immediately.",
+    hint: "Tip: the data directory is shown under “Server info” below (data_dir); on fnOS it defaults to /vol1/@appdata/musicforge or /vol1/@appcenter/musicforge/data.",
+    retry: "Re-check",
   },
   dedupe: {
     toggle: "▍Duplicate finder (side-by-side · suggested keep · your call)",

@@ -185,16 +185,19 @@ export default function App() {
           <span className="chip">v0.9.0</span>
           {!IS_DESKTOP && (
             <input
-              className="lang-select server-token"
+              className={
+                "lang-select server-token" + (serverTokenInput.trim() ? "" : " needs-token")
+              }
               type="password"
-              placeholder="server token"
+              placeholder={t.app.tokenPlaceholder}
               value={serverTokenInput}
               onChange={(e) => {
                 setServerTokenInput(e.target.value);
                 setServerToken(e.target.value);
               }}
               spellCheck={false}
-              aria-label="server token"
+              aria-label={t.app.tokenPlaceholder}
+              title={t.auth.where}
             />
           )}
           <select

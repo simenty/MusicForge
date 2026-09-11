@@ -29,6 +29,7 @@ export const zh = {
     navLibrary: "曲库",
     navPlugins: "插件",
     navSettings: "设置",
+    tokenPlaceholder: "粘贴服务端 token（未配置则功能不可用）",
     // P0-2：分区级错误边界（渲染异常降级，不再整页白屏）
     errorTitle: "此模块渲染出错",
     errorHint: "已阻止错误扩散，其余模块仍可正常使用。",
@@ -253,6 +254,18 @@ export const zh = {
     titleDedupe: "去重执行确认",
     dedupeSummary: (n: number) => `将把 ${n} 个重复项移入回收站（组内保留项不受影响）`,
     btnDedupe: "确认去重",
+  },
+  /** 服务端 token 引导（MF-AUTH-REQUIRED 的可操作化｜R22 无默认口令） */
+  auth: {
+    title: "需要服务端访问 token",
+    body: "服务端采用无默认口令设计：token 在首启时随机生成、仅保存在数据目录，并打印一次到启动日志。",
+    cmdFileLabel: "方式一：读取 token 文件",
+    cmdFile: "sudo cat <数据目录>/.token",
+    cmdLogLabel: "方式二：从首启日志查找",
+    cmdLog: 'sudo grep -A1 "随机访问 token" <数据目录>/logs/server.log',
+    where: "取到后，粘贴到页面顶部右侧的「server token」输入框——自动保存并立即生效。",
+    hint: "提示：数据目录可在下方「服务端信息」中查看（data_dir）；fnOS 默认在 /vol1/@appdata/musicforge 或 /vol1/@appcenter/musicforge/data。",
+    retry: "重新检测",
   },
   dedupe: {
     toggle: "▍重复文件去重（组内对比 · 建议保留 · 可改选）",
