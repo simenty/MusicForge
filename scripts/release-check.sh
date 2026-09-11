@@ -79,6 +79,29 @@ else
   echo "  ! 跳过（需要 npm 与 node_modules；CI 会跑）"
 fi
 
+# ---- 5.5 前端静态检查 + SBOM 生成冒烟（P4-2 / P4-4）----
+section "前端 ESLint"
+if command -v npm >/dev/null 2>&1 && [ -d musicforge-gui/ui/node_modules ]; then
+  if npm --prefix musicforge-gui/ui run lint >/dev/null 2>&1; then
+    pass "ESLint 通过"
+  else
+    fail "ESLint 未通过（npm --prefix musicforge-gui/ui run lint 查看详情）"
+  fi
+else
+  echo "  ! 跳过（需要 npm 与 node_modules；CI 会跑）"
+fi
+
+section "SBOM 生成冒烟"
+if command -v node >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1; then
+  if node scripts/gen-sbom.mjs "0.0.0-smoke" >/dev/null 2>&1; then
+    pass "gen-sbom.mjs 可用（cargo metadata → CycloneDX）"
+  else
+    fail "SBOM 生成失败（release-installer 的发布步骤会因此失败）"
+  fi
+else
+  echo "  ! 跳过（需要 node + cargo）"
+fi
+
 # ---- 6. 生命周期冒烟（可选：需编译好的 server 二进制）----
 if [ -n "$LIFECYCLE_BIN" ]; then
   section "生命周期冒烟"

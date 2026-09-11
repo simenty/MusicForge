@@ -74,6 +74,18 @@ if ! bash "$MAIN" start; then
 fi
 bash "$MAIN" status || fail "B27 回归后服务应处于运行中"
 
+# ---- 4.5) 日志轮转（v3 审计 §5.3 / P4-1）：预置 >5MB 日志，start 应轮出 .1 ----
+step "日志轮转：预置 6MB 日志后 start"
+LOG_FILE="$TRIM_PKGVAR/logs/server.log"
+mkdir -p "$(dirname "$LOG_FILE")"
+head -c 6291456 /dev/zero > "$LOG_FILE" 2>/dev/null
+if ! bash "$MAIN" start; then fail "日志轮转场景 start 失败"; fi
+if [ -f "${LOG_FILE}.1" ]; then
+  step "  轮转产物 OK（server.log.1，$(( $(wc -c < "${LOG_FILE}.1") / 1024 ))KB）"
+else
+  fail "日志未轮转：预置 6MB 后未见 ${LOG_FILE}.1（检查 start 的轮转分支）"
+fi
+
 # ---- 5) stop → status 应为未运行（退出码 3）----
 step "stop → status 应为未运行（3）"
 bash "$MAIN" stop >/dev/null

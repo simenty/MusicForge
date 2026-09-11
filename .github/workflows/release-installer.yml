@@ -209,6 +209,16 @@ jobs:
             echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
           fi
 
+      # P4-4：SBOM 由仓库脚本生成（cargo metadata 读 Cargo.lock），需先取源码
+      - uses: actions/checkout@v4
+
+      - name: Generate SBOM (CycloneDX from cargo metadata)
+        shell: bash
+        run: |
+          mkdir -p assets
+          node scripts/gen-sbom.mjs "${{ steps.ver.outputs.version }}" > assets/SBOM.cdx.json
+          echo "SBOM 组件数: $(grep -c '\"type\": \"library\"' assets/SBOM.cdx.json)"
+
       - name: Download windows assets
         uses: actions/download-artifact@v4
         with:
@@ -234,7 +244,7 @@ jobs:
         working-directory: assets
         run: |
           find win linux macos -type f \( -name "*.exe" -o -name "*.zip" -o -name "*.tar.gz" \) -exec mv {} . \;
-          sha256sum MusicForge-*.exe *.zip *.tar.gz > SHA256SUMS.txt
+          sha256sum MusicForge-*.exe *.zip *.tar.gz SBOM.cdx.json > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Create/Update GitHub Release
@@ -251,3 +261,4 @@ jobs:
             assets/musicforge-v${{ steps.ver.outputs.version }}-x86_64-unknown-linux-musl.tar.gz
             assets/musicforge-v${{ steps.ver.outputs.version }}-aarch64-apple-darwin.tar.gz
             assets/SHA256SUMS.txt
+            assets/SBOM.cdx.json
