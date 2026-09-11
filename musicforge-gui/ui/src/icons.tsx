@@ -131,6 +131,55 @@ export function IconScan({ size = 16, className }: IconProps) {
   );
 }
 
+/** 统计卡：音频（音符） */
+export function IconMusic({ size = 16, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M9 18V6l10-2v12" />
+      <circle cx="6.5" cy="18" r="2.5" />
+      <circle cx="16.5" cy="16" r="2.5" />
+    </>,
+    size,
+    className
+  );
+}
+
+/** 统计卡：匹配（对勾方框） */
+export function IconCheckBox({ size = 16, className }: IconProps) {
+  return svg(
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="3" />
+      <path d="M8 12.5l2.6 2.6L16 9.5" />
+    </>,
+    size,
+    className
+  );
+}
+
+/** 统计卡：告警（三角） */
+export function IconWarnTri({ size = 16, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M12 3.5l9 16H3z" />
+      <path d="M12 10v4M12 17.2v.1" />
+    </>,
+    size,
+    className
+  );
+}
+
+/** 统计卡：异常（圆斜线） */
+export function IconBan({ size = 16, className }: IconProps) {
+  return svg(
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M6 18L18 6" />
+    </>,
+    size,
+    className
+  );
+}
+
 /** 重复去重（两份重叠） */
 export function IconCopy({ size = 16, className }: IconProps) {
   return svg(

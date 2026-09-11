@@ -281,6 +281,25 @@ export const en: typeof zh = {
       junk: "Junk",
       other: "Other",
     },
+    // —— UI restructure (2026-09-11, design-sheet layout: config left / stats + list right) ——
+    cardTitle: "Library scan",
+    panelIntro:
+      "Read-only scan: classifies audio / lyrics / covers and flags junk, orphans and naming anomalies.",
+    dirLabel: "Library directory to scan",
+    statTotal: "Files scanned",
+    statAudio: "Audio files",
+    statLyricsCover: "Lyrics & covers",
+    statJunkOther: "Junk & anomalies",
+    resultTitle: "Flagged items",
+    resultCount: (n: number) => `${n} rule hit${n === 1 ? "" : "s"}`,
+    exportCsv: "Export CSV",
+    emptyGuide:
+      "Pick a library directory and hit Scan — the report (stat cards + item list) will appear here.",
+    readonlyTitle: "What you can do next",
+    readonlyBody: "Scanning never touches your files. Flagged items can be handled in the matching tool:",
+    flowDedupe: "Dedupe: compare identical-content groups, sacrifices go to the recycle bin.",
+    flowOrganize: "Organize: archive by naming template, fully rollback-able.",
+    flowClean: "Clean: junk / orphans / naming anomalies move to the recycle bin (restorable).",
   },
   plugin: {
     toggle: "▍AI & plugins",

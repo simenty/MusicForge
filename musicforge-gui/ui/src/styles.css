@@ -1463,3 +1463,89 @@ code,
     animation-duration: 0.01ms !important;
   }
 }
+
+/* =========================================================================
+ * 设计语言组件（2026-09-11，从设计稿吸收）
+ * 两栏工作区 / 统计卡 / 分类徽标 / 数据表 —— 曲库扫描新界面使用；
+ * 其它面板可复用同一套组件（渐进统一）。
+ * ======================================================================= */
+
+/* ---- 两栏工作区：左配置（桌面吸顶）+ 右数据 ---- */
+.work2 {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: var(--sp-4);
+  align-items: start;
+}
+.work2-side { position: sticky; top: 100px; }
+.work2-main { min-width: 0; display: flex; flex-direction: column; gap: var(--sp-4); }
+@media (max-width: 1280px) {
+  .work2 { grid-template-columns: minmax(0, 1fr); }
+  .work2-side { position: static; }
+}
+
+/* ---- 配置卡排版 ---- */
+.cfg-intro { margin: 0; font-size: var(--fs-sm); color: var(--text-dim); line-height: 1.65; }
+.cfg-block { display: flex; flex-direction: column; gap: var(--sp-2); }
+.cfg-label { display: flex; align-items: baseline; gap: var(--sp-2); font-size: var(--fs-sm); }
+.cfg-label .hint { margin-left: auto; font-size: var(--fs-xs); color: var(--text-faint); }
+.cfg-input {
+  width: 100%; height: 38px; padding: 0 var(--sp-3);
+  border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+  background: var(--surface); font-size: var(--fs-md); color: var(--text);
+}
+.cfg-input::placeholder { color: var(--text-faint); }
+.cfg-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cfg-row { display: flex; gap: var(--sp-2); }
+.btn.wide { width: 100%; }
+
+/* 处置流程说明卡（左侧强调竖线） */
+.flow-card {
+  border-left: 3px solid var(--warn);
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+  padding: var(--sp-3);
+  display: flex; flex-direction: column; gap: var(--sp-2);
+}
+.flow-card b { font-size: var(--fs-sm); }
+.flow-card p { margin: 0; font-size: var(--fs-xs); color: var(--text-dim); line-height: 1.65; }
+.flow-card ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--sp-1); }
+.flow-card li { font-size: var(--fs-xs); color: var(--text-dim); line-height: 1.6; }
+.flow-card li b { color: var(--text); }
+
+/* ---- 统计卡 ---- */
+.stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-4); }
+@media (max-width: 1000px) { .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .stat-grid { grid-template-columns: minmax(0, 1fr); } }
+.stat-card { flex-direction: row; align-items: center; gap: var(--sp-3); min-height: 82px; }
+.stat-ico { width: 38px; height: 38px; border-radius: var(--r-sm); display: grid; place-items: center; flex: none; }
+.stat-meta { min-width: 0; }
+.stat-lbl { font-size: var(--fs-sm); color: var(--text-dim); line-height: 1.4; }
+.stat-num { font-size: 22px; font-weight: 700; line-height: 1.15; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.stat-ico.i-total { color: var(--accent);     background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.stat-ico.i-audio { color: var(--cat-audio);  background: color-mix(in srgb, var(--cat-audio) 14%, transparent); }
+.stat-ico.i-lyric { color: var(--cat-lyrics); background: color-mix(in srgb, var(--cat-lyrics) 14%, transparent); }
+.stat-ico.i-junk  { color: var(--cat-junk);   background: color-mix(in srgb, var(--cat-junk) 14%, transparent); }
+.stat-num.n-audio { color: var(--cat-audio); }
+.stat-num.n-lyric { color: var(--cat-lyrics); }
+.stat-num.n-junk  { color: var(--cat-junk); }
+
+/* ---- 分类徽标（chip 变体：分类色描边 + 淡底） ---- */
+.chip.cat-audio  { color: var(--cat-audio);  border-color: color-mix(in srgb, var(--cat-audio) 40%, transparent);  background: color-mix(in srgb, var(--cat-audio) 10%, transparent); }
+.chip.cat-lyrics { color: var(--cat-lyrics); border-color: color-mix(in srgb, var(--cat-lyrics) 40%, transparent); background: color-mix(in srgb, var(--cat-lyrics) 10%, transparent); }
+.chip.cat-cover  { color: var(--cat-cover);  border-color: color-mix(in srgb, var(--cat-cover) 40%, transparent);  background: color-mix(in srgb, var(--cat-cover) 10%, transparent); }
+.chip.cat-junk   { color: var(--cat-junk);   border-color: color-mix(in srgb, var(--cat-junk) 40%, transparent);   background: color-mix(in srgb, var(--cat-junk) 10%, transparent); }
+.chip.cat-other  { color: var(--cat-other);  border-color: color-mix(in srgb, var(--cat-other) 40%, transparent);  background: color-mix(in srgb, var(--cat-other) 10%, transparent); }
+
+/* ---- 数据表（弱表头 + 行分隔 + hover） ---- */
+.dt-wrap { overflow-x: auto; }
+.dt { width: 100%; min-width: 640px; border-collapse: collapse; }
+.dt th {
+  text-align: left; font-weight: 500; font-size: var(--fs-xs); color: var(--text-dim);
+  padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.dt td { padding: var(--sp-3); border-bottom: 1px solid var(--border); vertical-align: top; }
+.dt tbody tr:last-child td { border-bottom: 0; }
+.dt tbody tr:hover { background: var(--surface-2); }
+.dt .num { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.dt .path { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-dim); word-break: break-all; }
