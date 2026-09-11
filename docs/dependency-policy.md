@@ -48,3 +48,22 @@ license, size impact (binary growth >10% needs a note), and maintenance status.
 Shells may add UI/platform dependencies (Tauri, notify, axum) but must still contain **zero
 network clients** except `musicforge-server`'s local HTTP listener. Plugin processes are the
 only components allowed to open outbound connections.
+
+## 5. GitHub Actions pinning (supply chain)
+
+可变 tag 可被上游转移（或被账号劫持）→ 在 CI 内执行任意代码，而 CI 持有 Release/GHCR
+写权限与签名相关 secret。分级策略：
+
+- **第三方 action（会执行代码 / 接触 secret）：pin commit SHA**
+  - `taiki-e/install-action`（下载并执行工具二进制）
+  - `dtolnay/rust-toolchain`（安装工具链；**pin SHA 后必须显式 `with: toolchain: stable`**——
+    该 action 原本以 `@stable` 这个 ref 推断版本，pin 后 ref 变成 SHA 便无法推断）
+  - `goto-bus-stop/setup-zig`（下载 zig）
+  - `docker/*-action`（接触 registry 凭据）
+  - `softprops/action-gh-release`（持有 Release 写权限）
+  - 写法：`uses: <owner>/<repo>@<40-hex-sha> # <version>`（行尾注释保留可读版本，便于人工更新）
+- **官方 `actions/*`：保持 major tag**（`@v4`）——官方维护、不会转移 tag，保持 tag 可自动获得安全修复。
+
+新增第三方 action 时必须按上述规则 pin；更新时用
+`gh api repos/<owner>/<repo>/commits/<ref> --jq .sha` 取新 SHA 替换并同步注释。
+

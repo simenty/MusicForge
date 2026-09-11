@@ -45,7 +45,9 @@ jobs:
           fi
 
       - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
 
       - name: Install Node 20
         uses: actions/setup-node@v4
@@ -154,8 +156,9 @@ jobs:
           fi
 
       - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
       # rust-toolchain.toml 会把工具链切到 pinned 1.98.0，其 std 需单独为交叉目标补装
@@ -235,7 +238,7 @@ jobs:
           cat SHA256SUMS.txt
 
       - name: Create/Update GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: v${{ steps.ver.outputs.version }}
           name: MusicForge v${{ steps.ver.outputs.version }}

@@ -1,4 +1,4 @@
-﻿name: CI
+name: CI
 
 on:
   push:
@@ -45,6 +45,9 @@ jobs:
       - name: 版本一致性（core / fpk / tauri）
         run: bash scripts/check-version-consistency.sh
 
+      - name: UI 错误边界覆盖（Panel/Card 组件必须位于 ErrorBoundary 内）
+        run: bash scripts/check-ui-boundaries.sh
+
   # ---- 覆盖率门禁（P2）：cargo-llvm-cov（LLVM source-based，行覆盖）----
   # 策略（避免「门禁形同虚设」与「每次提交都红」两个极端）：
   # - 绝对下限而非「不下降」：单人项目没有稳定的基线存储，绝对阈值更可预测；
@@ -62,15 +65,16 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
+          toolchain: stable
           components: llvm-tools-preview
 
       - name: Ensure llvm-tools (pinned toolchain)
         run: rustup component add llvm-tools-preview
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@fa23953489c080190314742a9b907f8e97c6767c # v2
         with:
           tool: cargo-llvm-cov
 
@@ -118,8 +122,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
+          toolchain: stable
           components: clippy
 
       # rust-toolchain.toml 会把工具链切到 pinned 1.98.0，clippy 组件需补装
@@ -208,8 +213,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
       # rust-toolchain.toml 会切到 pinned 1.98.0，其 std 需单独为交叉目标补装
@@ -225,10 +231,10 @@ jobs:
       # musl crt 链接必炸 → 用 cargo-zigbuild（zig 充当 C 编译器/linker）
       - name: Setup cargo-zigbuild
         if: matrix.target == 'aarch64-unknown-linux-musl'
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@fa23953489c080190314742a9b907f8e97c6767c # v2
         with:
           tool: cargo-zigbuild
-      - uses: goto-bus-stop/setup-zig@v2
+      - uses: goto-bus-stop/setup-zig@abea47f85e598557f500fa1fd2ab7464fcb39406 # v2
         if: matrix.target == 'aarch64-unknown-linux-musl'
         with:
           version: 0.13.0
@@ -309,10 +315,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
 
       - name: Install cargo-deny & cargo-audit
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@fa23953489c080190314742a9b907f8e97c6767c # v2
         with:
           tool: cargo-deny,cargo-audit
 
@@ -350,7 +358,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
 
       - name: Cache cargo
         uses: actions/cache@v4

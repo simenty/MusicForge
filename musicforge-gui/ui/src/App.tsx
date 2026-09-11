@@ -1,4 +1,4 @@
-﻿import { useCallback, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   selectDirectory,
   selectNcmFiles,
@@ -612,8 +612,11 @@ export default function App() {
 
       </ErrorBoundary>
 
-      {/* P2 收尾：服务端信息（/version + /wizard/status）——仅服务端形态渲染 */}
-      <ServerInfoCard />
+      {/* v3 审计 §3.2：服务端信息卡同样纳入错误边界——它会请求后端（/version、/wizard/status），
+          属"可能失败的渲染"。此前落在所有边界之外：一旦异常即整页白屏（ErrorBoundary 的存在意义被绕过）。 */}
+      <ErrorBoundary title={t.app.errorTitle} hint={t.app.errorHint} retry={t.app.errorRetry}>
+        <ServerInfoCard />
+      </ErrorBoundary>
 
       </main>
 
