@@ -1,4 +1,5 @@
 // P1：整理（organize）——按命名模板把曲库归档到目标根。
+// 2026-09-11 界面重构：设计稿布局（左配置卡 / 右统计卡 + 归档映射表）。
 //
 // 安全语义（与后端 /api/organize/* 一致）：
 // - **预览只读**：plan 绝不移动任何文件；
@@ -15,6 +16,7 @@ import {
   trashRestore,
   type OrganizePlan,
 } from "./api";
+import { IconBan, IconCheckBox, IconFolder, IconWarnTri } from "./icons";
 import { useLang } from "./i18n";
 
 const MAX_ROWS = 80;
@@ -113,122 +115,209 @@ export default function OrganizePanel() {
   const shown = plan ? plan.plan.items.slice(0, MAX_ROWS) : [];
 
   return (
-    <div className="scan-panel">
-      <div className="scan-head">
-        <b>{t.organize.head}</b>
-        <span className="plugin-note">{t.organize.readonlyNote}</span>
-      </div>
+    <div className="work2">
+      {/* ---------- 左：整理配置 ---------- */}
+      <aside className="panel work2-side">
+        <div className="panel-head">
+          <h2 style={{ margin: 0, fontSize: "var(--fs-lg)" }}>{t.organize.cardTitle}</h2>
+        </div>
+        <p className="cfg-intro">{t.organize.panelIntro}</p>
+        <div className="scan-note">{t.organize.readonlyNote}</div>
+        {!IS_SERVER_MODE && <div className="scan-note">{t.organize.serverOnly}</div>}
 
-      {!IS_SERVER_MODE && <div className="scan-note">{t.organize.serverOnly}</div>}
-
-      <div className="scan-bar">
-        <input
-          className="val mono"
-          value={dir}
-          onChange={(e) => setDir(e.target.value)}
-          placeholder={t.organize.dirPlaceholder}
-          spellCheck={false}
-          disabled={busy}
-        />
-        <button className="btn sm" onClick={() => void browse()} disabled={busy}>
-          {t.organize.browse}
-        </button>
-      </div>
-
-      <div className="scan-bar">
-        <input
-          className="val mono"
-          value={targetRoot}
-          onChange={(e) => setTargetRoot(e.target.value)}
-          placeholder={t.organize.targetPlaceholder}
-          spellCheck={false}
-          disabled={busy}
-        />
-        <button className="btn sm" onClick={() => void browseTarget()} disabled={busy}>
-          {t.organize.browse}
-        </button>
-        <input
-          className="val mono"
-          value={template}
-          onChange={(e) => setTemplate(e.target.value)}
-          placeholder={DEFAULT_TPL}
-          spellCheck={false}
-          disabled={busy}
-          title={t.organize.templateTip}
-        />
-        <button
-          className="btn sm"
-          onClick={() => void runPlan()}
-          disabled={busy || !dir.trim()}
-        >
-          {planning ? t.organize.planning : t.organize.planBtn}
-        </button>
-      </div>
-
-      {error && <div className="scan-error">✕ {error}</div>}
-      {result && <div className="scan-note scan-clean">✓ {result}</div>}
-
-      {plan && (
-        <>
-          <div className="scan-summary">
-            <span className="sc-audio">{t.organize.countPlanned(plan.counts.planned)}</span>
-            <span>{t.organize.countInPlace(plan.counts.in_place)}</span>
-            <span className="sc-junk">
-              {t.organize.countSkipped(plan.counts.skipped_conflict)}
-            </span>
-            <span>{t.organize.countConflict(plan.counts.conflict_never)}</span>
+        <div className="cfg-block">
+          <label className="cfg-label" htmlFor="org-dir">
+            {t.organize.dirLabel}
+          </label>
+          <input
+            id="org-dir"
+            className="cfg-input mono"
+            value={dir}
+            onChange={(e) => setDir(e.target.value)}
+            placeholder={t.organize.dirPlaceholder}
+            spellCheck={false}
+            disabled={busy}
+          />
+          <div className="cfg-row">
+            <button className="btn sm" onClick={() => void browse()} disabled={busy}>
+              {t.organize.browse}
+            </button>
           </div>
 
-          {shown.length > 0 ? (
-            <div className="scan-table-wrap">
-              <div className="scan-thead">
-                <span>{t.organize.colSource}</span>
-                <span>{t.organize.colTarget}</span>
-              </div>
-              <div className="scan-table">
-                {shown.map((i) => (
-                  <div
-                    className="scan-row"
-                    key={i.source}
-                    style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)" }}
-                    title={`${i.source} → ${i.target}${i.note ? ` (${i.note})` : ""}`}
-                  >
-                    <span className="sc-path">{shortPath(i.source)}</span>
-                    <span className="sc-path">{shortPath(i.target)}</span>
-                  </div>
-                ))}
-              </div>
-              {plan.plan.items.length > shown.length && (
-                <div className="scan-note">
-                  {t.organize.truncated(plan.plan.items.length, MAX_ROWS)}
+          <label className="cfg-label" htmlFor="org-target">
+            {t.organize.targetLabel}
+          </label>
+          <input
+            id="org-target"
+            className="cfg-input mono"
+            value={targetRoot}
+            onChange={(e) => setTargetRoot(e.target.value)}
+            placeholder={t.organize.targetPlaceholder}
+            spellCheck={false}
+            disabled={busy}
+          />
+          <div className="cfg-row">
+            <button className="btn sm" onClick={() => void browseTarget()} disabled={busy}>
+              {t.organize.browse}
+            </button>
+          </div>
+
+          <label className="cfg-label" htmlFor="org-template">
+            {t.organize.templateLabel}
+          </label>
+          <input
+            id="org-template"
+            className="cfg-input mono"
+            value={template}
+            onChange={(e) => setTemplate(e.target.value)}
+            placeholder={DEFAULT_TPL}
+            spellCheck={false}
+            disabled={busy}
+            title={t.organize.templateTip}
+          />
+          <button
+            className="btn primary wide"
+            onClick={() => void runPlan()}
+            disabled={busy || !dir.trim()}
+          >
+            {planning ? t.organize.planning : t.organize.planBtn}
+          </button>
+        </div>
+
+        <div className="flow-card">
+          <b>{t.organize.flowTitle}</b>
+          <p>{t.organize.flowBody}</p>
+          <ul>
+            <li>{t.organize.flowMove}</li>
+            <li>{t.organize.flowRollback}</li>
+            <li>{t.organize.flowConflict}</li>
+          </ul>
+        </div>
+      </aside>
+
+      {/* ---------- 右：统计卡 + 归档映射 ---------- */}
+      <section className="work2-main">
+        {error && <div className="scan-error">✕ {error}</div>}
+        {result && <div className="scan-note scan-clean">✓ {result}</div>}
+
+        {manifest && (
+          <div className="panel" style={{ gap: "var(--sp-2)" }}>
+            <div className="panel-head">
+              <span className="plugin-note">{t.organize.rollbackLine(manifest)}</span>
+              <button
+                className="btn sm"
+                style={{ marginLeft: "auto" }}
+                onClick={() => void restore()}
+                disabled={busy}
+              >
+                {restoring ? t.organize.restoring : t.organize.restoreBtn}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!plan ? (
+          <div className="panel">
+            <p className="cfg-intro">{t.organize.emptyGuide}</p>
+          </div>
+        ) : (
+          <>
+            <div className="stat-grid">
+              <div className="panel stat-card">
+                <span className="stat-ico i-audio">
+                  <IconFolder size={18} />
+                </span>
+                <div className="stat-meta">
+                  <div className="stat-lbl">{t.organize.statPlanned}</div>
+                  <div className="stat-num n-audio">{plan.counts.planned}</div>
                 </div>
+              </div>
+              <div className="panel stat-card">
+                <span className="stat-ico i-lyric">
+                  <IconCheckBox size={18} />
+                </span>
+                <div className="stat-meta">
+                  <div className="stat-lbl">{t.organize.statInPlace}</div>
+                  <div className="stat-num n-lyric">{plan.counts.in_place}</div>
+                </div>
+              </div>
+              <div className="panel stat-card">
+                <span className="stat-ico i-junk">
+                  <IconWarnTri size={18} />
+                </span>
+                <div className="stat-meta">
+                  <div className="stat-lbl">{t.organize.statSkipped}</div>
+                  <div className="stat-num n-junk">{plan.counts.skipped_conflict}</div>
+                </div>
+              </div>
+              <div className="panel stat-card">
+                <span className="stat-ico i-total">
+                  <IconBan size={18} />
+                </span>
+                <div className="stat-meta">
+                  <div className="stat-lbl">{t.organize.statConflict}</div>
+                  <div className="stat-num">{plan.counts.conflict_never}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="panel">
+              <div className="panel-head">
+                <h2 style={{ margin: 0, fontSize: "var(--fs-lg)" }}>{t.organize.resultTitle}</h2>
+                <span className="chip">{t.organize.countPlanned(plan.counts.planned)}</span>
+                <button
+                  className="btn sm primary"
+                  style={{ marginLeft: "auto" }}
+                  onClick={() => void runApply()}
+                  disabled={busy || plan.counts.planned === 0}
+                >
+                  {applying ? t.organize.applying : t.organize.applyBtn(plan.counts.planned)}
+                </button>
+              </div>
+
+              <div className="cfg-intro" style={{ fontSize: "var(--fs-xs)" }}>
+                <span>{t.organize.applyHint}</span>
+              </div>
+
+              {shown.length > 0 ? (
+                <>
+                  <div className="dt-wrap">
+                    <table className="dt">
+                      <thead>
+                        <tr>
+                          <th>{t.organize.colSource}</th>
+                          <th>{t.organize.colTarget}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {shown.map((i) => (
+                          <tr key={i.source} title={`${i.source} → ${i.target}${i.note ? ` (${i.note})` : ""}`}>
+                            <td>
+                              <div style={{ fontSize: "var(--fs-md)" }}>{shortPath(i.source)}</div>
+                              <div className="path">{i.source}</div>
+                            </td>
+                            <td>
+                              <div style={{ fontSize: "var(--fs-md)" }}>{shortPath(i.target)}</div>
+                              <div className="path">{i.target}</div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {plan.plan.items.length > shown.length && (
+                    <div className="scan-note">
+                      {t.organize.truncated(plan.plan.items.length, MAX_ROWS)}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="scan-note scan-clean">{t.organize.noChanges}</div>
               )}
             </div>
-          ) : (
-            <div className="scan-note scan-clean">{t.organize.noChanges}</div>
-          )}
-
-          <div className="dup-actions">
-            <button
-              className="btn sm primary"
-              onClick={() => void runApply()}
-              disabled={busy || plan.counts.planned === 0}
-            >
-              {applying ? t.organize.applying : t.organize.applyBtn(plan.counts.planned)}
-            </button>
-            <span className="scan-note">{t.organize.applyHint}</span>
-          </div>
-        </>
-      )}
-
-      {manifest && (
-        <div className="dup-actions">
-          <button className="btn sm" onClick={() => void restore()} disabled={busy}>
-            {restoring ? t.organize.restoring : t.organize.restoreBtn}
-          </button>
-          <span className="plugin-note">{t.organize.rollbackLine(manifest)}</span>
-        </div>
-      )}
+          </>
+        )}
+      </section>
     </div>
   );
 }

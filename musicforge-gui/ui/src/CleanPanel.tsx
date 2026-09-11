@@ -1,4 +1,5 @@
 // P1：清洗（clean）——按规则把垃圾/孤立文件移入回收站（可整体还原）。
+// 2026-09-11 界面重构：设计稿布局（左配置卡 / 右统计卡 + 计划清单）。
 //
 // 安全语义（与后端 /api/clean/* 一致）：
 // - 预览只读（dry-run）；执行需二次确认 + confirm:true；
@@ -13,6 +14,7 @@ import {
   trashRestore,
   type CleanPlan,
 } from "./api";
+import { IconFolder, IconWarnTri } from "./icons";
 import { useLang } from "./i18n";
 
 const MAX_ROWS = 80;
@@ -94,101 +96,174 @@ export default function CleanPanel() {
   const shown = plan ? plan.actions.slice(0, MAX_ROWS) : [];
 
   return (
-    <div className="scan-panel">
-      <div className="scan-head">
-        <b>{t.clean.head}</b>
-        <span className="plugin-note">{t.clean.trashNote}</span>
-      </div>
+    <div className="work2">
+      {/* ---------- 左：清洗配置 ---------- */}
+      <aside className="panel work2-side">
+        <div className="panel-head">
+          <h2 style={{ margin: 0, fontSize: "var(--fs-lg)" }}>{t.clean.cardTitle}</h2>
+        </div>
+        <p className="cfg-intro">{t.clean.panelIntro}</p>
+        {!IS_SERVER_MODE && <div className="scan-note">{t.clean.serverOnly}</div>}
 
-      {!IS_SERVER_MODE && <div className="scan-note">{t.clean.serverOnly}</div>}
-
-      <div className="scan-bar">
-        <input
-          className="val mono"
-          value={dir}
-          onChange={(e) => setDir(e.target.value)}
-          placeholder={t.clean.dirPlaceholder}
-          spellCheck={false}
-          disabled={busy}
-        />
-        <button className="btn sm" onClick={() => void browse()} disabled={busy}>
-          {t.clean.browse}
-        </button>
-        <input
-          className="val mono"
-          value={rules}
-          onChange={(e) => setRules(e.target.value)}
-          placeholder={t.clean.rulesPlaceholder}
-          spellCheck={false}
-          disabled={busy}
-          title={t.clean.rulesTip}
-        />
-        <button className="btn sm" onClick={() => void runPlan()} disabled={busy || !dir.trim()}>
-          {planning ? t.clean.planning : t.clean.planBtn}
-        </button>
-      </div>
-
-      {error && <div className="scan-error">✕ {error}</div>}
-      {result && <div className="scan-note scan-clean">✓ {result}</div>}
-
-      {plan && (
-        <>
-          <div className="scan-summary">
-            <span className="sc-junk">{t.clean.nActions(plan.actions.length)}</span>
-            <span>{t.clean.nEmptyDirs(plan.empty_dirs.length)}</span>
-            <span className="plugin-note">{t.clean.trashRoot(plan.trash_root)}</span>
+        <div className="cfg-block">
+          <label className="cfg-label" htmlFor="clean-dir">
+            {t.clean.dirLabel}
+          </label>
+          <input
+            id="clean-dir"
+            className="cfg-input mono"
+            value={dir}
+            onChange={(e) => setDir(e.target.value)}
+            placeholder={t.clean.dirPlaceholder}
+            spellCheck={false}
+            disabled={busy}
+          />
+          <div className="cfg-row">
+            <button className="btn sm" onClick={() => void browse()} disabled={busy}>
+              {t.clean.browse}
+            </button>
           </div>
+          <label className="cfg-label" htmlFor="clean-rules">
+            {t.clean.rulesLabel}
+          </label>
+          <input
+            id="clean-rules"
+            className="cfg-input mono"
+            value={rules}
+            onChange={(e) => setRules(e.target.value)}
+            placeholder={t.clean.rulesPlaceholder}
+            spellCheck={false}
+            disabled={busy}
+            title={t.clean.rulesTip}
+          />
+          <button
+            className="btn primary wide"
+            onClick={() => void runPlan()}
+            disabled={busy || !dir.trim()}
+          >
+            {planning ? t.clean.planning : t.clean.planBtn}
+          </button>
+        </div>
 
-          {shown.length > 0 ? (
-            <div className="scan-table-wrap">
-              <div className="scan-thead">
-                <span>{t.clean.colRule}</span>
-                <span>{t.clean.colPath}</span>
-              </div>
-              <div className="scan-table">
-                {shown.map((a) => (
-                  <div
-                    className="scan-row"
-                    key={a.path}
-                    style={{ gridTemplateColumns: "120px minmax(0,1fr)" }}
-                    title={a.path}
-                  >
-                    <code className="sc-rule-id">{a.rule_id}</code>
-                    <span className="sc-path">{shortPath(a.path)}</span>
-                  </div>
-                ))}
-              </div>
-              {plan.actions.length > shown.length && (
-                <div className="scan-note">
-                  {t.clean.truncated(plan.actions.length, MAX_ROWS)}
+        <div className="flow-card">
+          <b>{t.clean.flowTitle}</b>
+          <p>{t.clean.flowBody}</p>
+          <ul>
+            <li>{t.clean.flowTrash}</li>
+            <li>{t.clean.flowRollback}</li>
+            <li>{t.clean.flowRules}</li>
+          </ul>
+        </div>
+      </aside>
+
+      {/* ---------- 右：统计卡 + 计划清单 ---------- */}
+      <section className="work2-main">
+        {error && <div className="scan-error">✕ {error}</div>}
+        {result && <div className="scan-note scan-clean">✓ {result}</div>}
+
+        {manifest && (
+          <div className="panel" style={{ gap: "var(--sp-2)" }}>
+            <div className="panel-head">
+              <span className="plugin-note">{t.clean.rollbackLine(manifest)}</span>
+              <button
+                className="btn sm"
+                style={{ marginLeft: "auto" }}
+                onClick={() => void restore()}
+                disabled={busy}
+              >
+                {restoring ? t.clean.restoring : t.clean.restoreBtn}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!plan ? (
+          <div className="panel">
+            <p className="cfg-intro">{t.clean.emptyGuide}</p>
+          </div>
+        ) : (
+          <>
+            <div className="stat-grid c2">
+              <div className="panel stat-card">
+                <span className="stat-ico i-junk">
+                  <IconWarnTri size={18} />
+                </span>
+                <div className="stat-meta">
+                  <div className="stat-lbl">{t.clean.statActions}</div>
+                  <div className="stat-num n-junk">{plan.actions.length}</div>
                 </div>
+              </div>
+              <div className="panel stat-card">
+                <span className="stat-ico i-total">
+                  <IconFolder size={18} />
+                </span>
+                <div className="stat-meta">
+                  <div className="stat-lbl">{t.clean.statEmptyDirs}</div>
+                  <div className="stat-num">{plan.empty_dirs.length}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="panel">
+              <div className="panel-head">
+                <h2 style={{ margin: 0, fontSize: "var(--fs-lg)" }}>{t.clean.resultTitle}</h2>
+                <span className="chip">{t.clean.nActions(plan.actions.length)}</span>
+                <button
+                  className="btn sm primary"
+                  style={{ marginLeft: "auto" }}
+                  onClick={() => void runApply()}
+                  disabled={busy || plan.actions.length === 0}
+                >
+                  {applying ? t.clean.applying : t.clean.applyBtn(plan.actions.length)}
+                </button>
+              </div>
+
+              <div className="cfg-intro" style={{ fontSize: "var(--fs-xs)" }}>
+                <span>{t.clean.nEmptyDirs(plan.empty_dirs.length)}</span> ·{" "}
+                <span>{t.clean.trashRoot(plan.trash_root)}</span> ·{" "}
+                <span>{t.clean.applyHint}</span>
+              </div>
+
+              {shown.length > 0 ? (
+                <>
+                  <div className="dt-wrap">
+                    <table className="dt">
+                      <thead>
+                        <tr>
+                          <th>{t.clean.colRule}</th>
+                          <th>{t.clean.colPath}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {shown.map((a) => (
+                          <tr key={a.path}>
+                            <td>
+                              <code className="chip">{a.rule_id}</code>
+                            </td>
+                            <td>
+                              <div style={{ fontSize: "var(--fs-md)" }}>{shortPath(a.path)}</div>
+                              <div className="path" title={a.path}>
+                                {a.path}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {plan.actions.length > shown.length && (
+                    <div className="scan-note">
+                      {t.clean.truncated(plan.actions.length, MAX_ROWS)}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="scan-note scan-clean">{t.clean.nothingToClean}</div>
               )}
             </div>
-          ) : (
-            <div className="scan-note scan-clean">{t.clean.nothingToClean}</div>
-          )}
-
-          <div className="dup-actions">
-            <button
-              className="btn sm primary"
-              onClick={() => void runApply()}
-              disabled={busy || plan.actions.length === 0}
-            >
-              {applying ? t.clean.applying : t.clean.applyBtn(plan.actions.length)}
-            </button>
-            <span className="scan-note">{t.clean.applyHint}</span>
-          </div>
-        </>
-      )}
-
-      {manifest && (
-        <div className="dup-actions">
-          <button className="btn sm" onClick={() => void restore()} disabled={busy}>
-            {restoring ? t.clean.restoring : t.clean.restoreBtn}
-          </button>
-          <span className="plugin-note">{t.clean.rollbackLine(manifest)}</span>
-        </div>
-      )}
+          </>
+        )}
+      </section>
     </div>
   );
 }

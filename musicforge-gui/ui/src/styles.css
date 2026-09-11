@@ -1549,3 +1549,12 @@ code,
 .dt tbody tr:hover { background: var(--surface-2); }
 .dt .num { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
 .dt .path { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-dim); word-break: break-all; }
+/* ---- 统计卡列数变体（2/3 卡面板复用） ---- */
+.stat-grid.c2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.stat-grid.c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1000px) {
+  .stat-grid.c3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .stat-grid.c2, .stat-grid.c3 { grid-template-columns: minmax(0, 1fr); }
+}

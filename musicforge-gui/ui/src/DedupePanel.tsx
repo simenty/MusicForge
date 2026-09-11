@@ -1,4 +1,4 @@
-// P4.5 重复组视图：组内对比 + 建议保留高亮 + 人工改选 + 回收站执行。
+// P4.5 重复组视图（2026-09-11 界面重构：设计稿布局 —— 左配置卡 / 右统计卡 + 组清单）
 //
 // 设计边界（蓝图 §P4「GUI 重复组视图」+ 项目破坏性操作分级闸门）：
 // - 扫描只读；「建议保留」来自可复算评分（core 解释器），前端高亮；
@@ -15,6 +15,7 @@ import {
   type DedupeReport,
   type DupGroup,
 } from "./api";
+import { IconBan, IconCheckBox, IconCopy, IconWarnTri } from "./icons";
 import { useLang } from "./i18n";
 
 function fmtSize(n: number): string {
@@ -109,136 +110,202 @@ export default function DedupePanel({ hideCollapse = false }: { hideCollapse?: b
   };
 
   return (
-    <div className="scan-panel">
-      <div className="scan-head">
-        <b>{t.dedupe.head}</b>
-        {!hideCollapse && (
-          <button className="btn sm" onClick={() => setOpen(false)}>
-            {t.dedupe.collapse}
-          </button>
-        )}
-      </div>
-      <div className="scan-bar">
-        <input
-          className="val mono"
-          value={dir}
-          onChange={(e) => setDir(e.target.value)}
-          placeholder={t.dedupe.dirPlaceholder}
-          spellCheck={false}
-          disabled={scanning || applying}
-        />
-        <button className="btn sm" onClick={browse} disabled={scanning || applying}>
-          {t.dedupe.browse}
-        </button>
-        <button
-          className="btn sm primary"
-          onClick={run}
-          disabled={scanning || applying || !dir.trim()}
-        >
-          {scanning ? t.dedupe.scanning : t.dedupe.scan}
-        </button>
-      </div>
+    <div className="work2">
+      {/* ---------- 左：扫描配置 ---------- */}
+      <aside className="panel work2-side">
+        <div className="panel-head">
+          <h2 style={{ margin: 0, fontSize: "var(--fs-lg)" }}>{t.dedupe.cardTitle}</h2>
+          {!hideCollapse && (
+            <button className="btn sm" style={{ marginLeft: "auto" }} onClick={() => setOpen(false)}>
+              {t.dedupe.collapse}
+            </button>
+          )}
+        </div>
+        <p className="cfg-intro">{t.dedupe.panelIntro}</p>
 
-      {error && <div className="scan-error">✕ {error}</div>}
-      {result && <div className="scan-note scan-clean">✓ {result}</div>}
-
-      {report && (
-        <>
-          <div className="scan-summary">
-            <span>{t.dedupe.filesSeen(report.filesSeen)}</span>
-            <span>{t.dedupe.groups(report.groups.length)}</span>
-            <span>{t.dedupe.sameNameGroups(report.sameName.length)}</span>
-            <span className="sc-junk">
-              {t.dedupe.willSacrifice(finalSacrifices.length, fmtSize(savedBytes))}
-            </span>
+        <div className="cfg-block">
+          <label className="cfg-label" htmlFor="dup-dir">
+            {t.dedupe.dirLabel}
+          </label>
+          <input
+            id="dup-dir"
+            className="cfg-input mono"
+            value={dir}
+            onChange={(e) => setDir(e.target.value)}
+            placeholder={t.dedupe.dirPlaceholder}
+            spellCheck={false}
+            disabled={scanning || applying}
+          />
+          <div className="cfg-row">
+            <button className="btn sm" onClick={browse} disabled={scanning || applying}>
+              {t.dedupe.browse}
+            </button>
           </div>
+          <button
+            className="btn primary wide"
+            onClick={run}
+            disabled={scanning || applying || !dir.trim()}
+          >
+            {scanning ? t.dedupe.scanning : t.dedupe.scan}
+          </button>
+        </div>
 
-          {report.groups.map((g, gi) => {
-            const cur = keepOf(g);
-            return (
-              <div key={g.sha256} className="dup-group">
-                <div className="dup-group-head">
-                  {t.dedupe.groupHead(gi + 1, report.groups.length, g.sha256.slice(0, 8), fmtSize(g.size))}
+        <div className="flow-card">
+          <b>{t.dedupe.flowTitle}</b>
+          <p>{t.dedupe.flowBody}</p>
+          <ul>
+            <li>{t.dedupe.flowKeep}</li>
+            <li>{t.dedupe.flowSacrifice}</li>
+            <li>{t.dedupe.flowSameName}</li>
+          </ul>
+        </div>
+      </aside>
+
+      {/* ---------- 右：统计卡 + 组清单 ---------- */}
+      <section className="work2-main">
+        {error && <div className="scan-error">✕ {error}</div>}
+        {result && <div className="scan-note scan-clean">✓ {result}</div>}
+
+        {!report ? (
+          <div className="panel">
+            <p className="cfg-intro">{t.dedupe.emptyGuide}</p>
+          </div>
+        ) : (
+          <>
+            <div className="stat-grid">
+              <div className="panel stat-card">
+                <span className="stat-ico i-total">
+                  <IconCopy size={18} />
+                </span>
+                <div className="stat-meta">
+                  <div className="stat-lbl">{t.dedupe.statSeen}</div>
+                  <div className="stat-num">{report.filesSeen}</div>
                 </div>
-                {g.all.map((f) => {
-                  const isKeep = f.path === cur;
-                  return (
-                    <label
-                      key={f.path}
-                      className={"dup-row" + (isKeep ? " dup-keep" : "")}
-                      title={isKeep ? g.keep.detail : ""}
-                    >
-                      <input
-                        type="radio"
-                        name={`dup-${g.sha256}`}
-                        checked={isKeep}
-                        onChange={() =>
-                          setKeeps((m) => new Map(m).set(g.sha256, f.path))
-                        }
-                        disabled={applying}
-                      />
-                      <span className={"sc-cat " + (isKeep ? "sc-audio" : "sc-junk")}>
-                        {isKeep ? t.dedupe.keep : t.dedupe.sacrifice}
-                      </span>
-                      <span className="sc-path" title={f.path}>
-                        {shortPath(f.path)}
-                      </span>
-                      <span className="sc-size mono">{t.dedupe.score(f.score)}</span>
-                    </label>
-                  );
-                })}
-                {g.all
-                  .filter((f) => f.path !== cur)
-                  .map((f) => {
-                    const sac = g.sacrifices.find((s) => s.path === f.path);
-                    const reason = sac?.reason ?? t.dedupe.overriddenReason;
-                    return (
-                      <div key={f.path + "-r"} className="dup-reason">
-                        {reason}
-                      </div>
-                    );
-                  })}
               </div>
-            );
-          })}
-
-          {report.sameName.length > 0 && (
-            <div className="dup-samename">
-              <b>{t.dedupe.sameNameHead}</b>
-              {report.sameName.map((g) => (
-                <div key={g.stem} className="dup-row dup-row-plain">
-                  <span className="sc-cat sc-other">{t.dedupe.candidate}</span>
-                  <span className="sc-path" title={g.keep.path}>
-                    {t.dedupe.sameNameLine(
-                      g.stem,
-                      shortPath(g.keep.path),
-                      g.keep.score,
-                      g.candidates.length
-                    )}
-                  </span>
+              <div className="panel stat-card">
+                <span className="stat-ico i-audio">
+                  <IconCheckBox size={18} />
+                </span>
+                <div className="stat-meta">
+                  <div className="stat-lbl">{t.dedupe.statGroups}</div>
+                  <div className="stat-num n-audio">{report.groups.length}</div>
                 </div>
-              ))}
-              <div className="scan-note">{t.dedupe.sameNameCli}</div>
+              </div>
+              <div className="panel stat-card">
+                <span className="stat-ico i-junk">
+                  <IconWarnTri size={18} />
+                </span>
+                <div className="stat-meta">
+                  <div className="stat-lbl">{t.dedupe.statSacrifice}</div>
+                  <div className="stat-num n-junk">{finalSacrifices.length}</div>
+                </div>
+              </div>
+              <div className="panel stat-card">
+                <span className="stat-ico i-lyric">
+                  <IconBan size={18} />
+                </span>
+                <div className="stat-meta">
+                  <div className="stat-lbl">{t.dedupe.statSameName}</div>
+                  <div className="stat-num n-lyric">{report.sameName.length}</div>
+                </div>
+              </div>
             </div>
-          )}
 
-          {report.groups.length > 0 && (
-            <div className="dup-actions">
-              <button
-                className="btn sm primary"
-                onClick={execute}
-                disabled={applying || finalSacrifices.length === 0}
-              >
-                {applying ? t.dedupe.executing : t.dedupe.execute(finalSacrifices.length)}
-              </button>
-              <span className="scan-note">{t.dedupe.executeHint}</span>
+            <div className="panel">
+              <div className="panel-head">
+                <h2 style={{ margin: 0, fontSize: "var(--fs-lg)" }}>{t.dedupe.resultTitle}</h2>
+                <span className="chip">{t.dedupe.groups(report.groups.length)}</span>
+                <button
+                  className="btn sm primary"
+                  style={{ marginLeft: "auto" }}
+                  onClick={execute}
+                  disabled={applying || finalSacrifices.length === 0}
+                >
+                  {applying ? t.dedupe.executing : t.dedupe.execute(finalSacrifices.length)}
+                </button>
+              </div>
+
+              <div className="cfg-intro" style={{ fontSize: "var(--fs-xs)" }}>
+                {t.dedupe.willSacrifice(finalSacrifices.length, fmtSize(savedBytes))} ·{" "}
+                {t.dedupe.executeHint}
+              </div>
+
+              {report.groups.length === 0 ? (
+                <div className="scan-note scan-clean">{t.dedupe.noDuplicates}</div>
+              ) : (
+                report.groups.map((g, gi) => {
+                  const cur = keepOf(g);
+                  return (
+                    <div key={g.sha256} className="dup-group">
+                      <div className="dup-group-head">
+                        {t.dedupe.groupHead(gi + 1, report.groups.length, g.sha256.slice(0, 8), fmtSize(g.size))}
+                      </div>
+                      {g.all.map((f) => {
+                        const isKeep = f.path === cur;
+                        return (
+                          <label
+                            key={f.path}
+                            className={"dup-row" + (isKeep ? " dup-keep" : "")}
+                            title={isKeep ? g.keep.detail : ""}
+                          >
+                            <input
+                              type="radio"
+                              name={`dup-${g.sha256}`}
+                              checked={isKeep}
+                              onChange={() =>
+                                setKeeps((m) => new Map(m).set(g.sha256, f.path))
+                              }
+                              disabled={applying}
+                            />
+                            <span className={"chip " + (isKeep ? "cat-audio" : "cat-junk")}>
+                              {isKeep ? t.dedupe.keep : t.dedupe.sacrifice}
+                            </span>
+                            <span className="sc-path" title={f.path}>
+                              {shortPath(f.path)}
+                            </span>
+                            <span className="sc-size mono">{t.dedupe.score(f.score)}</span>
+                          </label>
+                        );
+                      })}
+                      {g.all
+                        .filter((f) => f.path !== cur)
+                        .map((f) => {
+                          const sac = g.sacrifices.find((s) => s.path === f.path);
+                          const reason = sac?.reason ?? t.dedupe.overriddenReason;
+                          return (
+                            <div key={f.path + "-r"} className="dup-reason">
+                              {reason}
+                            </div>
+                          );
+                        })}
+                    </div>
+                  );
+                })
+              )}
+
+              {report.sameName.length > 0 && (
+                <div className="dup-samename">
+                  <b>{t.dedupe.sameNameHead}</b>
+                  {report.sameName.map((g) => (
+                    <div key={g.stem} className="dup-row dup-row-plain">
+                      <span className="chip cat-other">{t.dedupe.candidate}</span>
+                      <span className="sc-path" title={g.keep.path}>
+                        {t.dedupe.sameNameLine(
+                          g.stem,
+                          shortPath(g.keep.path),
+                          g.keep.score,
+                          g.candidates.length
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="scan-note">{t.dedupe.sameNameCli}</div>
+                </div>
+              )}
             </div>
-          )}
-          {report.groups.length === 0 && (
-            <div className="scan-note scan-clean">{t.dedupe.noDuplicates}</div>
-          )}
-        </>
-      )}
+          </>
+        )}
+      </section>
     </div>
   );
 }

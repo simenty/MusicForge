@@ -158,6 +158,25 @@ export const en: typeof zh = {
     restored: (n: number) => `Restored ${n} item(s)`,
     truncated: (total: number, shown: number) => `${total} items total, showing first ${shown}`,
     noChanges: "✓ Nothing to organize (all files already in place)",
+    // —— UI unification (2026-09-11, design-sheet layout) ——
+    cardTitle: "Organizer",
+    panelIntro:
+      "Read-only preview: archives the library into the target root by naming template; preview never moves files.",
+    dirLabel: "Library directory to organize",
+    targetLabel: "Target root (default = in place)",
+    templateLabel: "Naming template",
+    statPlanned: "To archive",
+    statInPlace: "In place",
+    statSkipped: "Conflict skipped",
+    statConflict: "Conflict kept",
+    resultTitle: "Archive plan",
+    flowTitle: "Execution semantics",
+    flowBody:
+      "Preview is read-only and never moves files; execution needs a second confirmation and is fully rollback-able.",
+    flowMove: "Move: archive into the target root by template",
+    flowRollback: "A rollback manifest is produced — one-click full restore",
+    flowConflict: "Name conflicts are never silently overwritten (skipped or kept)",
+    emptyGuide: "Enter a directory and template, then hit Plan — the mapping appears here.",
   },
   /** P1: clean — move junk to the recycle bin (restorable) */
   clean: {
@@ -190,10 +209,30 @@ export const en: typeof zh = {
     restored: (n: number) => `Restored ${n} item(s)`,
     truncated: (total: number, shown: number) => `${total} items total, showing first ${shown}`,
     nothingToClean: "✓ Nothing to clean",
+    // —— UI unification (2026-09-11, design-sheet layout) ——
+    cardTitle: "Junk cleaner",
+    panelIntro:
+      "Read-only preview (dry-run): finds junk / orphans / naming anomalies by rule; execution moves them to the recycle bin.",
+    dirLabel: "Library directory to clean",
+    rulesLabel: "Rules (default = all)",
+    statActions: "Actions planned",
+    statEmptyDirs: "Empty dirs",
+    resultTitle: "Clean plan",
+    flowTitle: "Execution semantics",
+    flowBody: "Preview never touches files; execution requires a second confirmation.",
+    flowTrash: "Output goes to <library>/.musicforge/trash/ (never deleted directly)",
+    flowRollback: "A rollback manifest is produced — one-click full restore",
+    flowRules: "Rules default to all (junk / orphans / naming anomalies)",
+    emptyGuide: "Pick a directory and hit Plan — clean actions will appear here.",
   },
   /** P1: trash restore (restore everything from a rollback manifest) */
   trash: {
     head: "Restore from recycle bin",
+    // —— UI unification (2026-09-11, design-sheet layout) ——
+    cardTitle: "Recycle bin restore",
+    flowTitle: "Restore semantics",
+    flowOverwrite: "Same-named files at restore paths (if any) will be overwritten",
+    flowConfirm: "A second confirmation is required before execution",
     note: "Restore everything listed in a rollback manifest (organize/clean output)",
     serverOnly:
       "Restore is a server-mode capability (fnOS / self-hosted server); on desktop use the CLI: musicforge trash restore",
@@ -237,6 +276,23 @@ export const en: typeof zh = {
     executing: "Executing…",
     executeHint: "A confirmation dialog appears first · recycle bin is restorable",
     noDuplicates: "✓ No byte-identical duplicates found",
+    // —— UI unification (2026-09-11, design-sheet layout) ——
+    cardTitle: "Duplicate finder",
+    panelIntro:
+      "Read-only scan: finds byte-identical groups by content hash; keeping member is yours to change.",
+    dirLabel: "Library directory to scan",
+    statSeen: "Files scanned",
+    statGroups: "Duplicate groups",
+    statSacrifice: "Will sacrifice",
+    statSameName: "Same-name candidates",
+    resultTitle: "Duplicate groups",
+    flowTitle: "Execution semantics",
+    flowBody:
+      "Second confirmation required; sacrifices go to the recycle bin (fully restorable), never deleted directly.",
+    flowKeep: "Keep: the selected member (changeable, defaults to the suggestion)",
+    flowSacrifice: "Sacrifice: remaining members → recycle bin",
+    flowSameName: "Same-name candidates are report-only (same name ≠ same song)",
+    emptyGuide: "Pick a library directory and hit Scan — duplicate groups will appear here.",
   },
   scan: {
     toggle: "▍Library scan (junk / orphans / naming issues)",
