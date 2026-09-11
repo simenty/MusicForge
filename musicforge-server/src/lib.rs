@@ -251,27 +251,29 @@ pub mod sign {
         hex(&mac.finalize().into_bytes())
     }
 
+    /// 一次签名校验的输入（取自请求头与请求体）。
+    /// 打包成结构体：避免 `too_many_arguments`（本项目 clippy 零 warning 门禁），也更可读。
+    pub struct SignedRequest<'a> {
+        pub method: &'a str,
+        pub path: &'a str,
+        pub body: &'a [u8],
+        pub ts: &'a str,
+        pub nonce: &'a str,
+        pub sig: &'a str,
+    }
+
     /// 校验（时间窗 → 格式 → 签名常量时间比较）。`Err(稳定码)` 由调用方转 401。
-    pub fn verify(
-        token: &str,
-        method: &str,
-        path: &str,
-        body: &[u8],
-        ts: &str,
-        nonce: &str,
-        sig: &str,
-        now: u64,
-    ) -> Result<(), &'static str> {
-        let ts_num: u64 = ts.parse().map_err(|_| "MF-AUTH-STALE")?;
+    pub fn verify(token: &str, r: SignedRequest<'_>, now: u64) -> Result<(), &'static str> {
+        let ts_num: u64 = r.ts.parse().map_err(|_| "MF-AUTH-STALE")?;
         if ts_num.abs_diff(now) > WINDOW_SECS {
             return Err("MF-AUTH-STALE");
         }
         let ok_hex = |s: &str, n: usize| s.len() == n && s.bytes().all(|b| b.is_ascii_hexdigit());
-        if !ok_hex(nonce, 32) || !ok_hex(sig, 64) {
+        if !ok_hex(r.nonce, 32) || !ok_hex(r.sig, 64) {
             return Err("MF-AUTH-SIG-INVALID");
         }
-        let expect = compute(token, method, path, body, ts, nonce);
-        if crate::ct_eq(&expect, &sig.to_lowercase()) {
+        let expect = compute(token, r.method, r.path, r.body, r.ts, r.nonce);
+        if crate::ct_eq(&expect, &r.sig.to_lowercase()) {
             Ok(())
         } else {
             Err("MF-AUTH-SIG-INVALID")
@@ -371,7 +373,18 @@ async fn auth_middleware(
         .map(|u| u.0.path().to_string())
         .unwrap_or_else(|| parts.uri.path().to_string());
 
-    let verdict = sign::verify(&state.token, &method, &path, &bytes, &ts, &nonce, &sig, now);
+    let verdict = sign::verify(
+        &state.token,
+        sign::SignedRequest {
+            method: &method,
+            path: &path,
+            body: &bytes,
+            ts: &ts,
+            nonce: &nonce,
+            sig: &sig,
+        },
+        now,
+    );
     match verdict {
         Ok(()) => {
             if state.nonce_replay(&nonce, now) {
@@ -757,46 +770,75 @@ mod tests {
         );
     }
 
+    /// 测试便捷封装：固定向量 token，把校验输入收敛为结构体。
+    fn v(
+        method: &str,
+        path: &str,
+        body: &[u8],
+        ts: &str,
+        nonce: &str,
+        sig: &str,
+        now: u64,
+    ) -> Result<(), &'static str> {
+        sign::verify(
+            VEC_TOKEN,
+            sign::SignedRequest {
+                method,
+                path,
+                body,
+                ts,
+                nonce,
+                sig,
+            },
+            now,
+        )
+    }
+
     #[test]
     fn sign_verify_window_format_and_tamper() {
         let body = br#"{"a":1}"#;
         let at = 1760000000u64;
         // 正确 + 窗口边界（±60s）
-        assert!(
-            sign::verify(VEC_TOKEN, "POST", "/api/batch", body, VEC_TS, VEC_NONCE, VEC_SIG_POST, at)
-                .is_ok()
-        );
-        assert!(sign::verify(
-            VEC_TOKEN, "POST", "/api/batch", body, VEC_TS, VEC_NONCE, VEC_SIG_POST, at + 60
-        )
-        .is_ok());
+        assert!(v("POST", "/api/batch", body, VEC_TS, VEC_NONCE, VEC_SIG_POST, at).is_ok());
+        assert!(v("POST", "/api/batch", body, VEC_TS, VEC_NONCE, VEC_SIG_POST, at + 60).is_ok());
         // 超窗 / ts 非数字 → STALE
         assert_eq!(
-            sign::verify(VEC_TOKEN, "POST", "/api/batch", body, VEC_TS, VEC_NONCE, VEC_SIG_POST, at + 61),
+            v("POST", "/api/batch", body, VEC_TS, VEC_NONCE, VEC_SIG_POST, at + 61),
             Err("MF-AUTH-STALE")
         );
         assert_eq!(
-            sign::verify(VEC_TOKEN, "POST", "/api/batch", body, "abc", VEC_NONCE, VEC_SIG_POST, at),
+            v("POST", "/api/batch", body, "abc", VEC_NONCE, VEC_SIG_POST, at),
             Err("MF-AUTH-STALE")
         );
         // body 篡改（换体重放）→ 签名不符
         assert_eq!(
-            sign::verify(VEC_TOKEN, "POST", "/api/batch", br#"{"a":2}"#, VEC_TS, VEC_NONCE, VEC_SIG_POST, at),
+            v("POST", "/api/batch", br#"{"a":2}"#, VEC_TS, VEC_NONCE, VEC_SIG_POST, at),
             Err("MF-AUTH-SIG-INVALID")
         );
         // path 篡改（同一签名挪到别的端点）→ 拒绝
         assert_eq!(
-            sign::verify(VEC_TOKEN, "POST", "/api/clean/apply", body, VEC_TS, VEC_NONCE, VEC_SIG_POST, at),
+            v("POST", "/api/clean/apply", body, VEC_TS, VEC_NONCE, VEC_SIG_POST, at),
             Err("MF-AUTH-SIG-INVALID")
         );
         // token 不对 → 签名不符
         assert_eq!(
-            sign::verify("other-token", "POST", "/api/batch", body, VEC_TS, VEC_NONCE, VEC_SIG_POST, at),
+            sign::verify(
+                "other-token",
+                sign::SignedRequest {
+                    method: "POST",
+                    path: "/api/batch",
+                    body,
+                    ts: VEC_TS,
+                    nonce: VEC_NONCE,
+                    sig: VEC_SIG_POST,
+                },
+                at
+            ),
             Err("MF-AUTH-SIG-INVALID")
         );
         // nonce 格式非法 → 拒绝（不进 nonce 表）
         assert_eq!(
-            sign::verify(VEC_TOKEN, "POST", "/api/batch", body, VEC_TS, "zz", VEC_SIG_POST, at),
+            v("POST", "/api/batch", body, VEC_TS, "zz", VEC_SIG_POST, at),
             Err("MF-AUTH-SIG-INVALID")
         );
     }
