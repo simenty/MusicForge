@@ -60,6 +60,16 @@ pub struct ServerConfig {
     pub allowed_roots: Vec<PathBuf>,
     /// M2：是否要求请求签名（默认 true；`MUSICFORGE_AUTH_LEGACY=1` → false）。
     pub auth_require_sign: bool,
+    /// 鉴权总开关（2026-09-12 产品决策）：`MUSICFORGE_AUTH=off` 时**完全跳过 token 与签名校验**。
+    ///
+    /// 适用场景：家庭内网 NAS（fnOS 形态由 `cmd/main` 默认注入 off——开箱即用，无需取/填 token）。
+    /// **裸跑 server 保持默认 on**（对外暴露场景的安全默认不降级）。
+    ///
+    /// 关闭鉴权时仍然生效的防线：
+    /// - 路径域约束（`MUSICFORGE_ALLOWED_ROOTS`）不变；
+    /// - 所有破坏性操作**可回滚**（产物进回收站 + 回滚清单）；
+    /// - 启动日志显式 warning + 界面显式提示（降级可见，绝不静默）。
+    pub auth_disabled: bool,
 }
 
 impl ServerConfig {
@@ -98,6 +108,11 @@ impl ServerConfig {
         let auth_require_sign = std::env::var("MUSICFORGE_AUTH_LEGACY")
             .map(|v| v.trim() != "1")
             .unwrap_or(true);
+        // 鉴权总开关（2026-09-12 产品决策）：MUSICFORGE_AUTH=off → 完全跳过鉴权。
+        // fnOS 形态由 cmd/main 默认注入 off；裸跑保持默认 on。
+        let auth_disabled = std::env::var("MUSICFORGE_AUTH")
+            .map(|v| v.trim().eq_ignore_ascii_case("off"))
+            .unwrap_or(false);
         Ok((
             Self {
                 data_dir,
@@ -107,6 +122,7 @@ impl ServerConfig {
                 library_dir,
                 allowed_roots,
                 auth_require_sign,
+                auth_disabled,
             },
             generated,
         ))
@@ -292,6 +308,13 @@ async fn auth_middleware(
     req: Request<Body>,
     next: Next,
 ) -> Response {
+    // 鉴权总开关（2026-09-12 产品决策）：`MUSICFORGE_AUTH=off` → 直接放行。
+    // 仅适用于受控内网（fnOS 家庭 NAS）；启动日志与界面均显式提示（降级可见）。
+    // 注意：路径域（ALLOWED_ROOTS）与破坏类操作的 confirm/回滚**不受影响**。
+    if state.auth_disabled {
+        return next.run(req).await;
+    }
+
     // B21: 空 token 的 ServerState 属误配置——拒绝服务而非放行（ct_eq("","")=true）
     if state.token.is_empty() {
         // P1-2：误配置（空 token）显式 error——此前完全静默
@@ -508,6 +531,9 @@ pub struct ServerState {
     /// M2（RFC-0003 §4.2）：是否要求请求签名（**默认 true**）。
     /// `MUSICFORGE_AUTH_LEGACY=1` 时关闭（退回仅静态 token 比较）——迁移逃生门。
     pub auth_require_sign: bool,
+    /// 鉴权总开关（2026-09-12 决策）：true = **完全跳过 token 与签名校验**（直接放行）。
+    /// fnOS 形态由 `cmd/main` 默认注入 `MUSICFORGE_AUTH=off`；裸跑保持 false（安全默认）。
+    pub auth_disabled: bool,
     /// M2：已见 nonce（防重放）——nonce → 过期 unix 秒
     pub nonce_seen: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, u64>>>,
 }
@@ -621,6 +647,8 @@ mod tests {
             // 既有集成测试聚焦业务逻辑（不带签名）→ legacy 模式；
             // M2 签名路径由下方专项测试覆盖。
             auth_require_sign: false,
+            // 默认保持鉴权开启（安全默认）；开关行为由专项测试覆盖。
+            auth_disabled: false,
             nonce_seen: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
@@ -949,5 +977,51 @@ mod tests {
             );
         }
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ---------------------------------------------- 鉴权总开关（2026-09-12）--
+    // 产品决策：fnOS 形态默认 `MUSICFORGE_AUTH=off`（开箱即用）。
+    // 两条对照断言：开关必须**真的生效**，且**默认安全不降级**。
+
+    #[tokio::test]
+    async fn auth_disabled_allows_requests_without_token() {
+        let mut st = test_state("tok-123");
+        st.auth_disabled = true;
+        st.auth_require_sign = true; // 即使同时要求签名，off 也应完全放行
+        let app = build_router(st);
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/version")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            res.status(),
+            StatusCode::OK,
+            "鉴权关闭时，无 token / 无签名也必须可访问（开箱即用）"
+        );
+    }
+
+    #[tokio::test]
+    async fn auth_enabled_still_rejects_without_token() {
+        // 对照：默认（auth_disabled=false，legacy 签名模式）下无 token 仍应 401
+        let app = build_router(test_state("tok-123"));
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/version")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            res.status(),
+            StatusCode::UNAUTHORIZED,
+            "鉴权开启时，无 token 必须拒绝（安全默认不因新增开关而降级）"
+        );
     }
 }

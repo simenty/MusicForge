@@ -33,9 +33,16 @@ async fn main() {
         library_dir: cfg.library_dir.clone(),
         allowed_roots: cfg.allowed_roots,
         auth_require_sign: cfg.auth_require_sign,
+        auth_disabled: cfg.auth_disabled,
         nonce_seen: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
     };
-    if !cfg.auth_require_sign {
+    if cfg.auth_disabled {
+        // 显式可见（降级绝不静默）：这是产品决策后的默认形态（fnOS 家庭内网）
+        tracing::warn!(
+            "MUSICFORGE_AUTH=off：鉴权已关闭——同一局域网内任何设备都可访问本服务（含破坏性操作；\
+             产物进回收站可整体还原）。如需鉴权：移除该环境变量或设为 on 后重启"
+        );
+    } else if !cfg.auth_require_sign {
         tracing::warn!(
             "MUSICFORGE_AUTH_LEGACY=1：请求签名校验关闭（仅静态 token）——仅用于排查，勿长期启用"
         );

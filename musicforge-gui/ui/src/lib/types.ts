@@ -239,6 +239,8 @@ export interface ServerVersion {
 /** `GET /api/wizard/status`：首启自检（token 就绪 / 数据目录可写 / 关键路径） */
 export interface WizardStatus {
   token_ready: boolean;
+  /** 2026-09-12：鉴权总开关状态（false = `MUSICFORGE_AUTH=off`，内网直连模式） */
+  auth_enabled: boolean;
   data_dir_writable: boolean;
   data_dir: string;
   library_dir: string | null;

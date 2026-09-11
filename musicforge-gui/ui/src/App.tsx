@@ -7,6 +7,7 @@ import {
   IS_DESKTOP,
 } from "./api";
 import { useLang, type Lang } from "./i18n";
+import { useServerAuth } from "./useServerAuth";
 import { useToast } from "./hooks/useToast";
 import { useSettings } from "./hooks/useSettings";
 import { useBatch, ROW_H, type FilterKey, type RowStatus } from "./hooks/useBatch";
@@ -64,6 +65,8 @@ export default function App() {
   const { t, lang, setLang } = useLang();
   /** 当前主分区（默认「转换」——核心流程零跳转可达） */
   const [view, setView] = useState<ViewKey>("convert");
+  /** 鉴权总开关（false = MUSICFORGE_AUTH=off：隐藏 token 框、显示状态徽标） */
+  const { authEnabled } = useServerAuth();
   /** 曲库分区的二级菜单（左侧导航）：扫描 / 去重 / 整理 / 清洗 / 回收站 */
   const [libraryTab, setLibraryTab] = useState<
     "scan" | "dedupe" | "organize" | "clean" | "trash"
@@ -183,23 +186,29 @@ export default function App() {
           <span className="chip green">{t.app.offlineChip}</span>
           <span className="chip">MIT</span>
           <span className="chip">v0.9.0</span>
-          {!IS_DESKTOP && (
-            <input
-              className={
-                "lang-select server-token" + (serverTokenInput.trim() ? "" : " needs-token")
-              }
-              type="password"
-              placeholder={t.app.tokenPlaceholder}
-              value={serverTokenInput}
-              onChange={(e) => {
-                setServerTokenInput(e.target.value);
-                setServerToken(e.target.value);
-              }}
-              spellCheck={false}
-              aria-label={t.app.tokenPlaceholder}
-              title={t.auth.where}
-            />
-          )}
+          {!IS_DESKTOP &&
+            (authEnabled === false ? (
+              // 鉴权已关闭（MUSICFORGE_AUTH=off）：隐藏无用的 token 框，改显状态徽标
+              <span className="chip" title={t.serverInfo.authOffNote}>
+                {t.serverInfo.authOff}
+              </span>
+            ) : (
+              <input
+                className={
+                  "lang-select server-token" + (serverTokenInput.trim() ? "" : " needs-token")
+                }
+                type="password"
+                placeholder={t.app.tokenPlaceholder}
+                value={serverTokenInput}
+                onChange={(e) => {
+                  setServerTokenInput(e.target.value);
+                  setServerToken(e.target.value);
+                }}
+                spellCheck={false}
+                aria-label={t.app.tokenPlaceholder}
+                title={t.auth.where}
+              />
+            ))}
           <select
             className="lang-select"
             value={lang}

@@ -1,5 +1,13 @@
 # Threat Model
 
+> **Change log**
+> - **2026-09-12 (product decision — auth default reversed for the fnOS build)**: the fnOS build now **disables access auth by default** (`MUSICFORGE_AUTH=off`, injected by `cmd/main`; a standalone `musicforge-server` keeps auth **ON** by default).
+>   - **Rationale**: out-of-the-box experience for home-LAN use — no more SSH-ing for a token, no token entry field, no signature expiry to reason about.
+>   - **Defenses that remain**: (1) path-domain constraint `MUSICFORGE_ALLOWED_ROOTS` (when configured); (2) **every destructive operation is reversible** (artifacts go to the recycle bin + rollback manifest) — "the door lock is gone, the safe stays"; (3) startup log + UI **explicitly state** "auth disabled" (downgrade is visible, never silent).
+>   - **Accepted residual risk**: any device on the same LAN can reach all APIs (including move/clean operations — all restorable from the recycle bin); the library inventory is visible (privacy surface).
+>   - **Revert path**: set `MUSICFORGE_AUTH=on` and restart (external env overrides the fpk default).
+>   - **Not acceptable for**: public exposure, multi-tenant, shared hosts — those MUST keep auth enabled (plus HTTPS and `ALLOWED_ROOTS`).
+
 Scope: MusicForge desktop (CLI/GUI), NAS server mode, and the plugin ecosystem.
 Out of scope: the optional cloud repo (threat-modeled separately before v1.x).
 

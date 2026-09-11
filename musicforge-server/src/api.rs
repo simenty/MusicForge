@@ -248,6 +248,8 @@ pub async fn wizard_status(State(state): State<ServerState>) -> Response {
     }
     ok(json!({
         "token_ready": !state.token.is_empty(),
+        // 2026-09-12：鉴权总开关状态（前端据此显示"鉴权已关闭"提示、并隐藏 token 输入框）
+        "auth_enabled": !state.auth_disabled,
         "data_dir_writable": data_dir_writable,
         "data_dir": state.data_dir.display().to_string(),
         "library_dir": state.library_dir.as_ref().map(|p| p.display().to_string()),
@@ -861,6 +863,8 @@ mod tests {
             allowed_roots: Vec::new(),
             // 端点业务测试不带签名 → legacy（M2 签名路径见 lib.rs 专项测试）
             auth_require_sign: false,
+            // 鉴权保持开启（安全默认）
+            auth_disabled: false,
             nonce_seen: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }

@@ -18,6 +18,8 @@ fn state_with() -> ServerState {
         allowed_roots: Vec::new(),
         // 集成测试聚焦端点语义（不带签名）→ legacy 模式；M2 签名路径见 lib.rs 专项测试
         auth_require_sign: false,
+        // 鉴权保持开启（安全默认）；开关行为见 lib.rs 专项测试
+        auth_disabled: false,
         nonce_seen: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
     }
 }

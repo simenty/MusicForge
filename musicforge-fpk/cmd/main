@@ -145,6 +145,13 @@ case "$1" in
     # fpk 形态 = fnOS 局域网 web 服务（manifest service_port + 桌面入口跳 NAS IP），
     # 绑 0.0.0.0；安全兜底 = 首启随机 token（业务 API 全部过 X-Token 闸），
     # SPA 静态文件无敏感数据。裸跑 server 二进制（无 fpk）默认仍回环（R22）。
+    # 2026-09-12 产品决策：fnOS 形态**默认关闭访问鉴权**（家庭内网场景，开箱即用——
+    # 无需取/填 token，也不再受请求签名约束）。仍然生效的防线：
+    #   ① 路径域约束（MUSICFORGE_ALLOWED_ROOTS，若配置）
+    #   ② 破坏性操作全部可回滚（产物进回收站 + 回滚清单）
+    #   ③ 启动日志与界面均显式提示"鉴权已关闭"（降级可见）
+    # 需要恢复鉴权：在环境变量里设 MUSICFORGE_AUTH=on（外部注入优先于此处默认值）。
+    MUSICFORGE_AUTH="${MUSICFORGE_AUTH:-off}" \
     MUSICFORGE_DATA_DIR="$DATA_DIR" \
     MUSICFORGE_BIND="0.0.0.0:${PORT}" \
     MUSICFORGE_TOKEN_FILE="$DATA_DIR/.token" \

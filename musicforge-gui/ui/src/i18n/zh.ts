@@ -119,6 +119,11 @@ export const zh = {
     tokenReady: "token 就绪",
     dataDirWritable: "数据目录可写",
     hint: "「启用失败」时优先看这两项：token 未就绪或数据目录不可写都会让服务无法正常工作。",
+    // —— 鉴权总开关（2026-09-12 产品决策：fnOS 形态默认关闭）——
+    authOn: "鉴权开启",
+    authOff: "鉴权已关闭",
+    authOffNote:
+      "内网直连模式（MUSICFORGE_AUTH=off）：同一局域网内任何设备都可访问本服务，无需 token。破坏性操作仍可经回收站整体还原；如需开启鉴权，设 MUSICFORGE_AUTH=on 后重启服务。",
   },
   /** 曲库分区二级菜单（左侧导航） */
   library: {

@@ -115,6 +115,11 @@ export const en: typeof zh = {
     tokenReady: "token ready",
     dataDirWritable: "data dir writable",
     hint: "When the app fails to start, check these two first: a missing token or an unwritable data dir breaks the service.",
+    // —— Auth master switch (2026-09-12 decision: off by default on fnOS) ——
+    authOn: "auth enabled",
+    authOff: "auth disabled",
+    authOffNote:
+      "Direct-LAN mode (MUSICFORGE_AUTH=off): any device on the same network can reach this service without a token. Destructive operations remain fully restorable from the recycle bin. To re-enable auth, set MUSICFORGE_AUTH=on and restart.",
   },
   /** Library section sub-nav (left rail) */
   library: {

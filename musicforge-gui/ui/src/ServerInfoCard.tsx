@@ -146,15 +146,26 @@ export default function ServerInfoCard() {
 
           {wiz && (
             <div className="scan-summary">
-              <span className={wiz.token_ready ? "s-ok" : "s-failed"}>
-                {wiz.token_ready ? "✓" : "✕"} {t.serverInfo.tokenReady}
+              <span className={wiz.auth_enabled ? "s-ok" : "plugin-note"}>
+                {wiz.auth_enabled ? "✓" : "○"}{" "}
+                {wiz.auth_enabled ? t.serverInfo.authOn : t.serverInfo.authOff}
               </span>
+              {wiz.auth_enabled && (
+                <span className={wiz.token_ready ? "s-ok" : "s-failed"}>
+                  {wiz.token_ready ? "✓" : "✕"} {t.serverInfo.tokenReady}
+                </span>
+              )}
               <span className={wiz.data_dir_writable ? "s-ok" : "s-failed"}>
                 {wiz.data_dir_writable ? "✓" : "✕"} {t.serverInfo.dataDirWritable}
               </span>
               <span className="plugin-note mono">{wiz.data_dir}</span>
               {wiz.library_dir && <span className="plugin-note mono">{wiz.library_dir}</span>}
             </div>
+          )}
+
+          {/* 鉴权关闭 = 产品决策的默认形态（非错误），但必须**显式可见**（降级不静默） */}
+          {wiz && !wiz.auth_enabled && (
+            <div className="scan-note">{t.serverInfo.authOffNote}</div>
           )}
 
           <div className="scan-note">{t.serverInfo.hint}</div>
