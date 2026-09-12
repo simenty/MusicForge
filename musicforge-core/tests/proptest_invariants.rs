@@ -100,6 +100,22 @@ fn unknown_rule_id_is_none() {
     assert!(scan::rule_card("").is_none());
 }
 
+/// 显式用例（不依赖随机种子）：`is_audio_ext` 大小写不敏感的四种形态 + 反例。
+///
+/// 背景：属性测试 `audio_ext_is_case_insensitive` 在 CI（Windows runner 的随机种子）
+/// 命中过反例——原实现只匹配小写字面量；修复后由函数自身用 `eq_ignore_ascii_case`
+/// 保证（与 `is_cover_name` / `is_junk_name` 的契约一致）。本用例把该契约钉死，
+/// 使回归不依赖属性测试的随机命中。
+#[test]
+fn audio_ext_case_insensitive_explicit() {
+    for e in ["mp3", "MP3", "Flac", "m4A", "OpUs"] {
+        assert!(scan::is_audio_ext(e), "{e} 应判定为音频扩展名");
+    }
+    for e in ["txt", "jpg", "", "mp4", "mp3 ", " mp3"] {
+        assert!(!scan::is_audio_ext(e), "{e} 不应判定为音频扩展名");
+    }
+}
+
 // ---------------------------------------------------------------- 确定性 --
 
 proptest! {

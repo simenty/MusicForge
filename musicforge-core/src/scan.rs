@@ -211,10 +211,18 @@ impl ScanReport {
 
 /// 音频扩展名判定（D13 watcher 复用——判据同源不分叉）。
 pub fn is_audio_ext(ext: &str) -> bool {
-    matches!(
-        ext,
-        "mp3" | "flac" | "m4a" | "aac" | "ogg" | "opus" | "wav" | "ape" | "wv" | "wma"
-    )
+    // **自身大小写不敏感**（`eq_ignore_ascii_case`，零分配）——与同文件的
+    // `is_cover_name` / `is_junk_name` 保持一致：文件系统来源不可控，
+    // `.MP3` / `.Flac` 必须与 `.mp3` 同判。
+    //
+    // 此前实现只匹配小写字面量，依赖调用方预小写化（一个未文档化的隐性契约）；
+    // 属性测试 `audio_ext_is_case_insensitive` 在 CI（Windows 随机种子）命中反例
+    // 后按「契约一致 + 自防御」修正。当前两处调用点（scan.rs / watcher.rs 的
+    // `ext_of`）本已小写化，故行为不变，仅消除隐性依赖。
+    const AUDIO_EXTS: [&str; 10] = [
+        "mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "ape", "wv", "wma",
+    ];
+    AUDIO_EXTS.iter().any(|a| a.eq_ignore_ascii_case(ext))
 }
 
 fn is_cover_name(name: &str) -> bool {
