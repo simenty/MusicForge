@@ -26,6 +26,7 @@ import {
   IconDownload,
   IconFolder,
   IconLibrary,
+  IconMenu,
   IconPlan,
   IconPlay,
   IconPlugin,
@@ -67,10 +68,31 @@ export default function App() {
   const [view, setView] = useState<ViewKey>("convert");
   /** 鉴权总开关（false = MUSICFORGE_AUTH=off：隐藏 token 框、显示状态徽标） */
   const { authEnabled } = useServerAuth();
-  /** 曲库分区的二级菜单（左侧导航）：扫描 / 去重 / 整理 / 清洗 / 回收站 */
+  /** 窄屏抽屉（≤860px 时侧栏转为抽屉，由顶栏汉堡开关） */
+  const [navOpen, setNavOpen] = useState(false);
+  /** 曲库分区的二级菜单（左侧栏分组）：扫描 / 去重 / 整理 / 清洗 / 回收站 */
   const [libraryTab, setLibraryTab] = useState<
     "scan" | "dedupe" | "organize" | "clean" | "trash"
   >("scan");
+  /** 顶栏标题：当前分区（曲库时附二级项名——布局吸收后导航在左侧栏，顶栏只显示位置） */
+  const viewLabel =
+    view === "convert"
+      ? t.app.navConvert
+      : view === "library"
+        ? `${t.app.navLibrary} · ${
+            libraryTab === "scan"
+              ? t.library.tabScan
+              : libraryTab === "dedupe"
+                ? t.library.tabDedupe
+                : libraryTab === "organize"
+                  ? t.library.tabOrganize
+                  : libraryTab === "clean"
+                    ? t.library.tabClean
+                    : t.library.tabTrash
+          }`
+        : view === "plugins"
+          ? t.app.navPlugins
+          : t.app.navSettings;
   // P8.2.5：fnOS 服务端形态的访问 token（HTTP 形态标题栏可见可改）
   const [serverTokenInput, setServerTokenInput] = useState<string>(serverToken());
   const [filter, setFilter] = useState<FilterKey>("all");
@@ -173,74 +195,181 @@ export default function App() {
           </div>
         </div>
       )}
-      {/* ---------- 标题栏 ---------- */}
-      <div className="titlebar">
+      {/* ---------- 左侧栏（布局吸收：品牌 + 主导航 + 曲库治理分组常驻） ---------- */}
+      <aside className={"sidebar" + (navOpen ? " open" : "")} aria-label="主导航">
         <div className="brand">
           <span className="logo">
             <IconConvert size={18} />
           </span>
-          <strong>MusicForge</strong>
-          <span className="sub">{t.app.subtitle}</span>
+          <div className="brand-text">
+            <strong>MusicForge</strong>
+            <span className="sub">{t.app.subtitle}</span>
+          </div>
         </div>
-        <div className="chips">
-          <span className="chip green">{t.app.offlineChip}</span>
-          <span className="chip">MIT</span>
-          <span className="chip">v0.9.0</span>
-          {!IS_DESKTOP &&
-            (authEnabled === false ? (
-              // 鉴权已关闭（MUSICFORGE_AUTH=off）：隐藏无用的 token 框，改显状态徽标
-              <span className="chip" title={t.serverInfo.authOffNote}>
-                {t.serverInfo.authOff}
-              </span>
-            ) : (
-              <input
-                className={
-                  "lang-select server-token" + (serverTokenInput.trim() ? "" : " needs-token")
-                }
-                type="password"
-                placeholder={t.app.tokenPlaceholder}
-                value={serverTokenInput}
-                onChange={(e) => {
-                  setServerTokenInput(e.target.value);
-                  setServerToken(e.target.value);
-                }}
-                spellCheck={false}
-                aria-label={t.app.tokenPlaceholder}
-                title={t.auth.where}
-              />
-            ))}
-          <select
-            className="lang-select"
-            value={lang}
-            onChange={(e) => setLang(e.target.value as Lang)}
-            aria-label={t.lang.aria}
-          >
-            <option value="zh">中文</option>
-            <option value="en">English</option>
-          </select>
-        </div>
-      </div>
 
-      {/* ---------- 主导航（分区：转换 / 曲库 / 插件 / 设置） ---------- */}
-      <nav className="nav" aria-label="main">
-        <button className={"nav-item" + (view === "convert" ? " on" : "")} onClick={() => setView("convert")}>
-          <IconConvert />
-          <span>{t.app.navConvert}</span>
-          {rows.length > 0 && <span className="badge">{rows.length}</span>}
-        </button>
-        <button className={"nav-item" + (view === "library" ? " on" : "")} onClick={() => setView("library")}>
-          <IconLibrary />
-          <span>{t.app.navLibrary}</span>
-        </button>
-        <button className={"nav-item" + (view === "plugins" ? " on" : "")} onClick={() => setView("plugins")}>
-          <IconPlugin />
-          <span>{t.app.navPlugins}</span>
-        </button>
-        <button className={"nav-item" + (view === "settings" ? " on" : "")} onClick={() => setView("settings")}>
-          <IconSettings />
-          <span>{t.app.navSettings}</span>
-        </button>
-      </nav>
+        <nav className="nav">
+          <div className="nav-group">
+            <button
+              className={"nav-item" + (view === "convert" ? " on" : "")}
+              onClick={() => {
+                setView("convert");
+                setNavOpen(false);
+              }}
+            >
+              <IconConvert />
+              <span>{t.app.navConvert}</span>
+              {rows.length > 0 && <span className="badge">{rows.length}</span>}
+            </button>
+          </div>
+
+          <div className="nav-sep" role="separator"></div>
+
+          {/* 曲库 = 分组：二级项从分区内 subnav 提升到侧栏（少一层左侧嵌套） */}
+          <div className="nav-group">
+            <button
+              className={"nav-item" + (view === "library" ? " on" : "")}
+              onClick={() => {
+                setView("library");
+                setNavOpen(false);
+              }}
+            >
+              <IconLibrary />
+              <span>{t.app.navLibrary}</span>
+            </button>
+            <div className="nav-sub">
+              <button
+                className={"nav-item sub" + (view === "library" && libraryTab === "scan" ? " on" : "")}
+                onClick={() => {
+                  setView("library");
+                  setLibraryTab("scan");
+                  setNavOpen(false);
+                }}
+              >
+                <IconScan />
+                <span>{t.library.tabScan}</span>
+              </button>
+              <button
+                className={"nav-item sub" + (view === "library" && libraryTab === "dedupe" ? " on" : "")}
+                onClick={() => {
+                  setView("library");
+                  setLibraryTab("dedupe");
+                  setNavOpen(false);
+                }}
+              >
+                <IconCopy />
+                <span>{t.library.tabDedupe}</span>
+              </button>
+              <button
+                className={"nav-item sub" + (view === "library" && libraryTab === "organize" ? " on" : "")}
+                onClick={() => {
+                  setView("library");
+                  setLibraryTab("organize");
+                  setNavOpen(false);
+                }}
+              >
+                <IconOrganize />
+                <span>{t.library.tabOrganize}</span>
+              </button>
+              <button
+                className={"nav-item sub" + (view === "library" && libraryTab === "clean" ? " on" : "")}
+                onClick={() => {
+                  setView("library");
+                  setLibraryTab("clean");
+                  setNavOpen(false);
+                }}
+              >
+                <IconClean />
+                <span>{t.library.tabClean}</span>
+              </button>
+              <button
+                className={"nav-item sub" + (view === "library" && libraryTab === "trash" ? " on" : "")}
+                onClick={() => {
+                  setView("library");
+                  setLibraryTab("trash");
+                  setNavOpen(false);
+                }}
+              >
+                <IconRestore />
+                <span>{t.library.tabTrash}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="nav-sep" role="separator"></div>
+
+          <div className="nav-group">
+            <button
+              className={"nav-item" + (view === "plugins" ? " on" : "")}
+              onClick={() => {
+                setView("plugins");
+                setNavOpen(false);
+              }}
+            >
+              <IconPlugin />
+              <span>{t.app.navPlugins}</span>
+            </button>
+            <button
+              className={"nav-item" + (view === "settings" ? " on" : "")}
+              onClick={() => {
+                setView("settings");
+                setNavOpen(false);
+              }}
+            >
+              <IconSettings />
+              <span>{t.app.navSettings}</span>
+            </button>
+          </div>
+        </nav>
+      </aside>
+
+      {/* 窄屏抽屉遮罩 */}
+      {navOpen && <div className="nav-mask" onClick={() => setNavOpen(false)} aria-hidden="true"></div>}
+
+      {/* ---------- 右区：顶栏 + 内容 ---------- */}
+      <div className="main-wrap">
+        <header className="titlebar">
+          <button className="icon-btn menu-toggle" onClick={() => setNavOpen(true)} aria-label="打开导航">
+            <IconMenu />
+          </button>
+          <strong className="tb-title">{viewLabel}</strong>
+          <div className="chips">
+            <span className="chip green">{t.app.offlineChip}</span>
+            <span className="chip">MIT</span>
+            <span className="chip">v0.9.0</span>
+            {!IS_DESKTOP &&
+              (authEnabled === false ? (
+                // 鉴权已关闭（MUSICFORGE_AUTH=off）：隐藏无用的 token 框，改显状态徽标
+                <span className="chip" title={t.serverInfo.authOffNote}>
+                  {t.serverInfo.authOff}
+                </span>
+              ) : (
+                <input
+                  className={
+                    "lang-select server-token" + (serverTokenInput.trim() ? "" : " needs-token")
+                  }
+                  type="password"
+                  placeholder={t.app.tokenPlaceholder}
+                  value={serverTokenInput}
+                  onChange={(e) => {
+                    setServerTokenInput(e.target.value);
+                    setServerToken(e.target.value);
+                  }}
+                  spellCheck={false}
+                  aria-label={t.app.tokenPlaceholder}
+                  title={t.auth.where}
+                />
+              ))}
+            <select
+              className="lang-select"
+              value={lang}
+              onChange={(e) => setLang(e.target.value as Lang)}
+              aria-label={t.lang.aria}
+            >
+              <option value="zh">中文</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+        </header>
 
       <main className="main">
       {/* P0-2：分区级错误边界——任一分区渲染异常只降级该分区，不带走整个应用 */}
@@ -432,55 +561,16 @@ export default function App() {
 
       </ErrorBoundary>
 
-      {/* ---------- 曲库治理：左侧二级菜单 + 右侧工作区 ---------- */}
+      {/* ---------- 曲库治理（二级导航已提升至左侧栏「曲库」分组） ---------- */}
       <ErrorBoundary title={t.app.errorTitle} hint={t.app.errorHint} retry={t.app.errorRetry}>
       {view === "library" && (
-        <div className="library">
-          <nav className="subnav" aria-label="library">
-            <button
-              className={"subnav-item" + (libraryTab === "scan" ? " on" : "")}
-              onClick={() => setLibraryTab("scan")}
-            >
-              <IconScan />
-              <span>{t.library.tabScan}</span>
-            </button>
-            <button
-              className={"subnav-item" + (libraryTab === "dedupe" ? " on" : "")}
-              onClick={() => setLibraryTab("dedupe")}
-            >
-              <IconCopy />
-              <span>{t.library.tabDedupe}</span>
-            </button>
-            <button
-              className={"subnav-item" + (libraryTab === "organize" ? " on" : "")}
-              onClick={() => setLibraryTab("organize")}
-            >
-              <IconOrganize />
-              <span>{t.library.tabOrganize}</span>
-            </button>
-            <button
-              className={"subnav-item" + (libraryTab === "clean" ? " on" : "")}
-              onClick={() => setLibraryTab("clean")}
-            >
-              <IconClean />
-              <span>{t.library.tabClean}</span>
-            </button>
-            <button
-              className={"subnav-item" + (libraryTab === "trash" ? " on" : "")}
-              onClick={() => setLibraryTab("trash")}
-            >
-              <IconRestore />
-              <span>{t.library.tabTrash}</span>
-            </button>
-          </nav>
-          <div className="library-main">
-            {libraryTab === "scan" && <ScanPanel hideCollapse />}
-            {libraryTab === "dedupe" && <DedupePanel hideCollapse />}
-            {/* P1：整理 / 清洗 / 回收站还原——后端能力已就绪，此前无 UI 入口 */}
-            {libraryTab === "organize" && <OrganizePanel />}
-            {libraryTab === "clean" && <CleanPanel />}
-            {libraryTab === "trash" && <TrashPanel />}
-          </div>
+        <div className="library-main">
+          {libraryTab === "scan" && <ScanPanel hideCollapse />}
+          {libraryTab === "dedupe" && <DedupePanel hideCollapse />}
+          {/* P1：整理 / 清洗 / 回收站还原——后端能力已就绪，此前无 UI 入口 */}
+          {libraryTab === "organize" && <OrganizePanel />}
+          {libraryTab === "clean" && <CleanPanel />}
+          {libraryTab === "trash" && <TrashPanel />}
         </div>
       )}
       </ErrorBoundary>
@@ -633,6 +723,8 @@ export default function App() {
       </main>
 
       <div className="legal">{t.app.legal}</div>
+      </div>
+      {/* /main-wrap */}
 
       {toast && (
         <div className="toast" onClick={() => setToast(null)}>

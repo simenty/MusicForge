@@ -109,7 +109,9 @@ pub fn run_token_sub(a: &TokenAction) -> i32 {
                 }
                 Err(e) => {
                     eprintln!("X 读取失败 {}: {e}", path.display());
-                    eprintln!("  提示：--token-file / --data-dir 显式指定，或用 MUSICFORGE_DATA_DIR");
+                    eprintln!(
+                        "  提示：--token-file / --data-dir 显式指定，或用 MUSICFORGE_DATA_DIR"
+                    );
                     1
                 }
             }

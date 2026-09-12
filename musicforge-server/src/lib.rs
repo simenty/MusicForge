@@ -368,7 +368,12 @@ async fn auth_middleware(
     // 取签名头（在消耗请求体之前）
     let (ts, nonce, sig) = {
         let h = req.headers();
-        let g = |k: &str| h.get(k).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+        let g = |k: &str| {
+            h.get(k)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_string()
+        };
         (g("x-mf-ts"), g("x-mf-nonce"), g("x-mf-sign"))
     };
 
@@ -425,7 +430,8 @@ async fn auth_middleware(
                     .into_response();
             }
             state.auth_guard.on_ok();
-            next.run(Request::from_parts(parts, Body::from(bytes))).await
+            next.run(Request::from_parts(parts, Body::from(bytes)))
+                .await
         }
         Err(code) => {
             let delay_ms = state.auth_guard.on_fail();
@@ -649,7 +655,9 @@ mod tests {
             auth_require_sign: false,
             // 默认保持鉴权开启（安全默认）；开关行为由专项测试覆盖。
             auth_disabled: false,
-            nonce_seen: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            nonce_seen: std::sync::Arc::new(
+                std::sync::Mutex::new(std::collections::HashMap::new()),
+            ),
         }
     }
 
@@ -798,7 +806,14 @@ mod tests {
     #[test]
     fn sign_matches_cross_language_vector() {
         assert_eq!(
-            sign::compute(VEC_TOKEN, "POST", "/api/batch", br#"{"a":1}"#, VEC_TS, VEC_NONCE),
+            sign::compute(
+                VEC_TOKEN,
+                "POST",
+                "/api/batch",
+                br#"{"a":1}"#,
+                VEC_TS,
+                VEC_NONCE
+            ),
             VEC_SIG_POST
         );
         assert_eq!(
@@ -836,25 +851,75 @@ mod tests {
         let body = br#"{"a":1}"#;
         let at = 1760000000u64;
         // 正确 + 窗口边界（±60s）
-        assert!(v("POST", "/api/batch", body, VEC_TS, VEC_NONCE, VEC_SIG_POST, at).is_ok());
-        assert!(v("POST", "/api/batch", body, VEC_TS, VEC_NONCE, VEC_SIG_POST, at + 60).is_ok());
+        assert!(v(
+            "POST",
+            "/api/batch",
+            body,
+            VEC_TS,
+            VEC_NONCE,
+            VEC_SIG_POST,
+            at
+        )
+        .is_ok());
+        assert!(v(
+            "POST",
+            "/api/batch",
+            body,
+            VEC_TS,
+            VEC_NONCE,
+            VEC_SIG_POST,
+            at + 60
+        )
+        .is_ok());
         // 超窗 / ts 非数字 → STALE
         assert_eq!(
-            v("POST", "/api/batch", body, VEC_TS, VEC_NONCE, VEC_SIG_POST, at + 61),
+            v(
+                "POST",
+                "/api/batch",
+                body,
+                VEC_TS,
+                VEC_NONCE,
+                VEC_SIG_POST,
+                at + 61
+            ),
             Err("MF-AUTH-STALE")
         );
         assert_eq!(
-            v("POST", "/api/batch", body, "abc", VEC_NONCE, VEC_SIG_POST, at),
+            v(
+                "POST",
+                "/api/batch",
+                body,
+                "abc",
+                VEC_NONCE,
+                VEC_SIG_POST,
+                at
+            ),
             Err("MF-AUTH-STALE")
         );
         // body 篡改（换体重放）→ 签名不符
         assert_eq!(
-            v("POST", "/api/batch", br#"{"a":2}"#, VEC_TS, VEC_NONCE, VEC_SIG_POST, at),
+            v(
+                "POST",
+                "/api/batch",
+                br#"{"a":2}"#,
+                VEC_TS,
+                VEC_NONCE,
+                VEC_SIG_POST,
+                at
+            ),
             Err("MF-AUTH-SIG-INVALID")
         );
         // path 篡改（同一签名挪到别的端点）→ 拒绝
         assert_eq!(
-            v("POST", "/api/clean/apply", body, VEC_TS, VEC_NONCE, VEC_SIG_POST, at),
+            v(
+                "POST",
+                "/api/clean/apply",
+                body,
+                VEC_TS,
+                VEC_NONCE,
+                VEC_SIG_POST,
+                at
+            ),
             Err("MF-AUTH-SIG-INVALID")
         );
         // token 不对 → 签名不符
@@ -969,9 +1034,15 @@ mod tests {
                 .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
                 .await
                 .unwrap();
-            assert_eq!(res.status(), StatusCode::OK, "SPA 请求 {uri} 应命中 index.html");
             assert_eq!(
-                res.headers().get("cache-control").map(|v| v.to_str().unwrap()),
+                res.status(),
+                StatusCode::OK,
+                "SPA 请求 {uri} 应命中 index.html"
+            );
+            assert_eq!(
+                res.headers()
+                    .get("cache-control")
+                    .map(|v| v.to_str().unwrap()),
                 Some("no-cache"),
                 "SPA 响应 {uri} 必须 no-cache（否则升级后浏览器运行旧 JS）"
             );

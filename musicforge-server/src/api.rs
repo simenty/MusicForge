@@ -1,4 +1,4 @@
-﻿//! `/api` 业务面（P8.2.1 首波：scan / version / wizard-status）。
+//! `/api` 业务面（P8.2.1 首波：scan / version / wizard-status）。
 //!
 //! **统一信封**：成功 `{ok:true, data}`；失败 `{ok:false, code:"MF-*", message}`
 //! ——业务码 = `NcmError::mf_code()`（跨端一致，UI/日志/失败清单同码）。
@@ -636,11 +636,11 @@ pub async fn organize_apply(
                 "destructive op applied"
             );
             ok(json!({
-            "moved": outcome.moved,
-            "skipped": outcome.skipped,
-            "failed": outcome.failed,
-            "rollback_manifest": outcome.rollback_manifest.map(|p| p.display().to_string()),
-        }))
+                "moved": outcome.moved,
+                "skipped": outcome.skipped,
+                "failed": outcome.failed,
+                "rollback_manifest": outcome.rollback_manifest.map(|p| p.display().to_string()),
+            }))
         }
         Ok(Err(e)) => err_from(e),
         Err(e) => err(
@@ -773,10 +773,10 @@ pub async fn clean_apply(
                 "destructive op applied"
             );
             ok(json!({
-            "moved": outcome.moved,
-            "dirs_removed": outcome.dirs_removed,
-            "rollback_manifest": outcome.rollback_manifest.map(|p| p.display().to_string()),
-        }))
+                "moved": outcome.moved,
+                "dirs_removed": outcome.dirs_removed,
+                "rollback_manifest": outcome.rollback_manifest.map(|p| p.display().to_string()),
+            }))
         }
         Ok(Err(e)) => err_from(e),
         Err(e) => err(
@@ -865,7 +865,9 @@ mod tests {
             auth_require_sign: false,
             // 鉴权保持开启（安全默认）
             auth_disabled: false,
-            nonce_seen: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            nonce_seen: std::sync::Arc::new(
+                std::sync::Mutex::new(std::collections::HashMap::new()),
+            ),
         }
     }
 

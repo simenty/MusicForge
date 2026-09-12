@@ -357,7 +357,7 @@ fn main() {
     if let Some(sub) = args.command {
         let code = match sub {
             Sub::Plugins { cmd } => run_plugins_sub(cmd),
-        Sub::Token { action } => run_token_sub(&action),
+            Sub::Token { action } => run_token_sub(&action),
             Sub::FormatMigrate {
                 plugin,
                 source,

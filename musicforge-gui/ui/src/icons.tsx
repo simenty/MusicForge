@@ -119,6 +119,17 @@ export function IconPlan({ size = 16, className }: IconProps) {
   );
 }
 
+/** 汉堡菜单（窄屏打开侧栏导航） */
+export function IconMenu({ size = 16, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M4 7h16M4 12h16M4 17h16" />
+    </>,
+    size,
+    className
+  );
+}
+
 /** 曲库扫描 */
 export function IconScan({ size = 16, className }: IconProps) {
   return svg(
