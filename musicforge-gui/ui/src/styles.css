@@ -1687,3 +1687,62 @@ code,
 @media (max-width: 720px) {
   .main { padding-bottom: var(--sp-6); }
 }
+/* =========================================================================
+ * 媒体库分区（P1 曲库体验，2026-09-18）
+ * 艺术家/专辑网格 · 曲目虚拟列表 · 媒体源卡 · 空态。
+ * ======================================================================= */
+
+/* ---- 艺术家/专辑网格 ---- */
+.mgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: var(--sp-4); margin-top: var(--sp-4); }
+.mcard { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: var(--sp-3); border-radius: var(--r-md); border: 0; background: none; text-align: center; }
+.mcard .ava { width: 84px; height: 84px; border-radius: 50%; display: grid; place-items: center; font-size: 30px; font-weight: 600; box-shadow: var(--sh-1); }
+.mcard .nm { font-size: var(--fs-md); font-weight: 600; line-height: 1.3; }
+.mcard .ct { font-size: var(--fs-xs); color: var(--text-dim); }
+.mcard .cover2 { width: 100%; aspect-ratio: 1; border-radius: var(--r-md); display: grid; place-items: center; color: rgba(20,24,30,.30); box-shadow: var(--sh-1); }
+/* 6 组柔和渐变占位（真机接入内嵌封面后替换为图片） */
+.g1 { background: linear-gradient(160deg, #dff3e6, #a8dcc0); color: #2c6e4a; }
+.g2 { background: linear-gradient(160deg, #f0f1f3, #d8dbe0); color: #5c636e; }
+.g3 { background: linear-gradient(160deg, #f3ead9, #d9c49e); color: #8a6a3a; }
+.g4 { background: linear-gradient(160deg, #dbeaf6, #a3c8e8); color: #2f5f8a; }
+.g5 { background: linear-gradient(160deg, #f7e3e0, #e6b0a6); color: #8a4a42; }
+.g6 { background: linear-gradient(160deg, #efe6f4, #cbb3dd); color: #63488a; }
+
+/* ---- 曲目虚拟列表 ---- */
+.vt-head, .vt-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) minmax(0, .62fr) 76px 92px; gap: var(--sp-3); align-items: center; }
+.vt-head { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border); font-size: var(--fs-xs); color: var(--text-dim); }
+.vt-scroll { overflow-y: auto; height: min(62vh, 720px); }
+.vt-row { height: 44px; padding: 0 var(--sp-3); border-bottom: 1px solid var(--border); }
+.vt-row:hover { background: var(--surface-2); }
+.vt-idx { font-size: var(--fs-xs); color: var(--text-faint); text-align: right; font-variant-numeric: tabular-nums; }
+.vt-main { min-width: 0; }
+.vt-main b { display: block; font-size: var(--fs-md); font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vt-main span { display: block; font-size: var(--fs-xs); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vt-alb { font-size: var(--fs-sm); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vt-num { font-size: var(--fs-sm); color: var(--text-dim); text-align: right; font-variant-numeric: tabular-nums; }
+.vt-tools { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-3); padding-bottom: var(--sp-3); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.vt-loading { padding: 10px var(--sp-3); font-size: var(--fs-xs); color: var(--text-faint); }
+
+/* ---- 媒体源卡 ---- */
+.srcs { display: flex; flex-direction: column; gap: var(--sp-3); margin-top: var(--sp-4); }
+.src-card { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-4); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+.src-card .row1 { display: flex; align-items: center; gap: var(--sp-2); }
+.src-card .row1 .ic { width: 34px; height: 34px; border-radius: var(--r-sm); display: grid; place-items: center; background: var(--surface-2); color: var(--text-dim); flex: none; }
+.src-card .row1 b { font-size: var(--fs-md); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.src-card .path { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-dim); word-break: break-all; }
+.src-card .act { display: flex; gap: var(--sp-2); margin-top: var(--sp-2); flex-wrap: wrap; }
+
+/* ---- 媒体库页头 / 空态 ---- */
+.media-head { display: flex; align-items: flex-end; gap: var(--sp-4); flex-wrap: wrap; margin-bottom: var(--sp-4); }
+.media-head h2 { margin: 0; font-size: 22px; font-weight: 700; }
+.media-head .sub { margin: 6px 0 0; font-size: var(--fs-sm); color: var(--text-dim); }
+.media-head .act { margin-left: auto; display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
+.search-inline { position: relative; }
+.search-inline input { width: min(300px, 60vw); height: 34px; padding: 0 var(--sp-3) 0 32px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); font-size: var(--fs-sm); }
+.search-inline svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-faint); pointer-events: none; }
+.media-empty { display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); padding: 56px var(--sp-4); text-align: center; color: var(--text-dim); }
+.media-empty h3 { margin: 0; font-size: var(--fs-lg); color: var(--text); }
+.media-empty p { margin: 0; font-size: var(--fs-md); max-width: 460px; line-height: 1.7; }
+.src-inline { display: flex; gap: var(--sp-2); margin-top: var(--sp-3); flex-wrap: wrap; align-items: center; }
+/* 统计卡色类补两条（媒体库概览用：专辑封面色 / 时长其它色） */
+.stat-ico.i-cover { color: var(--cat-cover); background: color-mix(in srgb, var(--cat-cover) 14%, transparent); }
+.stat-ico.i-time { color: var(--cat-other); background: color-mix(in srgb, var(--cat-other) 14%, transparent); }

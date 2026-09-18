@@ -28,6 +28,7 @@ pub mod dedupe;
 pub mod error;
 pub mod ffmpeg;
 pub mod formats;
+pub mod library;
 pub mod lossless;
 pub mod metadata;
 pub mod organize;

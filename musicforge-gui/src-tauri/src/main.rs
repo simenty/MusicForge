@@ -100,7 +100,18 @@ fn main() {
             plugins_set_enabled,
             plugins_acknowledge,
             select_migration_files,
-            format_migrate
+            format_migrate,
+            // P1 曲库体验：维度层读写 + 媒体源管理 + 索引构建
+            library_stats,
+            list_tracks,
+            list_artists,
+            list_albums,
+            search_tracks,
+            sources_list,
+            sources_add,
+            sources_remove,
+            index_source,
+            sources_add_and_index
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

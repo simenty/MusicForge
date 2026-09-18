@@ -191,6 +191,53 @@ export function IconBan({ size = 16, className }: IconProps) {
   );
 }
 
+/** 媒体库：概览（首页） */
+export function IconHome({ size = 16, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M4 11l8-7 8 7v8a2 2 0 01-2 2h-4v-6h-4v6H6a2 2 0 01-2-2z" />
+    </>,
+    size,
+    className
+  );
+}
+
+/** 媒体库：艺术家（人像） */
+export function IconUser({ size = 16, className }: IconProps) {
+  return svg(
+    <>
+      <circle cx="12" cy="8" r="3.6" />
+      <path d="M5 20c1.3-3.4 3.9-5 7-5s5.7 1.6 7 5" />
+    </>,
+    size,
+    className
+  );
+}
+
+/** 媒体库：专辑（唱片） */
+export function IconDisc({ size = 16, className }: IconProps) {
+  return svg(
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="2.6" />
+    </>,
+    size,
+    className
+  );
+}
+
+/** 媒体库：总时长（时钟） */
+export function IconClock({ size = 16, className }: IconProps) {
+  return svg(
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 2" />
+    </>,
+    size,
+    className
+  );
+}
+
 /** 重复去重（两份重叠） */
 export function IconCopy({ size = 16, className }: IconProps) {
   return svg(

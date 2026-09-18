@@ -245,3 +245,71 @@ export interface WizardStatus {
   data_dir: string;
   library_dir: string | null;
 }
+
+// ===================================================== 曲库维度（P1）
+// 与 src-tauri/commands/library_db.rs 的 JSON 形状一一对应（camelCase）。
+
+/** 曲目行（db v2 tracks + 解析后的显示名） */
+export interface Track {
+  id: number;
+  sourceId: number;
+  path: string;
+  size: number;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  trackNo: number | null;
+  durationMs: number | null;
+  format: string | null;
+  sampleRate: number | null;
+  bitDepth: number | null;
+  channels: number | null;
+  isLossless: boolean;
+}
+
+/** 艺术家聚合行 */
+export interface Artist {
+  id: number;
+  name: string;
+  trackCount: number;
+}
+
+/** 专辑聚合行 */
+export interface Album {
+  id: number;
+  title: string;
+  artist: string | null;
+  year: number | null;
+  trackCount: number;
+}
+
+/** 曲库总览统计 */
+export interface LibraryStats {
+  tracks: number;
+  artists: number;
+  albums: number;
+  totalSize: number;
+  totalDurationMs: number;
+}
+
+/** 媒体源 */
+export interface Source {
+  id: number;
+  path: string;
+  label: string | null;
+  enabled: boolean;
+  addedAt: number;
+  /** 该源已索引的曲目数（sources_list 聚合） */
+  tracksCount: number;
+}
+
+/** 索引构建结果 */
+export interface IndexOutcome {
+  scannedFiles: number;
+  audio: number;
+  indexed: number;
+  tagged: number;
+  untagged: number;
+  failed: number;
+  removed: number;
+}

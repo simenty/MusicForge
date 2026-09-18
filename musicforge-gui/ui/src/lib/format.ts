@@ -37,3 +37,34 @@ export function extOf(p: string): string {
 export function percent(done: number, total: number): number {
   return total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
 }
+
+// ---------------------------------------------------------- 媒体库格式化 --
+
+/** 曲目时长（"4:32"；未知 → "—"） */
+export function fmtClock(ms: number | null): string {
+  if (!ms || ms <= 0) return "—";
+  const s = Math.round(ms / 1000);
+  const m = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** 字节 → GB（曲库总大小；≥100GB 不带小数） */
+export function fmtSizeGB(bytes: number): string {
+  const gb = bytes / 1e9;
+  return `${gb >= 100 ? gb.toFixed(0) : gb.toFixed(1)} GB`;
+}
+
+/** 毫秒 → 小时（曲库总时长；≥100h 不带小数） */
+export function fmtHours(ms: number): string {
+  const h = ms / 3_600_000;
+  return `${h >= 100 ? h.toFixed(0) : h.toFixed(1)} h`;
+}
+
+/** UNIX 秒 → 本地日期（yyyy/mm/dd） */
+export function fmtDate(sec: number): string {
+  if (!sec) return "—";
+  const d = new Date(sec * 1000);
+  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
+}

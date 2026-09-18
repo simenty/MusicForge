@@ -13,8 +13,11 @@ pub mod batch;
 #[macro_use]
 pub mod library;
 #[macro_use]
+pub mod library_db;
+#[macro_use]
 pub mod plugins;
 
 pub use batch::*;
 pub use library::*;
+pub use library_db::*;
 pub use plugins::*;

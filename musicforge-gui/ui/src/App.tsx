@@ -20,11 +20,18 @@ import CleanPanel from "./CleanPanel";
 import TrashPanel from "./TrashPanel";
 import ErrorBoundary from "./ErrorBoundary";
 import ServerInfoCard from "./ServerInfoCard";
+import MediaHome from "./MediaHome";
+import LibraryPage from "./LibraryPage";
+import ArtistsPage from "./ArtistsPage";
+import AlbumsPage from "./AlbumsPage";
+import SourcesPage from "./SourcesPage";
 import {
   IconConvert,
   IconCopy,
+  IconDisc,
   IconDownload,
   IconFolder,
+  IconHome,
   IconLibrary,
   IconMenu,
   IconPlan,
@@ -38,10 +45,11 @@ import {
   IconSettings,
   IconStop,
   IconTrash,
+  IconUser,
 } from "./icons";
 
-/** 主分区（信息架构：转换 / 曲库 / 插件 / 设置） */
-type ViewKey = "convert" | "library" | "plugins" | "settings";
+/** 主分区（信息架构：媒体库 / 转换 / 曲库治理 / 插件 / 设置） */
+type ViewKey = "media" | "convert" | "library" | "plugins" | "settings";
 
 /** 状态视觉元数据（文案走 i18n：RowStatus 键与字典 status 命名空间同名） */
 const STATUS_META: Record<RowStatus, { cls: string; icon: string }> = {
@@ -74,9 +82,25 @@ export default function App() {
   const [libraryTab, setLibraryTab] = useState<
     "scan" | "dedupe" | "organize" | "clean" | "trash"
   >("scan");
+  /** 媒体库分区的二级菜单（P1）：概览 / 音乐库 / 艺术家 / 专辑 / 媒体源 */
+  const [mediaTab, setMediaTab] = useState<"home" | "library" | "artists" | "albums" | "sources">(
+    "home"
+  );
   /** 顶栏标题：当前分区（曲库时附二级项名——布局吸收后导航在左侧栏，顶栏只显示位置） */
+  const mediaTabLabel =
+    mediaTab === "home"
+      ? t.media.tabHome
+      : mediaTab === "library"
+        ? t.media.tabLibrary
+        : mediaTab === "artists"
+          ? t.media.tabArtists
+          : mediaTab === "albums"
+            ? t.media.tabAlbums
+            : t.media.tabSources;
   const viewLabel =
-    view === "convert"
+    view === "media"
+      ? `${t.media.nav} · ${mediaTabLabel}`
+      : view === "convert"
       ? t.app.navConvert
       : view === "library"
         ? `${t.app.navLibrary} · ${
@@ -208,6 +232,90 @@ export default function App() {
         </div>
 
         <nav className="nav">
+          {/* 媒体库（P1）：仅桌面形态——曲库维度索引在桌面端建立；
+              NAS Web UI（服务端形态）不显示该分区（页面内也有 desktopOnly 兜底文案） */}
+          {IS_DESKTOP && (
+            <div className="nav-group">
+              <button
+                className={"nav-item" + (view === "media" ? " on" : "")}
+                onClick={() => {
+                  setView("media");
+                  setNavOpen(false);
+                }}
+              >
+                <IconHome />
+                <span>{t.media.nav}</span>
+              </button>
+              <div className="nav-sub">
+                <button
+                  className={"nav-item sub" + (view === "media" && mediaTab === "home" ? " on" : "")}
+                  onClick={() => {
+                    setView("media");
+                    setMediaTab("home");
+                    setNavOpen(false);
+                  }}
+                >
+                  <IconHome />
+                  <span>{t.media.tabHome}</span>
+                </button>
+                <button
+                  className={
+                    "nav-item sub" + (view === "media" && mediaTab === "library" ? " on" : "")
+                  }
+                  onClick={() => {
+                    setView("media");
+                    setMediaTab("library");
+                    setNavOpen(false);
+                  }}
+                >
+                  <IconLibrary />
+                  <span>{t.media.tabLibrary}</span>
+                </button>
+                <button
+                  className={
+                    "nav-item sub" + (view === "media" && mediaTab === "artists" ? " on" : "")
+                  }
+                  onClick={() => {
+                    setView("media");
+                    setMediaTab("artists");
+                    setNavOpen(false);
+                  }}
+                >
+                  <IconUser />
+                  <span>{t.media.tabArtists}</span>
+                </button>
+                <button
+                  className={
+                    "nav-item sub" + (view === "media" && mediaTab === "albums" ? " on" : "")
+                  }
+                  onClick={() => {
+                    setView("media");
+                    setMediaTab("albums");
+                    setNavOpen(false);
+                  }}
+                >
+                  <IconDisc />
+                  <span>{t.media.tabAlbums}</span>
+                </button>
+                <button
+                  className={
+                    "nav-item sub" + (view === "media" && mediaTab === "sources" ? " on" : "")
+                  }
+                  onClick={() => {
+                    setView("media");
+                    setMediaTab("sources");
+                    setNavOpen(false);
+                  }}
+                >
+                  <IconFolder />
+                  <span>{t.media.tabSources}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="nav-sep" role="separator"></div>
+
           <div className="nav-group">
             <button
               className={"nav-item" + (view === "convert" ? " on" : "")}
@@ -335,7 +443,7 @@ export default function App() {
           <div className="chips">
             <span className="chip green">{t.app.offlineChip}</span>
             <span className="chip">MIT</span>
-            <span className="chip">v0.9.0</span>
+            <span className="chip">v0.10.0</span>
             {!IS_DESKTOP &&
               (authEnabled === false ? (
                 // 鉴权已关闭（MUSICFORGE_AUTH=off）：隐藏无用的 token 框，改显状态徽标
@@ -559,6 +667,19 @@ export default function App() {
         </>
       )}
 
+      </ErrorBoundary>
+
+      {/* ---------- 媒体库（P1：概览/音乐库/艺术家/专辑/媒体源） ---------- */}
+      <ErrorBoundary title={t.app.errorTitle} hint={t.app.errorHint} retry={t.app.errorRetry}>
+      {view === "media" && (
+        <div className="library-main">
+          {mediaTab === "home" && <MediaHome goSources={() => setMediaTab("sources")} />}
+          {mediaTab === "library" && <LibraryPage />}
+          {mediaTab === "artists" && <ArtistsPage />}
+          {mediaTab === "albums" && <AlbumsPage />}
+          {mediaTab === "sources" && <SourcesPage />}
+        </div>
+      )}
       </ErrorBoundary>
 
       {/* ---------- 曲库治理（二级导航已提升至左侧栏「曲库」分组） ---------- */}

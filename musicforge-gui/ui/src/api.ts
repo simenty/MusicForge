@@ -17,6 +17,8 @@ import {
   type UnlistenFn,
 } from "./lib/transport";
 import type {
+  Album,
+  Artist,
   BatchArgs,
   BatchSummary,
   CleanApplyResult,
@@ -26,7 +28,9 @@ import type {
   FileEntry,
   FileResult,
   FormatMigrateResponse,
+  IndexOutcome,
   LibraryRefreshReport,
+  LibraryStats,
   OrganizeApplyResult,
   OrganizeArgs,
   OrganizePlan,
@@ -35,6 +39,8 @@ import type {
   ScanItem,
   ScanReport,
   ServerVersion,
+  Source,
+  Track,
   WizardStatus,
 } from "./lib/types";
 
@@ -391,6 +397,66 @@ export async function wizardStatus(): Promise<WizardStatus> {
 }
 
 // ---------------------------------------------------------------------------
+// 媒体库域（P1 曲库体验；服务端形态经 invoke 显式降级 MF-DESKTOP-ONLY）
+// ---------------------------------------------------------------------------
+
+/** 曲库总览统计（曲目/艺术家/专辑/总大小/总时长） */
+export async function libraryStats(): Promise<LibraryStats> {
+  return invoke<LibraryStats>("library_stats");
+}
+
+/** 分页读取曲目（core 侧 limit 硬上限 500——分页是契约，不传全量） */
+export async function listTracks(limit = 200, offset = 0): Promise<Track[]> {
+  return invoke<Track[]>("list_tracks", { limit, offset });
+}
+
+/** 艺术家聚合列表（按曲目数降序） */
+export async function listArtists(): Promise<Artist[]> {
+  return invoke<Artist[]>("list_artists");
+}
+
+/** 专辑聚合列表（按曲目数降序） */
+export async function listAlbums(): Promise<Album[]> {
+  return invoke<Album[]>("list_albums");
+}
+
+/** 搜索曲目（通配符按字面转义；结果上限 500） */
+export async function searchTracks(query: string, limit = 200): Promise<Track[]> {
+  return invoke<Track[]>("search_tracks", { query, limit });
+}
+
+/** 媒体源列表 */
+export async function sourcesList(): Promise<Source[]> {
+  return invoke<Source[]>("sources_list");
+}
+
+/** 登记媒体源（幂等：同路径重复登记返回同一 id） */
+export async function sourcesAdd(path: string, label?: string): Promise<{ id: number }> {
+  return invoke<{ id: number }>("sources_add", { path, label: label ?? null });
+}
+
+/** 移除媒体源（连带清理其曲目索引；音乐文件不受影响） */
+export async function sourcesRemove(id: number): Promise<{ removedTracks: number }> {
+  return invoke<{ removedTracks: number }>("sources_remove", { id });
+}
+
+/** 对已登记媒体源构建/刷新索引（扫描 → 读标签 → 入库 → 清理陈旧行） */
+export async function indexSource(sourceId: number): Promise<IndexOutcome> {
+  return invoke<IndexOutcome>("index_source", { sourceId });
+}
+
+/** 添加媒体源并立即索引（首次向导一键完成） */
+export async function sourcesAddAndIndex(
+  path: string,
+  label?: string
+): Promise<{ id: number; outcome: IndexOutcome }> {
+  return invoke<{ id: number; outcome: IndexOutcome }>("sources_add_and_index", {
+    path,
+    label: label ?? null,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // 门面（facade）：对外契约 = 原 api.ts 的全部导出。
 // 组件与测试的 `import { ... } from "./api"` 不因拆分而改变。
 // ---------------------------------------------------------------------------
@@ -405,6 +471,8 @@ export {
 export type { UnlistenFn } from "./lib/transport";
 
 export type {
+  Album,
+  Artist,
   BatchArgs,
   BatchSummary,
   CleanAction,
@@ -418,8 +486,10 @@ export type {
   FileResult,
   FileStatus,
   FormatMigrateResponse,
+  IndexOutcome,
   InstalledPlugin,
   LibraryRefreshReport,
+  LibraryStats,
   OrganizeApplyResult,
   OrganizeArgs,
   OrganizeCounts,
@@ -432,5 +502,7 @@ export type {
   ScanReport,
   ScanRuleHit,
   ServerVersion,
+  Source,
+  Track,
   WizardStatus,
 } from "./lib/types";
