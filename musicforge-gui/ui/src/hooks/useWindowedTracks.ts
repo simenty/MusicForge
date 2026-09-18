@@ -33,6 +33,8 @@ export interface WindowedTracks {
   reset: (total: number) => void;
   /** 滚动事件入口（传容器元素） */
   onScroll: (el: HTMLDivElement) => void;
+  /** 已缓存行的有序快照（双击播放构造队列用；未加载的行跳过） */
+  snapshot: () => Track[];
 }
 
 export function useWindowedTracks(pageSize = 200): WindowedTracks {
@@ -93,6 +95,15 @@ export function useWindowedTracks(pageSize = 200): WindowedTracks {
     }
   }, []);
 
+  const snapshot = useCallback((): Track[] => {
+    const out: Track[] = [];
+    for (let i = 0; i < total; i++) {
+      const r = rowAt(i);
+      if (r) out.push(r);
+    }
+    return out;
+  }, [total, rowAt]);
+
   return {
     total,
     start,
@@ -102,5 +113,6 @@ export function useWindowedTracks(pageSize = 200): WindowedTracks {
     busy: inflight.current.size > 0,
     reset,
     onScroll,
+    snapshot,
   };
 }

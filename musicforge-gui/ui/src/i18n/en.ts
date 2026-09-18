@@ -169,6 +169,20 @@ export const en: typeof zh = {
       }${o.failed ? `, ${o.failed} unreadable (indexed with basic info)` : ""}`,
     indexFail: (msg: string) => `Index failed: ${msg}`,
   },
+  /** P2 playback (bottom bar) */
+  player: {
+    noTrack: "Nothing playing",
+    play: "Play",
+    pause: "Pause",
+    next: "Next",
+    prev: "Previous",
+    volume: "Volume",
+    progress: "Progress",
+    dblClickPlay: "Double-click to play",
+    queueN: (n: number) => `Queue: ${n}`,
+    errorPrefix: (msg: string) => `Playback error: ${msg}`,
+    desktopOnly: "Playback requires the desktop build",
+  },
   serverInfo: {
     head: "Server info (fnOS / self-hosted)",
     version: (v: string) => `version ${v}`,

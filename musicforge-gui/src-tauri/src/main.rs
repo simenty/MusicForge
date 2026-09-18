@@ -74,6 +74,11 @@ pub struct BatchArgs {
     dry_run: bool,
 }
 
+/// P2 播放引擎（symphonia + cpal；引擎线程持有 !Send 的 cpal::Stream）。
+/// 模块名用 `audio` 而非 `player`：后者与 `commands::player` 的 glob
+/// 重导出（`pub use commands::*`）在 crate root 形成遮蔽冲突。
+mod audio;
+
 #[macro_use]
 mod commands;
 pub use commands::*;
@@ -83,6 +88,10 @@ fn main() {
         // 仅 Rust 侧注册：插件的 JS API 不注入，前端无法自行唤起对话框
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
+        // P2：播放引擎句柄（引擎线程随进程存活；音频设备懒打开——首播时才建立输出流）
+        .manage(audio::PlayerHandle::spawn(
+            musicforge_core::db::default_db_path(),
+        ))
         .invoke_handler(tauri::generate_handler![
             collect_files,
             plan_batch,
@@ -111,7 +120,17 @@ fn main() {
             sources_add,
             sources_remove,
             index_source,
-            sources_add_and_index
+            sources_add_and_index,
+            // P2 播放：队列/播放控制/状态
+            player_play_queue,
+            player_toggle,
+            player_pause,
+            player_stop,
+            player_next,
+            player_prev,
+            player_seek,
+            player_set_volume,
+            player_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

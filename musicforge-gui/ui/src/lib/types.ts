@@ -313,3 +313,31 @@ export interface IndexOutcome {
   failed: number;
   removed: number;
 }
+
+// ===================================================== 播放（P2）
+
+/** 播放状态快照（player_status） */
+export interface PlayerSnapshot {
+  state: "idle" | "playing" | "paused" | "error";
+  error: string | null;
+  trackId: number | null;
+  title: string | null;
+  artist: string | null;
+  durationMs: number | null;
+  sampleRate: number | null;
+  channels: number | null;
+  queueLen: number;
+  queueIndex: number | null;
+  volume: number;
+  positionMs: number;
+  underruns: number;
+}
+
+/** 队列项（前端从曲目行构造） */
+export interface QueueItem {
+  trackId: number;
+  path: string;
+  title: string | null;
+  artist: string | null;
+  durationMs: number | null;
+}

@@ -1746,3 +1746,33 @@ code,
 /* 统计卡色类补两条（媒体库概览用：专辑封面色 / 时长其它色） */
 .stat-ico.i-cover { color: var(--cat-cover); background: color-mix(in srgb, var(--cat-cover) 14%, transparent); }
 .stat-ico.i-time { color: var(--cat-other); background: color-mix(in srgb, var(--cat-other) 14%, transparent); }
+/* =========================================================================
+ * 播放底栏（P2）
+ * .main 内部滚动 + 底栏固定（flex column 布局的第三块）
+ * ======================================================================= */
+.main { overflow-y: auto; min-height: 0; }
+
+.player-bar { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; column-gap: var(--sp-4); row-gap: 2px; padding: 8px var(--sp-5); border-top: 1px solid var(--border); background: var(--surface); }
+.pb-info { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.pb-cover { width: 34px; height: 34px; border-radius: var(--r-sm); display: grid; place-items: center; background: var(--surface-2); color: var(--text-dim); flex: none; }
+.pb-title { min-width: 0; }
+.pb-title b { display: block; font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pb-title span { display: block; font-size: var(--fs-xs); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pb-idle { font-size: var(--fs-sm); color: var(--text-faint); }
+.pb-ctrl { display: flex; align-items: center; gap: 6px; }
+.pb-btn { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: var(--text-2); transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.pb-btn:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.pb-btn:disabled { opacity: .4; cursor: default; }
+.pb-btn.main { width: 38px; height: 38px; background: var(--text); color: var(--bg); }
+.pb-btn.main:hover:not(:disabled) { opacity: .85; }
+.pb-right { display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-4); min-width: 0; }
+.pb-progress { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.pb-progress input[type="range"] { width: min(320px, 26vw); }
+.pb-vol { display: flex; align-items: center; gap: 6px; color: var(--text-dim); }
+.pb-vol input[type="range"] { width: 90px; }
+.pb-time { font-size: var(--fs-xs); color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pb-err { grid-column: 1 / -1; font-size: var(--fs-xs); color: var(--danger); }
+@media (max-width: 860px) {
+  .player-bar { grid-template-columns: minmax(0, 1fr) auto; padding: 8px var(--sp-4); }
+  .pb-right { display: none; }
+}

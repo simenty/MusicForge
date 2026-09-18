@@ -35,7 +35,9 @@ import type {
   OrganizeArgs,
   OrganizePlan,
   PlannedItem,
+  PlayerSnapshot,
   PluginsStatus,
+  QueueItem,
   ScanItem,
   ScanReport,
   ServerVersion,
@@ -457,6 +459,55 @@ export async function sourcesAddAndIndex(
 }
 
 // ---------------------------------------------------------------------------
+// 播放域（P2；服务端形态经 invoke 显式降级 MF-DESKTOP-ONLY）
+// ---------------------------------------------------------------------------
+
+/** 设置队列并从 `index` 开始播放（替换旧队列） */
+export async function playerPlayQueue(items: QueueItem[], index: number): Promise<void> {
+  return invoke<void>("player_play_queue", { items, index });
+}
+
+/** 播放/暂停切换 */
+export async function playerToggle(): Promise<void> {
+  return invoke<void>("player_toggle");
+}
+
+/** 暂停 */
+export async function playerPause(): Promise<void> {
+  return invoke<void>("player_pause");
+}
+
+/** 停止（清空当前曲目，保留队列） */
+export async function playerStop(): Promise<void> {
+  return invoke<void>("player_stop");
+}
+
+/** 下一首 */
+export async function playerNext(): Promise<void> {
+  return invoke<void>("player_next");
+}
+
+/** 上一首 */
+export async function playerPrev(): Promise<void> {
+  return invoke<void>("player_prev");
+}
+
+/** 跳转到指定毫秒 */
+export async function playerSeek(ms: number): Promise<void> {
+  return invoke<void>("player_seek", { ms });
+}
+
+/** 设置音量（0.0–1.0） */
+export async function playerSetVolume(volume: number): Promise<void> {
+  return invoke<void>("player_set_volume", { volume });
+}
+
+/** 播放状态快照（含动态位置/欠载计数；前端轮询） */
+export async function playerStatus(): Promise<PlayerSnapshot> {
+  return invoke<PlayerSnapshot>("player_status");
+}
+
+// ---------------------------------------------------------------------------
 // 门面（facade）：对外契约 = 原 api.ts 的全部导出。
 // 组件与测试的 `import { ... } from "./api"` 不因拆分而改变。
 // ---------------------------------------------------------------------------
@@ -496,7 +547,9 @@ export type {
   OrganizeItem,
   OrganizePlan,
   PlannedItem,
+  PlayerSnapshot,
   PluginsStatus,
+  QueueItem,
   SameNameGroup,
   ScanItem,
   ScanReport,

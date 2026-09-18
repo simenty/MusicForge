@@ -170,6 +170,20 @@ export const zh = {
       }`,
     indexFail: (msg: string) => `索引失败：${msg}`,
   },
+  /** P2 播放（底栏） */
+  player: {
+    noTrack: "未在播放",
+    play: "播放",
+    pause: "暂停",
+    next: "下一首",
+    prev: "上一首",
+    volume: "音量",
+    progress: "进度",
+    dblClickPlay: "双击播放",
+    queueN: (n: number) => `队列 ${n} 首`,
+    errorPrefix: (msg: string) => `播放错误：${msg}`,
+    desktopOnly: "播放需要桌面版",
+  },
   serverInfo: {
     head: "服务端信息（fnOS / 自建 server）",
     version: (v: string) => `版本 ${v}`,

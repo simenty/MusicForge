@@ -25,6 +25,8 @@ import LibraryPage from "./LibraryPage";
 import ArtistsPage from "./ArtistsPage";
 import AlbumsPage from "./AlbumsPage";
 import SourcesPage from "./SourcesPage";
+import PlayerBar from "./PlayerBar";
+import { usePlayer } from "./hooks/usePlayer";
 import {
   IconConvert,
   IconCopy,
@@ -123,6 +125,8 @@ export default function App() {
 
   const { toast, setToast, showToast } = useToast();
   const { settings, patch, preview } = useSettings();
+  /** P2 播放（底栏 + 双击播放；服务端形态下 status 恒为 null） */
+  const player = usePlayer();
   const b = useBatch({ t, settings, showToast, filter });
   const {
     rows,
@@ -674,7 +678,7 @@ export default function App() {
       {view === "media" && (
         <div className="library-main">
           {mediaTab === "home" && <MediaHome goSources={() => setMediaTab("sources")} />}
-          {mediaTab === "library" && <LibraryPage />}
+          {mediaTab === "library" && <LibraryPage onPlay={player.playTracks} />}
           {mediaTab === "artists" && <ArtistsPage />}
           {mediaTab === "albums" && <AlbumsPage />}
           {mediaTab === "sources" && <SourcesPage />}
@@ -842,6 +846,9 @@ export default function App() {
       </ErrorBoundary>
 
       </main>
+
+      {/* P2：播放底栏（常驻；.main 内部滚动、底栏固定） */}
+      <PlayerBar player={player} />
 
       <div className="legal">{t.app.legal}</div>
       </div>

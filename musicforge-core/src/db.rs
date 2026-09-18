@@ -21,9 +21,12 @@ use crate::error::NcmError;
 ///
 /// - v1（历史）：files / tasks / ack —— 转换状态与哈希缓存层。
 /// - v2（P1 曲库）：sources / artists / albums / tracks —— 曲库浏览维度层。
-///   与 v1 同库共存：v1 表管"转换/缓存"，v2 表管"曲库视图"，
-///   两者都遵循同一铁律——**db 是可再生的，真相在文件系统**。
-pub const SCHEMA_VERSION: u32 = 2;
+/// - v3（P2 播放行为）：likes / play_history / playlists / playlist_items。
+///   与 v1 同库共存：v1 表管"转换/缓存"，v2 表管"曲库视图"，v3 表管"用户行为"，
+///   全部遵循同一铁律——**db 是可再生的，真相在文件系统**
+///   （例外：likes 与 play_history 是**用户产生的一次性数据**，
+///   删库即丢失，属于「本地偏好」而非缓存——这也是它留在本地库的理由）。
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// 默认文件名。
 pub const DB_FILE_NAME: &str = "library.db";
@@ -107,6 +110,38 @@ CREATE TABLE IF NOT EXISTS tracks (
 CREATE INDEX IF NOT EXISTS idx_tracks_source ON tracks(source_id);
 CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist_id);
 CREATE INDEX IF NOT EXISTS idx_tracks_album  ON tracks(album_id);
+"#;
+
+/// v3（P2 播放行为层）建表 SQL。
+///
+/// - `likes`：以 track_id 为主键（天然去重，"喜欢"是布尔状态的物化）；
+/// - `play_history`：**只增不改**的追加日志（清空 = DELETE 全表，
+///   不做软删除——历史的意义就是"发生过"）；`played_at` 为 UNIX 秒；
+/// - `playlists` / `playlist_items`：顺序由 `position` 显式维护
+///   （不依赖 rowid——重排/插入不产生歧义）。
+const V3_SCHEMA_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS likes (
+    track_id   INTEGER PRIMARY KEY REFERENCES tracks(id),
+    created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS play_history (
+    id         INTEGER PRIMARY KEY,
+    track_id   INTEGER NOT NULL REFERENCES tracks(id),
+    played_at  INTEGER NOT NULL,
+    ms_played  INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_history_time ON play_history(played_at DESC);
+CREATE TABLE IF NOT EXISTS playlists (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS playlist_items (
+    playlist_id INTEGER NOT NULL REFERENCES playlists(id),
+    track_id    INTEGER NOT NULL REFERENCES tracks(id),
+    position    INTEGER NOT NULL,
+    PRIMARY KEY (playlist_id, position)
+);
 "#;
 
 /// 状态库句柄。
@@ -211,6 +246,16 @@ pub struct LibraryStats {
     pub total_duration_ms: i64,
 }
 
+/// 播放历史行（v3）：曲目信息 + 播放时刻。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryRow {
+    pub track: TrackRow,
+    /// 播放发生时刻（UNIX 秒）
+    pub played_at: i64,
+    /// 实际播放毫秒（可为 0——起播即记）
+    pub ms_played: i64,
+}
+
 impl Db {
     /// 打开（不存在则创建）状态库并完成迁移。
     ///
@@ -258,6 +303,10 @@ impl Db {
         }
         if version < 2 {
             conn.execute_batch(V2_SCHEMA_SQL)
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+        }
+        if version < 3 {
+            conn.execute_batch(V3_SCHEMA_SQL)
                 .map_err(|e| NcmError::Db(e.to_string()))?;
         }
         if version != SCHEMA_VERSION {
@@ -446,19 +495,37 @@ impl Db {
         Ok(rows)
     }
 
-    /// 移除媒体源并连带清理其曲目行；返回被清理的曲目数。
+    /// 移除媒体源并连带清理其曲目与行为行；返回被清理的曲目数。
     ///
-    /// 手动两条 DELETE（tracks → source）而非依赖 FK 级联：SQLite 级联
-    /// 需要 per-connection `PRAGMA foreign_keys = ON`，本库刻意不开该
-    /// pragma（不给既有连接引入隐性行为），`REFERENCES` 声明只作文档。
+    /// **FK 是活的**（P2 实测纠正）：rusqlite bundled 编译默认带
+    /// `SQLITE_DEFAULT_FOREIGN_KEYS=1`——历史行存在时直接 DELETE tracks
+    /// 会报 `FOREIGN KEY constraint failed`。因此清理必须按依赖顺序在
+    /// **单事务**内完成：play_history / likes / playlist_items → tracks → sources。
+    ///
+    /// 语义：曲目行消失即行为行消失（重扫同一目录会产生新 track id，
+    /// 旧行为本就无法再关联；留着只会成为孤儿）。
     pub fn remove_source(&self, id: i64) -> Result<usize, NcmError> {
-        let n = self
+        let tx = self
             .conn
+            .unchecked_transaction()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        for sql in [
+            "DELETE FROM play_history WHERE track_id IN \
+             (SELECT id FROM tracks WHERE source_id = ?1)",
+            "DELETE FROM likes WHERE track_id IN \
+             (SELECT id FROM tracks WHERE source_id = ?1)",
+            "DELETE FROM playlist_items WHERE track_id IN \
+             (SELECT id FROM tracks WHERE source_id = ?1)",
+        ] {
+            tx.execute(sql, [id])
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+        }
+        let n = tx
             .execute("DELETE FROM tracks WHERE source_id = ?1", [id])
             .map_err(|e| NcmError::Db(e.to_string()))?;
-        self.conn
-            .execute("DELETE FROM sources WHERE id = ?1", [id])
+        tx.execute("DELETE FROM sources WHERE id = ?1", [id])
             .map_err(|e| NcmError::Db(e.to_string()))?;
+        tx.commit().map_err(|e| NcmError::Db(e.to_string()))?;
         Ok(n)
     }
 
@@ -589,17 +656,35 @@ impl Db {
         Ok(tracks.len())
     }
 
-    /// 清理某媒体源下**不在本次索引 run 中**的曲目行（文件已删除/移走）。
+    /// 清理某媒体源下**不在本次索引 run 中**的曲目行（文件已删除/移走），
+    /// 连带清理其行为行（FK 依赖顺序与 [`Db::remove_source`] 相同）。
     ///
     /// 依赖 `indexed_at < run_id` 判定，而不是把本次全部 path 传进 NOT IN——
     /// 十万级 path 列表会撞 SQLite 变量上限（默认 999），也白白放大 SQL。
     pub fn remove_stale_tracks(&self, source_id: i64, run_id: i64) -> Result<usize, NcmError> {
-        self.conn
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        for sql in [
+            "DELETE FROM play_history WHERE track_id IN \
+             (SELECT id FROM tracks WHERE source_id = ?1 AND indexed_at < ?2)",
+            "DELETE FROM likes WHERE track_id IN \
+             (SELECT id FROM tracks WHERE source_id = ?1 AND indexed_at < ?2)",
+            "DELETE FROM playlist_items WHERE track_id IN \
+             (SELECT id FROM tracks WHERE source_id = ?1 AND indexed_at < ?2)",
+        ] {
+            tx.execute(sql, params![source_id, run_id])
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+        }
+        let n = tx
             .execute(
                 "DELETE FROM tracks WHERE source_id = ?1 AND indexed_at < ?2",
                 params![source_id, run_id],
             )
-            .map_err(|e| NcmError::Db(e.to_string()))
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        tx.commit().map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(n)
     }
 
     /// 各媒体源的曲目计数（`source_id → count`；源管理页展示用）。
@@ -760,6 +845,128 @@ impl Db {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| NcmError::Db(e.to_string()))?;
         Ok(rows)
+    }
+
+    // ------------------------------------------------------------ v3 行为 --
+
+    /// 设置/取消「喜欢」（幂等——重复设置同状态不产生副作用）。
+    pub fn set_like(&self, track_id: i64, liked: bool) -> Result<(), NcmError> {
+        if liked {
+            self.conn
+                .execute(
+                    "INSERT OR IGNORE INTO likes (track_id, created_at) VALUES (?1, unixepoch())",
+                    [track_id],
+                )
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+        } else {
+            self.conn
+                .execute("DELETE FROM likes WHERE track_id = ?1", [track_id])
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// 切换「喜欢」，返回切换后的状态（true = 已喜欢）。
+    pub fn toggle_like(&self, track_id: i64) -> Result<bool, NcmError> {
+        let liked = self.is_liked(track_id)?;
+        self.set_like(track_id, !liked)?;
+        Ok(!liked)
+    }
+
+    /// 是否已喜欢。
+    pub fn is_liked(&self, track_id: i64) -> Result<bool, NcmError> {
+        let n: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(1) FROM likes WHERE track_id = ?1",
+                [track_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(n > 0)
+    }
+
+    /// 喜欢列表（按收藏时间倒序；曲目已被移除的行自动消失——INNER JOIN）。
+    pub fn list_liked(&self, limit: i64, offset: i64) -> Result<Vec<TrackRow>, NcmError> {
+        let limit = limit.clamp(1, 500);
+        let offset = offset.max(0);
+        let mut stmt = self
+            .conn
+            .prepare(&format!(
+                "{TRACK_SELECT}
+                 JOIN likes lk ON lk.track_id = t.id
+                 ORDER BY lk.created_at DESC, t.id DESC
+                 LIMIT ?1 OFFSET ?2"
+            ))
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let rows = stmt
+            .query_map(params![limit, offset], map_track_row)
+            .map_err(|e| NcmError::Db(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(rows)
+    }
+
+    /// 喜欢总数。
+    pub fn liked_count(&self) -> Result<i64, NcmError> {
+        self.conn
+            .query_row("SELECT COUNT(1) FROM likes", [], |r| r.get(0))
+            .map_err(|e| NcmError::Db(e.to_string()))
+    }
+
+    /// 追加一条播放记录（**追加日志**，不做去重——同一曲目多次播放就是多行）。
+    pub fn record_play(
+        &self,
+        track_id: i64,
+        played_at: i64,
+        ms_played: i64,
+    ) -> Result<(), NcmError> {
+        self.conn
+            .execute(
+                "INSERT INTO play_history (track_id, played_at, ms_played) VALUES (?1, ?2, ?3)",
+                params![track_id, played_at, ms_played],
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(())
+    }
+
+    /// 播放历史（按时间倒序，含曲目信息）。
+    pub fn list_history(&self, limit: i64) -> Result<Vec<HistoryRow>, NcmError> {
+        let limit = limit.clamp(1, 500);
+        // 不用 TRACK_SELECT 拼接（追加列必须在 FROM 之前）——显式列出，
+        // 列序与 map_track_row 保持一一对应（0..13），14/15 为历史列。
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT t.id, t.source_id, t.path, t.size, t.title, ar.name, al.title, \
+                 t.track_no, t.duration_ms, t.format, t.sample_rate, t.bit_depth, t.channels, \
+                 t.is_lossless, h.played_at, h.ms_played \
+                 FROM play_history h \
+                 JOIN tracks t ON t.id = h.track_id \
+                 LEFT JOIN artists ar ON ar.id = t.artist_id \
+                 LEFT JOIN albums  al ON al.id = t.album_id \
+                 ORDER BY h.played_at DESC, h.id DESC LIMIT ?1",
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let rows = stmt
+            .query_map([limit], |r| {
+                Ok(HistoryRow {
+                    track: map_track_row(r)?,
+                    played_at: r.get(14)?,
+                    ms_played: r.get(15)?,
+                })
+            })
+            .map_err(|e| NcmError::Db(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(rows)
+    }
+
+    /// 清空播放历史；返回被清空的行数。
+    pub fn clear_history(&self) -> Result<usize, NcmError> {
+        self.conn
+            .execute("DELETE FROM play_history", [])
+            .map_err(|e| NcmError::Db(e.to_string()))
     }
 }
 
