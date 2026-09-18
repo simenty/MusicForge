@@ -234,6 +234,32 @@ export const en: typeof zh = {
     confirmAck: "I understand: source files and the CUE will not be modified",
     confirmGo: "Start splitting",
   },
+  /** P5 updates (the only network behaviour) */
+  update: {
+    title: "Updates",
+    desc: "Check for a new version. This is the app's only network activity: it fetches release info from GitHub Releases; installers are signature-verified.",
+    check: "Check for updates",
+    checking: "Checking…",
+    upToDate: "You're up to date",
+    available: (v: string) => `Version ${v} is available`,
+    install: "Download & install",
+    installing: "Downloading… (restart required afterwards)",
+    installed: "Installed — restart to apply",
+    restart: "Restart now",
+    failed: (msg: string) => `Check failed: ${msg}`,
+    offlineHint: "Everything else keeps working when you're offline.",
+  },
+  /** P5 first-run guide */
+  welcome: {
+    title: "Welcome to MusicForge",
+    intro: "Three steps to get started:",
+    step1: "① Add your music folders under “Sources” (local disks or NAS mounts)",
+    step2: "② Wait for the scan to index them (a few minutes for 100k tracks; incremental afterwards)",
+    step3: "③ Double-click any track to play; your library and history stay on this device",
+    privacy: "Zero network, no uploads, no data collection.",
+    later: "Later",
+    start: "Add a source",
+  },
   /** P2 playback (bottom bar) */
   player: {
     noTrack: "Nothing playing",

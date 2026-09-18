@@ -22,6 +22,13 @@ tauri = { version = "2", features = ["tray-icon"] }
 # 原生文件/目录/保存对话框。仅注册为 Rust 侧插件，不向 JS 暴露 API
 # ——前端只能通过下面白名单化的命令调用，ACL 面最小。
 tauri-plugin-dialog = "2"
+# ---- P5 系统集成：单实例（发布必备——双开实例会抢音频设备与状态库）----
+# 第二个实例启动时聚焦既有窗口并把 .ncm 参数转发过去。
+tauri-plugin-single-instance = "2"
+# ---- P5 更新：唯一网络行为（dependency-policy.md 显式例外）----
+# HTTPS 拉取 GitHub Releases 的 latest.json + minisign 签名校验；
+# 只注册 Rust 侧，JS API 不授权——前端只能走白名单命令（check/install/restart）。
+tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 musicforge-cli = { path = "../../musicforge-cli" }

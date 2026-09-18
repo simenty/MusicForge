@@ -89,10 +89,27 @@ mod commands;
 pub use commands::*;
 
 fn main() {
+    // P5 崩溃日志：panic hook 先于 abort 执行，留下最后线索（数据目录 logs/crash.log）
+    init_panic_logging();
+    // P5 文件关联：冷启动参数（双击 .ncm / 命令行传入）——暂存，前端 mount 后取
+    let startup_files = ncm_paths_from_args(std::env::args().skip(1));
     tauri::Builder::default()
+        // P5 单实例：必须是**第一个**注册的插件（插件文档硬要求）。
+        // 第二次启动 = 聚焦既有窗口 + 把本次 argv 里的 .ncm 转发给前端。
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            show_main_window(app);
+            let files = ncm_paths_from_args(argv.into_iter().skip(1));
+            if !files.is_empty() {
+                let _ = app.emit("open-files", files);
+            }
+        }))
         // 仅 Rust 侧注册：插件的 JS API 不注入，前端无法自行唤起对话框
         .plugin(tauri_plugin_dialog::init())
+        // P5 更新：唯一网络行为（dependency-policy.md 显式例外）——JS API 不授权，
+        // 前端只能走白名单命令 check_update / install_update / restart_app
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::default())
+        .manage(StartupFiles(Mutex::new(startup_files)))
         // P2：播放引擎句柄（引擎线程随进程存活；音频设备懒打开——首播时才建立输出流）
         .manage(audio::PlayerHandle::spawn(
             musicforge_core::db::default_db_path(),
@@ -157,6 +174,12 @@ fn main() {
             cue_pick,
             cue_inspect,
             cue_split,
+            // P5 文件关联：冷启动待打开文件
+            take_startup_files,
+            // P5 更新（唯一网络行为）
+            check_update,
+            install_update,
+            restart_app,
             // P2 播放：队列/播放控制/状态
             player_play_queue,
             player_toggle,
@@ -231,12 +254,144 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// 显示并聚焦主窗口（托盘菜单 / 左键点击共用）。
+/// 显示并聚焦主窗口（托盘菜单 / 左键点击 / 单实例二启动共用）。
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
+    }
+}
+
+// ============ P5：崩溃日志 ============
+
+/// 崩溃日志路径：数据目录 `logs/crash.log`（与状态库同目录）。
+fn crash_log_path() -> PathBuf {
+    musicforge_core::db::default_db_path()
+        .parent()
+        .map(|p| p.join("logs").join("crash.log"))
+        .unwrap_or_else(|| PathBuf::from("musicforge-crash.log"))
+}
+
+/// panic 时把信息追加到崩溃日志。release 为 `panic = "abort"`：hook 先于 abort
+/// 执行，因此这里仍能留痕。**日志写入失败绝不再引发 panic**（全部忽略错误）。
+fn init_panic_logging() {
+    let path = crash_log_path();
+    std::panic::set_hook(Box::new(move |info| {
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        use std::io::Write as _;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            let _ = writeln!(f, "[unix {ts}] panic: {info}");
+        }
+    }));
+}
+
+// ============ P5：文件关联（.ncm）与冷启动参数 ============
+
+/// 冷启动 argv 里的待打开 `.ncm`（前端 mount 后 take 走，只消费一次）。
+#[derive(Default)]
+pub struct StartupFiles(pub Mutex<Vec<String>>);
+
+/// 从命令行参数提取 `.ncm` 路径（忽略 `-` 开头的开关；去重保序）。
+fn ncm_paths_from_args<I: IntoIterator<Item = String>>(args: I) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    args.into_iter()
+        .filter(|a| !a.starts_with('-'))
+        .filter(|a| a.to_ascii_lowercase().ends_with(".ncm"))
+        .filter(|a| seen.insert(a.clone()))
+        .collect()
+}
+
+/// P5：取走冷启动待打开文件（take 语义——前端只处理一次）。
+#[tauri::command]
+fn take_startup_files(state: tauri::State<StartupFiles>) -> Vec<String> {
+    state
+        .0
+        .lock()
+        .map(|mut v| std::mem::take(&mut *v))
+        .unwrap_or_default()
+}
+
+// ============ P5：更新（唯一网络行为——见 docs/dependency-policy.md）============
+
+/// 检查更新：拉取 `latest.json` 并校验（签名校验发生在下载安装时）。
+/// 无更新 → `{ available: false }`；有 → 版本号与说明。**不自动下载**。
+#[tauri::command]
+async fn check_update(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    match updater.check().await {
+        Ok(Some(u)) => Ok(serde_json::json!({
+            "available": true,
+            "version": u.version,
+            "currentVersion": u.current_version,
+            "notes": u.body,
+        })),
+        Ok(None) => Ok(serde_json::json!({ "available": false })),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// 下载并安装更新。**签名校验失败会在此报错**（绝不静默降级）。
+/// 安装完成后需重启应用生效（`restart_app`）。
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    match updater.check().await.map_err(|e| e.to_string())? {
+        Some(u) => u
+            .download_and_install(|_, _| {}, || {})
+            .await
+            .map_err(|e| e.to_string()),
+        None => Ok(()),
+    }
+}
+
+/// 重启应用（更新安装完成后由用户点击触发）。
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
+#[cfg(test)]
+mod startup_files_tests {
+    use super::ncm_paths_from_args;
+
+    /// 只收 .ncm、忽略开关、去重保序、扩展名大小写不敏感。
+    #[test]
+    fn extracts_ncm_paths_only() {
+        let got = ncm_paths_from_args(
+            [
+                "C:\\x\\a.ncm",
+                "--flag",
+                "b.NCM",
+                "C:\\x\\a.ncm",
+                "song.mp3",
+                "-o",
+                "C:\\y\\c.ncm",
+            ]
+            .into_iter()
+            .map(String::from),
+        );
+        assert_eq!(
+            got,
+            vec![
+                "C:\\x\\a.ncm".to_string(),
+                "b.NCM".to_string(),
+                "C:\\y\\c.ncm".to_string()
+            ]
+        );
+        assert!(ncm_paths_from_args(Vec::<String>::new()).is_empty());
     }
 }
 

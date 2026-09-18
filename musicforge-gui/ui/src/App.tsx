@@ -1,9 +1,11 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  onOpenFiles,
   selectDirectory,
   selectNcmFiles,
   serverToken,
   setServerToken,
+  takeStartupFiles,
   IS_DESKTOP,
 } from "./api";
 import { useLang, type Lang } from "./i18n";
@@ -29,6 +31,8 @@ import HistoryPage from "./HistoryPage";
 import FavoritesPage from "./FavoritesPage";
 import StatsPage from "./StatsPage";
 import CuePanel from "./CuePanel";
+import UpdateSection from "./UpdateSection";
+import WelcomeGuide from "./WelcomeGuide";
 import PlayerBar from "./PlayerBar";
 import { usePlayer } from "./hooks/usePlayer";
 import {
@@ -142,6 +146,26 @@ export default function App() {
   /** P2 播放（底栏 + 双击播放；服务端形态下 status 恒为 null） */
   const player = usePlayer();
   const b = useBatch({ t, settings, showToast, filter });
+
+  // P5 文件关联：冷启动参数 + 二实例转发 → 切到工具箱·NCM 转换并入列。
+  // ref 模式：importPaths 随 rows/running 变化，但事件只需注册一次。
+  const importPathsRef = useRef(b.importPaths);
+  importPathsRef.current = b.importPaths;
+  useEffect(() => {
+    if (!IS_DESKTOP) return;
+    const open = (files: string[]) => {
+      if (files.length === 0) return;
+      setView("toolbox");
+      setToolboxTab("convert");
+      void importPathsRef.current(files, false);
+    };
+    void takeStartupFiles().then(open);
+    let stop: (() => void) | undefined;
+    void onOpenFiles(open).then((un) => {
+      stop = un;
+    });
+    return () => stop?.();
+  }, []);
   const {
     rows,
     summary,
@@ -906,6 +930,9 @@ export default function App() {
         </div>
       </div>
 
+      {/* P5：更新区块（唯一网络行为——检查/安装/重启） */}
+      <UpdateSection />
+
         </div>
       )}
 
@@ -925,6 +952,14 @@ export default function App() {
       <div className="legal">{t.app.legal}</div>
       </div>
       {/* /main-wrap */}
+
+      {/* P5 首启引导：首次运行显示三步说明（localStorage 标记） */}
+      <WelcomeGuide
+        onGo={() => {
+          setView("media");
+          setMediaTab("sources");
+        }}
+      />
 
       {toast && (
         <div className="toast" onClick={() => setToast(null)}>

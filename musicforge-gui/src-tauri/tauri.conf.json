@@ -26,6 +26,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -36,6 +37,14 @@
     "targets": [
       "nsis"
     ],
+    "fileAssociations": [
+      {
+        "ext": ["ncm"],
+        "name": "NCM 音频",
+        "description": "NCM 加密音频文件",
+        "role": "Editor"
+      }
+    ],
     "windows": {
       "nsis": {
         "installMode": "both",
@@ -44,6 +53,14 @@
         ],
         "displayLanguageSelector": false
       }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/simenty/MusicForge/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgyMjc1QzFCQzEyQTdEQjUKUldTMWZTckJHMXduZ3RrMFQ1Tndxa0Y5ZXVGeVV4eGFKR1pPN1B6ZzEzUlQ0YTZ5V241SUZSVzIK"
     }
   }
 }

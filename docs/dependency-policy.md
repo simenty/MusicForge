@@ -46,8 +46,16 @@ license, size impact (binary growth >10% needs a note), and maintenance status.
 ## 4. Shells (cli/gui/server)
 
 Shells may add UI/platform dependencies (Tauri, notify, axum) but must still contain **zero
-network clients** except `musicforge-server`'s local HTTP listener. Plugin processes are the
-only components allowed to open outbound connections.
+network clients** except:
+
+- `musicforge-server`'s local HTTP listener (inbound only);
+- the desktop shell's **updater**（P5）—— `tauri-plugin-updater` is the single **outbound**
+  exception: an HTTPS GET of the release `latest.json` plus the minisign-verified installer
+  download. Constraints: Rust-side only (the plugin's JS API stays unauthorised — the frontend
+  can only go through the whitelisted `check_update` / `install_update` commands), user-triggered,
+  and documented in `docs/release.md`.
+
+Plugin processes remain the only other components allowed to open outbound connections.
 
 ## 5. GitHub Actions pinning (supply chain)
 

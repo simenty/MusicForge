@@ -155,6 +155,18 @@ export function onBatchDone(handler: (s: BatchSummary) => void): Promise<Unliste
   return listen<BatchSummary>("batch-done", (ev) => handler(ev.payload));
 }
 
+/** P5 文件关联：取走冷启动待打开的 .ncm（take 语义，只消费一次） */
+export async function takeStartupFiles(): Promise<string[]> {
+  if (!IS_DESKTOP) return [];
+  return invoke<string[]>("take_startup_files");
+}
+
+/** P5 文件关联：二实例转发的待打开文件（已运行实例收到 → 入转换列表） */
+export function onOpenFiles(handler: (files: string[]) => void): Promise<UnlistenFn> {
+  if (!IS_DESKTOP) return Promise.resolve(() => {});
+  return listen<string[]>("open-files", (ev) => handler(ev.payload));
+}
+
 /** 拖拽事件（Tauri v2 webview 级）：enter/over/leave 用于视觉反馈，drop 用于导入；
  * HTTP 形态 noop 降级（浏览器原生拖拽由 App 自行处理） */
 export function onDragDropEvent(
@@ -576,6 +588,36 @@ export async function cueInspect(path: string): Promise<CueInspect> {
 /** 整轨切分（长任务；失败轨不落盘，报告与 CLI 同形） */
 export async function cueSplit(cuePath: string, outDir: string): Promise<CueSplitReport> {
   return invoke<CueSplitReport>("cue_split", { cuePath, outDir });
+}
+
+// ---------------------------------------------------------------------------
+// P5 更新（唯一网络行为——dependency-policy.md 显式例外）
+// ---------------------------------------------------------------------------
+
+/** 更新检查结果（check_update） */
+export interface UpdateInfo {
+  available: boolean;
+  version?: string;
+  currentVersion?: string;
+  notes?: string | null;
+}
+
+/** 检查更新（拉取 latest.json；签名校验发生在安装时） */
+export async function checkUpdate(): Promise<UpdateInfo> {
+  if (!IS_DESKTOP) return { available: false };
+  return invoke<UpdateInfo>("check_update");
+}
+
+/** 下载并安装更新（签名校验失败即报错；完成后需 restartApp） */
+export async function installUpdate(): Promise<void> {
+  if (!IS_DESKTOP) return;
+  return invoke<void>("install_update");
+}
+
+/** 重启应用（更新安装完成后生效） */
+export async function restartApp(): Promise<void> {
+  if (!IS_DESKTOP) return;
+  return invoke<void>("restart_app");
 }
 
 // ---------------------------------------------------------------------------

@@ -235,6 +235,32 @@ export const zh = {
     confirmAck: "我了解：源文件与 CUE 不会被修改",
     confirmGo: "开始切分",
   },
+  /** P5 更新（唯一网络行为） */
+  update: {
+    title: "更新",
+    desc: "检查新版本。这是应用唯一的联网行为：拉取 GitHub Releases 的版本信息，安装包带签名校验。",
+    check: "检查更新",
+    checking: "检查中…",
+    upToDate: "已是最新版本",
+    available: (v: string) => `发现新版本 ${v}`,
+    install: "下载并安装",
+    installing: "下载中…（完成后需重启）",
+    installed: "安装完成，重启后生效",
+    restart: "立即重启",
+    failed: (msg: string) => `检查失败：${msg}`,
+    offlineHint: "网络不可用时不影响任何其他功能。",
+  },
+  /** P5 首启引导 */
+  welcome: {
+    title: "欢迎使用 MusicForge",
+    intro: "三步开始：",
+    step1: "① 在「媒体源」添加你的音乐目录（本地磁盘 / NAS 挂载均可）",
+    step2: "② 等待自动扫描入库（十万首约需几分钟，之后增量更新）",
+    step3: "③ 双击任意曲目开始播放；曲库与播放历史只存本机",
+    privacy: "零网络、不上传、不收集数据。",
+    later: "稍后再说",
+    start: "去添加媒体源",
+  },
   /** P2 播放（底栏） */
   player: {
     noTrack: "未在播放",
