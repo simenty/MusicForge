@@ -11,6 +11,8 @@
 #[macro_use]
 pub mod batch;
 #[macro_use]
+pub mod cue_tool;
+#[macro_use]
 pub mod library;
 #[macro_use]
 pub mod library_db;
@@ -20,6 +22,7 @@ pub mod player;
 pub mod plugins;
 
 pub use batch::*;
+pub use cue_tool::*;
 pub use library::*;
 pub use library_db::*;
 pub use player::*;

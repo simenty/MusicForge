@@ -352,6 +352,30 @@ export interface HistoryEntry extends Track {
 
 // ===================================================== 收藏与统计（P3）
 
+// ================================================ 工具箱：CUE 分轨（P4）
+
+/** CUE 检视结果（cue_inspect） */
+export interface CueInspect {
+  cue: string;
+  album: string | null;
+  performer: string | null;
+  date: string | null;
+  genre: string | null;
+  audioFile: string | null;
+  audioExists: boolean;
+  needsFfmpeg: boolean;
+  tracks: { number: number; title: string | null; performer: string | null }[];
+}
+
+/** CUE 分轨报告（cue_split；与 CLI `split --json` 同形 + outDir） */
+export interface CueSplitReport {
+  outDir: string;
+  source: string;
+  album: string | null;
+  tracks: { index: number; title: string | null; path: string; durationSecs: string }[];
+  failed: { track: number; reason: string }[];
+}
+
 /** 统计总览（stats_overview 一次性拉取） */
 export interface StatsOverview {
   tracks: number;

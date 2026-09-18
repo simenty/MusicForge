@@ -20,9 +20,10 @@ export const en: typeof zh = {
   },
   app: {
     subtitle: "Local music format converter",
-    // Main nav sections (IA: convert / library / plugins / settings)
-    navConvert: "Convert",
+    // Main nav sections (P4 IA: media / toolbox / settings)
+    navConvert: "NCM Convert",
     navLibrary: "Library",
+    navToolbox: "Toolbox",
     navPlugins: "Plugins",
     navSettings: "Settings",
     tokenPlaceholder: "Paste server token (required for API access)",
@@ -205,6 +206,33 @@ export const en: typeof zh = {
     quickFav: "Liked songs",
     quickHistory: "Play history",
     quickSources: "Media sources",
+  },
+  /** P4 toolbox: CUE split */
+  cue: {
+    tab: "CUE split",
+    sub: "Split a CUE + whole-image (WAV/FLAC/APE/WV/TAK) into individual tracks. Validation happens before writing; sources are never modified.",
+    pick: "Choose .cue file",
+    change: "Change file",
+    inspectAlbum: "Album",
+    inspectPerformer: "Performer",
+    audioFile: "Audio image",
+    audioMissing: "The audio file referenced by FILE does not exist — make sure the CUE and the audio are in the same folder.",
+    needsFfmpeg: "This APE/WV/TAK source requires ffmpeg (searched on system PATH).",
+    trackCount: (n: number) => `${n} track${n === 1 ? "" : "s"}`,
+    outDir: "Output folder",
+    pickOutDir: "Choose output folder",
+    splitAction: "Start splitting",
+    splitting: "Splitting… decoding the image and re-encoding each track can take a while.",
+    doneOk: (ok: number, fail: number) =>
+      `Done: ${ok} track${ok === 1 ? "" : "s"} written${fail > 0 ? `, ${fail} failed` : ""}`,
+    doneHint: "Failed tracks were not written (duration check failed). Check that the CUE matches the audio.",
+    colTrack: "#",
+    colTitle: "Title",
+    colPerformer: "Performer",
+    colFile: "Output file",
+    confirmSummary: (n: number) => `Splitting ${n} track${n === 1 ? "" : "s"} into:`,
+    confirmAck: "I understand: source files and the CUE will not be modified",
+    confirmGo: "Start splitting",
   },
   /** P2 playback (bottom bar) */
   player: {

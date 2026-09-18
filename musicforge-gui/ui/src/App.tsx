@@ -28,6 +28,7 @@ import SourcesPage from "./SourcesPage";
 import HistoryPage from "./HistoryPage";
 import FavoritesPage from "./FavoritesPage";
 import StatsPage from "./StatsPage";
+import CuePanel from "./CuePanel";
 import PlayerBar from "./PlayerBar";
 import { usePlayer } from "./hooks/usePlayer";
 import {
@@ -55,8 +56,8 @@ import {
   IconUser,
 } from "./icons";
 
-/** 主分区（信息架构：媒体库 / 转换 / 曲库治理 / 插件 / 设置） */
-type ViewKey = "media" | "convert" | "library" | "plugins" | "settings";
+/** 主分区（P4 信息架构：媒体库 / 工具箱 / 设置） */
+type ViewKey = "media" | "toolbox" | "settings";
 
 /** 状态视觉元数据（文案走 i18n：RowStatus 键与字典 status 命名空间同名） */
 const STATUS_META: Record<RowStatus, { cls: string; icon: string }> = {
@@ -79,16 +80,16 @@ const FILTERS: FilterKey[] = ["all", "pending", "ok", "skipped", "failed", "canc
  */
 export default function App() {
   const { t, lang, setLang } = useLang();
-  /** 当前主分区（默认「转换」——核心流程零跳转可达） */
-  const [view, setView] = useState<ViewKey>("convert");
+  /** 当前主分区（默认「媒体库」——音乐应用打开即见曲库） */
+  const [view, setView] = useState<ViewKey>("media");
   /** 鉴权总开关（false = MUSICFORGE_AUTH=off：隐藏 token 框、显示状态徽标） */
   const { authEnabled } = useServerAuth();
   /** 窄屏抽屉（≤860px 时侧栏转为抽屉，由顶栏汉堡开关） */
   const [navOpen, setNavOpen] = useState(false);
-  /** 曲库分区的二级菜单（左侧栏分组）：扫描 / 去重 / 整理 / 清洗 / 回收站 */
-  const [libraryTab, setLibraryTab] = useState<
-    "scan" | "dedupe" | "organize" | "clean" | "trash"
-  >("scan");
+  /** 工具箱分区的二级菜单（P4 能力归位）：转换 / 扫描 / 去重 / 整理 / 清理 / 回收站 / CUE / 插件 */
+  const [toolboxTab, setToolboxTab] = useState<
+    "convert" | "scan" | "dedupe" | "organize" | "clean" | "trash" | "cue" | "plugins"
+  >("convert");
   /** 媒体库分区的二级菜单：概览 / 音乐库 / 艺术家 / 专辑 / 喜欢 / 历史 / 统计 / 媒体源 */
   const [mediaTab, setMediaTab] = useState<
     "home" | "library" | "artists" | "albums" | "favorites" | "history" | "stats" | "sources"
@@ -110,26 +111,28 @@ export default function App() {
                 : mediaTab === "stats"
                   ? t.media.tabStats
                   : t.media.tabSources;
+  const toolboxTabLabel =
+    toolboxTab === "convert"
+      ? t.app.navConvert
+      : toolboxTab === "scan"
+        ? t.library.tabScan
+        : toolboxTab === "dedupe"
+          ? t.library.tabDedupe
+          : toolboxTab === "organize"
+            ? t.library.tabOrganize
+            : toolboxTab === "clean"
+              ? t.library.tabClean
+              : toolboxTab === "trash"
+                ? t.library.tabTrash
+                : toolboxTab === "cue"
+                  ? t.cue.tab
+                  : t.app.navPlugins;
   const viewLabel =
     view === "media"
       ? `${t.media.nav} · ${mediaTabLabel}`
-      : view === "convert"
-      ? t.app.navConvert
-      : view === "library"
-        ? `${t.app.navLibrary} · ${
-            libraryTab === "scan"
-              ? t.library.tabScan
-              : libraryTab === "dedupe"
-                ? t.library.tabDedupe
-                : libraryTab === "organize"
-                  ? t.library.tabOrganize
-                  : libraryTab === "clean"
-                    ? t.library.tabClean
-                    : t.library.tabTrash
-          }`
-        : view === "plugins"
-          ? t.app.navPlugins
-          : t.app.navSettings;
+      : view === "toolbox"
+        ? `${t.app.navToolbox} · ${toolboxTabLabel}`
+        : t.app.navSettings;
   // P8.2.5：fnOS 服务端形态的访问 token（HTTP 形态标题栏可见可改）
   const [serverTokenInput, setServerTokenInput] = useState<string>(serverToken());
   const [filter, setFilter] = useState<FilterKey>("all");
@@ -370,40 +373,36 @@ export default function App() {
 
           <div className="nav-sep" role="separator"></div>
 
+          {/* 工具箱（P4 能力归位：NCM 转换 / 治理 5 项 / CUE 分轨 / 插件——不占主导航心智） */}
           <div className="nav-group">
             <button
-              className={"nav-item" + (view === "convert" ? " on" : "")}
+              className={"nav-item" + (view === "toolbox" ? " on" : "")}
               onClick={() => {
-                setView("convert");
+                setView("toolbox");
                 setNavOpen(false);
               }}
             >
               <IconConvert />
-              <span>{t.app.navConvert}</span>
-              {rows.length > 0 && <span className="badge">{rows.length}</span>}
-            </button>
-          </div>
-
-          <div className="nav-sep" role="separator"></div>
-
-          {/* 曲库 = 分组：二级项从分区内 subnav 提升到侧栏（少一层左侧嵌套） */}
-          <div className="nav-group">
-            <button
-              className={"nav-item" + (view === "library" ? " on" : "")}
-              onClick={() => {
-                setView("library");
-                setNavOpen(false);
-              }}
-            >
-              <IconLibrary />
-              <span>{t.app.navLibrary}</span>
+              <span>{t.app.navToolbox}</span>
             </button>
             <div className="nav-sub">
               <button
-                className={"nav-item sub" + (view === "library" && libraryTab === "scan" ? " on" : "")}
+                className={"nav-item sub" + (view === "toolbox" && toolboxTab === "convert" ? " on" : "")}
                 onClick={() => {
-                  setView("library");
-                  setLibraryTab("scan");
+                  setView("toolbox");
+                  setToolboxTab("convert");
+                  setNavOpen(false);
+                }}
+              >
+                <IconConvert />
+                <span>{t.app.navConvert}</span>
+                {rows.length > 0 && <span className="badge">{rows.length}</span>}
+              </button>
+              <button
+                className={"nav-item sub" + (view === "toolbox" && toolboxTab === "scan" ? " on" : "")}
+                onClick={() => {
+                  setView("toolbox");
+                  setToolboxTab("scan");
                   setNavOpen(false);
                 }}
               >
@@ -411,10 +410,10 @@ export default function App() {
                 <span>{t.library.tabScan}</span>
               </button>
               <button
-                className={"nav-item sub" + (view === "library" && libraryTab === "dedupe" ? " on" : "")}
+                className={"nav-item sub" + (view === "toolbox" && toolboxTab === "dedupe" ? " on" : "")}
                 onClick={() => {
-                  setView("library");
-                  setLibraryTab("dedupe");
+                  setView("toolbox");
+                  setToolboxTab("dedupe");
                   setNavOpen(false);
                 }}
               >
@@ -422,10 +421,10 @@ export default function App() {
                 <span>{t.library.tabDedupe}</span>
               </button>
               <button
-                className={"nav-item sub" + (view === "library" && libraryTab === "organize" ? " on" : "")}
+                className={"nav-item sub" + (view === "toolbox" && toolboxTab === "organize" ? " on" : "")}
                 onClick={() => {
-                  setView("library");
-                  setLibraryTab("organize");
+                  setView("toolbox");
+                  setToolboxTab("organize");
                   setNavOpen(false);
                 }}
               >
@@ -433,10 +432,10 @@ export default function App() {
                 <span>{t.library.tabOrganize}</span>
               </button>
               <button
-                className={"nav-item sub" + (view === "library" && libraryTab === "clean" ? " on" : "")}
+                className={"nav-item sub" + (view === "toolbox" && toolboxTab === "clean" ? " on" : "")}
                 onClick={() => {
-                  setView("library");
-                  setLibraryTab("clean");
+                  setView("toolbox");
+                  setToolboxTab("clean");
                   setNavOpen(false);
                 }}
               >
@@ -444,15 +443,37 @@ export default function App() {
                 <span>{t.library.tabClean}</span>
               </button>
               <button
-                className={"nav-item sub" + (view === "library" && libraryTab === "trash" ? " on" : "")}
+                className={"nav-item sub" + (view === "toolbox" && toolboxTab === "trash" ? " on" : "")}
                 onClick={() => {
-                  setView("library");
-                  setLibraryTab("trash");
+                  setView("toolbox");
+                  setToolboxTab("trash");
                   setNavOpen(false);
                 }}
               >
                 <IconRestore />
                 <span>{t.library.tabTrash}</span>
+              </button>
+              <button
+                className={"nav-item sub" + (view === "toolbox" && toolboxTab === "cue" ? " on" : "")}
+                onClick={() => {
+                  setView("toolbox");
+                  setToolboxTab("cue");
+                  setNavOpen(false);
+                }}
+              >
+                <IconDisc />
+                <span>{t.cue.tab}</span>
+              </button>
+              <button
+                className={"nav-item sub" + (view === "toolbox" && toolboxTab === "plugins" ? " on" : "")}
+                onClick={() => {
+                  setView("toolbox");
+                  setToolboxTab("plugins");
+                  setNavOpen(false);
+                }}
+              >
+                <IconPlugin />
+                <span>{t.app.navPlugins}</span>
               </button>
             </div>
           </div>
@@ -460,16 +481,6 @@ export default function App() {
           <div className="nav-sep" role="separator"></div>
 
           <div className="nav-group">
-            <button
-              className={"nav-item" + (view === "plugins" ? " on" : "")}
-              onClick={() => {
-                setView("plugins");
-                setNavOpen(false);
-              }}
-            >
-              <IconPlugin />
-              <span>{t.app.navPlugins}</span>
-            </button>
             <button
               className={"nav-item" + (view === "settings" ? " on" : "")}
               onClick={() => {
@@ -540,7 +551,7 @@ export default function App() {
         hint={t.app.errorHint}
         retry={t.app.errorRetry}
       >
-      {view === "convert" && (
+      {view === "toolbox" && toolboxTab === "convert" && (
         <>
       {/* ---------- 导入操作区 ---------- */}
       <div className="panel">
@@ -745,23 +756,25 @@ export default function App() {
       )}
       </ErrorBoundary>
 
-      {/* ---------- 曲库治理（二级导航已提升至左侧栏「曲库」分组） ---------- */}
+      {/* ---------- 工具箱治理面板（P4：二级导航在左侧栏「工具箱」分组） ---------- */}
       <ErrorBoundary title={t.app.errorTitle} hint={t.app.errorHint} retry={t.app.errorRetry}>
-      {view === "library" && (
+      {view === "toolbox" && (
         <div className="library-main">
-          {libraryTab === "scan" && <ScanPanel hideCollapse />}
-          {libraryTab === "dedupe" && <DedupePanel hideCollapse />}
+          {toolboxTab === "scan" && <ScanPanel hideCollapse />}
+          {toolboxTab === "dedupe" && <DedupePanel hideCollapse />}
           {/* P1：整理 / 清洗 / 回收站还原——后端能力已就绪，此前无 UI 入口 */}
-          {libraryTab === "organize" && <OrganizePanel />}
-          {libraryTab === "clean" && <CleanPanel />}
-          {libraryTab === "trash" && <TrashPanel />}
+          {toolboxTab === "organize" && <OrganizePanel />}
+          {toolboxTab === "clean" && <CleanPanel />}
+          {toolboxTab === "trash" && <TrashPanel />}
+          {/* P4：CUE 分轨（核心能力已有，此处只是入口） */}
+          {toolboxTab === "cue" && <CuePanel />}
         </div>
       )}
       </ErrorBoundary>
 
       {/* ---------- 插件面板（X37：零请求） ---------- */}
       <ErrorBoundary title={t.app.errorTitle} hint={t.app.errorHint} retry={t.app.errorRetry}>
-      {view === "plugins" && <PluginPanel />}
+      {view === "toolbox" && toolboxTab === "plugins" && <PluginPanel />}
       </ErrorBoundary>
 
       {/* ---------- 设置（转换参数集中区） ---------- */}

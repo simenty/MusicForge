@@ -153,6 +153,10 @@ fn main() {
             liked_tracks,
             stats_overview,
             recent_plays,
+            // P4 工具箱：CUE 分轨
+            cue_pick,
+            cue_inspect,
+            cue_split,
             // P2 播放：队列/播放控制/状态
             player_play_queue,
             player_toggle,

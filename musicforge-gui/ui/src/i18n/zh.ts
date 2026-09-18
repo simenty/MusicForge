@@ -24,9 +24,10 @@ export const zh = {
   },
   app: {
     subtitle: "本地音乐格式转换",
-    // 主导航分区（信息架构：转换 / 曲库 / 插件 / 设置）
-    navConvert: "转换",
+    // 主导航分区（P4 信息架构：媒体库 / 工具箱 / 设置）
+    navConvert: "NCM 转换",
     navLibrary: "曲库",
+    navToolbox: "工具箱",
     navPlugins: "插件",
     navSettings: "设置",
     tokenPlaceholder: "粘贴服务端 token（未配置则功能不可用）",
@@ -206,6 +207,33 @@ export const zh = {
     quickFav: "我喜欢的音乐",
     quickHistory: "播放历史",
     quickSources: "媒体源",
+  },
+  /** P4 工具箱：CUE 分轨 */
+  cue: {
+    tab: "CUE 分轨",
+    sub: "CUE + 整轨镜像（WAV/FLAC/APE/WV/TAK）切分为独立音轨；校验在写盘前完成，源文件永不修改",
+    pick: "选择 .cue 文件",
+    change: "更换文件",
+    inspectAlbum: "专辑",
+    inspectPerformer: "艺术家",
+    audioFile: "音频镜像",
+    audioMissing: "CUE 指向的音频文件不存在——请确认 FILE 指令与音频在同一目录",
+    needsFfmpeg: "该源为 APE/WV/TAK，需要 ffmpeg（将在系统 PATH 中查找）",
+    trackCount: (n: number) => `共 ${n} 轨`,
+    outDir: "输出目录",
+    pickOutDir: "选择输出目录",
+    splitAction: "开始切分",
+    splitting: "切分中…整轨解码 + 逐轨编码可能需要一会儿",
+    doneOk: (ok: number, fail: number) =>
+      `完成：成功 ${ok} 轨${fail > 0 ? `，失败 ${fail} 轨` : ""}`,
+    doneHint: "失败轨未写盘（时长校验未通过）；请检查 CUE 与音频是否匹配",
+    colTrack: "轨",
+    colTitle: "标题",
+    colPerformer: "艺术家",
+    colFile: "输出文件",
+    confirmSummary: (n: number) => `将切分 ${n} 轨，输出到：`,
+    confirmAck: "我了解：源文件与 CUE 不会被修改",
+    confirmGo: "开始切分",
   },
   /** P2 播放（底栏） */
   player: {

@@ -39,6 +39,8 @@ import type {
   PlayerSnapshot,
   PluginsStatus,
   QueueItem,
+  CueInspect,
+  CueSplitReport,
   ScanItem,
   ScanReport,
   ServerVersion,
@@ -558,6 +560,25 @@ export async function recentPlays(limit = 8): Promise<Track[]> {
 }
 
 // ---------------------------------------------------------------------------
+// 工具箱：CUE 分轨（P4）
+// ---------------------------------------------------------------------------
+
+/** 原生选择 .cue 文件（取消 → null） */
+export async function cuePick(): Promise<string | null> {
+  return invoke<string | null>("cue_pick");
+}
+
+/** 检视 CUE：曲目清单 + 音频存在性 + 是否需要 ffmpeg（不触碰音频） */
+export async function cueInspect(path: string): Promise<CueInspect> {
+  return invoke<CueInspect>("cue_inspect", { path });
+}
+
+/** 整轨切分（长任务；失败轨不落盘，报告与 CLI 同形） */
+export async function cueSplit(cuePath: string, outDir: string): Promise<CueSplitReport> {
+  return invoke<CueSplitReport>("cue_split", { cuePath, outDir });
+}
+
+// ---------------------------------------------------------------------------
 // 门面（facade）：对外契约 = 原 api.ts 的全部导出。
 // 组件与测试的 `import { ... } from "./api"` 不因拆分而改变。
 // ---------------------------------------------------------------------------
@@ -579,6 +600,8 @@ export type {
   CleanAction,
   CleanApplyResult,
   CleanPlan,
+  CueInspect,
+  CueSplitReport,
   DedupeReport,
   DragPayload,
   DupFile,
