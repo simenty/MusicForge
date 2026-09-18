@@ -1,0 +1,97 @@
+// 我喜欢的音乐（P3）：liked_tracks 列表 + 播放全部 + 行内取消喜欢。
+//
+// 取消喜欢后该行**立即从列表消失**（本地过滤，不回后端重拉）——
+// 过滤只在初始 liked 集合加载完成后生效（否则会把整页误滤为空）。
+import { useCallback, useEffect, useState } from "react";
+import { IS_DESKTOP, likedTracks } from "./api";
+import type { Track } from "./api";
+import { useLang } from "./i18n";
+import { useLiked } from "./hooks/useLiked";
+import TrackRow from "./TrackRow";
+
+export default function FavoritesPage({
+  onPlay,
+}: {
+  onPlay?: (tracks: Track[], index: number) => Promise<void>;
+}) {
+  const { t } = useLang();
+  const [rows, setRows] = useState<Track[] | null>(null);
+  const liked = useLiked();
+
+  const reload = useCallback(() => {
+    if (!IS_DESKTOP) return;
+    likedTracks(500, 0)
+      .then(setRows)
+      .catch(() => setRows([]));
+  }, []);
+  useEffect(() => reload(), [reload]);
+
+  if (!IS_DESKTOP) {
+    return (
+      <div className="media-empty">
+        <p>{t.media.desktopOnly}</p>
+      </div>
+    );
+  }
+
+  const live = rows && liked.loaded ? rows.filter((r) => liked.isLiked(r.id)) : rows;
+
+  const playFrom = (tr: Track) => {
+    if (!onPlay || !live) return;
+    const idx = live.findIndex((x) => x.id === tr.id);
+    void onPlay(live, idx >= 0 ? idx : 0);
+  };
+
+  return (
+    <>
+      <div className="media-head">
+        <div>
+          <h2>{t.media.tabFavorites}</h2>
+          <p className="sub">{t.media.favSub(live?.length ?? 0)}</p>
+        </div>
+        <div className="act">
+          <button
+            className="btn sm primary"
+            onClick={() => {
+              if (onPlay && live && live.length > 0) void onPlay(live, 0);
+            }}
+            disabled={!live || live.length === 0}
+          >
+            {t.media.playAll}
+          </button>
+        </div>
+      </div>
+
+      {live === null ? (
+        <div className="media-empty">
+          <p>{t.media.loading}</p>
+        </div>
+      ) : live.length === 0 ? (
+        <div className="media-empty">
+          <p>{t.media.favEmpty}</p>
+        </div>
+      ) : (
+        <div className="panel" style={{ padding: 0, overflow: "hidden" }}>
+          <div className="vt-head">
+            <span>{t.media.colIndex}</span>
+            <span>{t.media.colTitle}</span>
+            <span>{t.media.colAlbum}</span>
+            <span style={{ textAlign: "right" }}>{t.media.colTime}</span>
+            <span style={{ textAlign: "right" }}>{t.media.colFormat}</span>
+            <span />
+          </div>
+          {live.map((r, i) => (
+            <TrackRow
+              key={r.id}
+              lead={i + 1}
+              track={r}
+              onPlay={onPlay ? () => playFrom(r) : undefined}
+              liked={liked.isLiked(r.id)}
+              onLike={() => void liked.toggle(r.id)}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}

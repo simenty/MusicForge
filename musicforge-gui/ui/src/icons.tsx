@@ -238,6 +238,17 @@ export function IconClock({ size = 16, className }: IconProps) {
   );
 }
 
+/** 收藏（爱心） */
+export function IconHeart({ size = 16, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M12 20s-7-4.6-7-9.6A4 4 0 0112 7a4 4 0 017 3.4c0 5-7 9.6-7 9.6z" />
+    </>,
+    size,
+    className
+  );
+}
+
 /** 重复去重（两份重叠） */
 export function IconCopy({ size = 16, className }: IconProps) {
   return svg(

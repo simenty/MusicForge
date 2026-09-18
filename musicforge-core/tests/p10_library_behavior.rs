@@ -126,3 +126,46 @@ fn history_cleaned_when_tracks_removed() {
         "曲目移除后历史不可见（INNER JOIN 隐藏，而非显示无数据行）"
     );
 }
+
+/// 统计视图（P3）：top / recent / daily / totals 四口径一致。
+#[test]
+fn stats_views_are_consistent() {
+    let db = Db::open_in_memory().unwrap();
+    let sid = db.upsert_source("/m", None).unwrap();
+    let mut a = track("/m/a.flac", "a");
+    a.source_id = sid;
+    let mut b = track("/m/b.flac", "b");
+    b.source_id = sid;
+    db.upsert_tracks_batch(&[a, b], 1).unwrap();
+    let tracks = db.list_tracks(10, 0).unwrap();
+    let (id_a, id_b) = (tracks[0].id, tracks[1].id);
+
+    // a 播两次（1000/2000），b 播一次（3000——最后播放）
+    db.record_play(id_a, 1_000, 0).unwrap();
+    db.record_play(id_a, 2_000, 0).unwrap();
+    db.record_play(id_b, 3_000, 0).unwrap();
+
+    // top：按次数降序
+    let top = db.top_tracks(10).unwrap();
+    assert_eq!(top.len(), 2);
+    assert_eq!(top[0].track.id, id_a, "播放次数（2）最多的排前");
+    assert_eq!(top[0].play_count, 2);
+    assert_eq!(top[1].track.id, id_b);
+    assert_eq!(top[1].play_count, 1);
+
+    // recent：按曲目去重、最近播放排前（b 最后播）
+    let recent = db.recent_tracks(10).unwrap();
+    assert_eq!(recent.len(), 2, "去重后 2 首（a 播两次只出现一次）");
+    assert_eq!(recent[0].id, id_b, "最近播放的排前");
+    assert_eq!(recent[1].id, id_a);
+
+    // totals：总次数 3 / 去重曲目 2
+    assert_eq!(db.history_totals().unwrap(), (3, 2));
+
+    // daily：1970 纪元样本全部落在同一天（本地时区）——计数之和必须守恒
+    let daily = db.daily_play_counts(0).unwrap();
+    assert_eq!(daily.iter().map(|(_, c)| c).sum::<i64>(), 3);
+    assert_eq!(daily.len(), 1);
+    // since 过滤：晚于全部样本 → 空
+    assert!(db.daily_play_counts(9_999).unwrap().is_empty());
+}

@@ -5,69 +5,10 @@ import { useCallback, useEffect, useState } from "react";
 import { IS_DESKTOP, libraryStats, searchTracks } from "./api";
 import type { LibraryStats, Track } from "./api";
 import { useLang } from "./i18n";
-import { fmtClock, fmtSizeGB } from "./lib/format";
+import { fmtSizeGB } from "./lib/format";
 import { useWindowedTracks, TRACK_ROW_H } from "./hooks/useWindowedTracks";
 import { useLiked } from "./hooks/useLiked";
-
-/** 单行（虚拟窗口与搜索结果共用）；双击播放；爱心切换喜欢 */
-function TrackRow({
-  idx,
-  tr,
-  onPlay,
-  liked,
-  onLike,
-}: {
-  idx: number;
-  tr: Track;
-  onPlay?: () => void;
-  liked?: boolean;
-  onLike?: () => void;
-}) {
-  const { t } = useLang();
-  return (
-    <div className="vt-row" onDoubleClick={onPlay}>
-      <span className="vt-idx">{idx}</span>
-      <span className="vt-main">
-        <b title={tr.title ?? undefined}>{tr.title ?? "—"}</b>
-        <span>{tr.artist ?? "—"}</span>
-      </span>
-      <span className="vt-alb" title={tr.album ?? undefined}>
-        {tr.album ?? "—"}
-      </span>
-      <span className="vt-num">{fmtClock(tr.durationMs)}</span>
-      <span className="vt-num">
-        {(tr.format ?? "").toUpperCase()}
-        {tr.isLossless ? " · SQ" : ""}
-      </span>
-      <span className="vt-heart">
-        {onLike && (
-          <button
-            className={"heart-btn" + (liked ? " on" : "")}
-            onClick={(e) => {
-              e.stopPropagation();
-              onLike();
-            }}
-            aria-label={liked ? t.player.unlike : t.player.like}
-            title={liked ? t.player.unlike : t.player.like}
-          >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill={liked ? "currentColor" : "none"}
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M12 20s-7-4.6-7-9.6A4 4 0 0112 7a4 4 0 017 3.4c0 5-7 9.6-7 9.6z" />
-            </svg>
-          </button>
-        )}
-      </span>
-    </div>
-  );
-}
+import TrackRow from "./TrackRow";
 
 export default function LibraryPage({
   onPlay,
@@ -192,8 +133,8 @@ export default function LibraryPage({
               {results.map((r, i) => (
                 <TrackRow
                   key={r.id}
-                  idx={i + 1}
-                  tr={r}
+                  lead={i + 1}
+                  track={r}
                   onPlay={onPlay ? () => playFrom(r) : undefined}
                   liked={liked.isLiked(r.id)}
                   onLike={() => void liked.toggle(r.id)}
@@ -210,8 +151,8 @@ export default function LibraryPage({
                   return tr ? (
                     <TrackRow
                       key={tr.id}
-                      idx={i + 1}
-                      tr={tr}
+                      lead={i + 1}
+                      track={tr}
                       onPlay={onPlay ? () => playFrom(tr) : undefined}
                       liked={liked.isLiked(tr.id)}
                       onLike={() => void liked.toggle(tr.id)}

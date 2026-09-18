@@ -1,9 +1,10 @@
 // 播放历史（P2）：倒序列表按「今天 / 昨天 / 更早」分组 + 清空（二次确认）。
 import { useCallback, useEffect, useState } from "react";
 import { IS_DESKTOP, historyClear, playHistory } from "./api";
-import type { HistoryEntry } from "./api";
+import type { HistoryEntry, Track } from "./api";
 import { useLang } from "./i18n";
-import { fmtClock } from "./lib/format";
+import { useLiked } from "./hooks/useLiked";
+import TrackRow from "./TrackRow";
 
 type DayKey = "today" | "yesterday" | "earlier";
 
@@ -22,7 +23,11 @@ function timeOf(sec: number): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-export default function HistoryPage() {
+export default function HistoryPage({
+  onPlay,
+}: {
+  onPlay?: (tracks: Track[], index: number) => Promise<void>;
+}) {
   const { t } = useLang();
   const [rows, setRows] = useState<HistoryEntry[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -35,6 +40,26 @@ export default function HistoryPage() {
       .catch(() => setRows([]));
   }, []);
   useEffect(() => reload(), [reload]);
+
+  const liked = useLiked();
+
+  /** 双击历史行播放：队列 = 历史去重后的曲目（同一首歌只入队一次） */
+  const playFrom = useCallback(
+    (entry: HistoryEntry) => {
+      if (!onPlay || !rows) return;
+      const seen = new Set<number>();
+      const queue: Track[] = [];
+      for (const r of rows) {
+        if (!seen.has(r.id)) {
+          seen.add(r.id);
+          queue.push(r);
+        }
+      }
+      const idx = queue.findIndex((x) => x.id === entry.id);
+      void onPlay(queue, idx >= 0 ? idx : 0);
+    },
+    [onPlay, rows]
+  );
 
   const clear = useCallback(async () => {
     if (busy || !window.confirm(t.media.historyClearConfirm)) return;
@@ -105,19 +130,14 @@ export default function HistoryPage() {
             <h3>{labelOf(g.key)}</h3>
             <div className="tracks">
               {g.items.map((r, i) => (
-                <div className="vt-row" key={`${r.id}-${r.playedAt}-${i}`}>
-                  <span className="vt-idx">{timeOf(r.playedAt)}</span>
-                  <span className="vt-main">
-                    <b title={r.title ?? undefined}>{r.title ?? "—"}</b>
-                    <span>{r.artist ?? "—"}</span>
-                  </span>
-                  <span className="vt-alb" title={r.album ?? undefined}>
-                    {r.album ?? "—"}
-                  </span>
-                  <span className="vt-num">{fmtClock(r.durationMs)}</span>
-                  <span className="vt-num">{(r.format ?? "").toUpperCase()}</span>
-                  <span />
-                </div>
+                <TrackRow
+                  key={`${r.id}-${r.playedAt}-${i}`}
+                  lead={timeOf(r.playedAt)}
+                  track={r}
+                  onPlay={onPlay ? () => playFrom(r) : undefined}
+                  liked={liked.isLiked(r.id)}
+                  onLike={() => void liked.toggle(r.id)}
+                />
               ))}
             </div>
           </section>

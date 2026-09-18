@@ -43,6 +43,7 @@ import type {
   ScanReport,
   ServerVersion,
   Source,
+  StatsOverview,
   Track,
   WizardStatus,
 } from "./lib/types";
@@ -538,6 +539,25 @@ export async function historyClear(): Promise<{ cleared: number }> {
 }
 
 // ---------------------------------------------------------------------------
+// 收藏与统计（P3）
+// ---------------------------------------------------------------------------
+
+/** 喜欢的曲目（分页；按收藏时间倒序） */
+export async function likedTracks(limit = 200, offset = 0): Promise<Track[]> {
+  return invoke<Track[]>("liked_tracks", { limit, offset });
+}
+
+/** 统计总览（曲库规模 + 行为计数 + 近 7 天 + 最常播放 Top 10） */
+export async function statsOverview(): Promise<StatsOverview> {
+  return invoke<StatsOverview>("stats_overview");
+}
+
+/** 最近播放（按曲目去重）——首页「继续聆听」 */
+export async function recentPlays(limit = 8): Promise<Track[]> {
+  return invoke<Track[]>("recent_plays", { limit });
+}
+
+// ---------------------------------------------------------------------------
 // 门面（facade）：对外契约 = 原 api.ts 的全部导出。
 // 组件与测试的 `import { ... } from "./api"` 不因拆分而改变。
 // ---------------------------------------------------------------------------
@@ -587,6 +607,7 @@ export type {
   ScanRuleHit,
   ServerVersion,
   Source,
+  StatsOverview,
   Track,
   WizardStatus,
 } from "./lib/types";

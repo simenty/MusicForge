@@ -256,6 +256,13 @@ pub struct HistoryRow {
     pub ms_played: i64,
 }
 
+/// 最常播放行（v3）：曲目信息 + 历史累计播放次数。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TopTrackRow {
+    pub track: TrackRow,
+    pub play_count: i64,
+}
+
 impl Db {
     /// 打开（不存在则创建）状态库并完成迁移。
     ///
@@ -984,6 +991,93 @@ impl Db {
         self.conn
             .execute("DELETE FROM play_history", [])
             .map_err(|e| NcmError::Db(e.to_string()))
+    }
+
+    // ------------------------------------------------------ v3 统计视图 --
+
+    /// 最常播放的曲目（按播放次数降序；同次数按标题稳定排序）。
+    pub fn top_tracks(&self, limit: i64) -> Result<Vec<TopTrackRow>, NcmError> {
+        let limit = limit.clamp(1, 100);
+        // 列序 0..13 与 map_track_row 对齐，14 为聚合列
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT t.id, t.source_id, t.path, t.size, t.title, ar.name, al.title, \
+                 t.track_no, t.duration_ms, t.format, t.sample_rate, t.bit_depth, t.channels, \
+                 t.is_lossless, COUNT(h.id) AS plays \
+                 FROM play_history h \
+                 JOIN tracks t ON t.id = h.track_id \
+                 LEFT JOIN artists ar ON ar.id = t.artist_id \
+                 LEFT JOIN albums  al ON al.id = t.album_id \
+                 GROUP BY t.id \
+                 ORDER BY plays DESC, t.title \
+                 LIMIT ?1",
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let rows = stmt
+            .query_map([limit], |r| {
+                Ok(TopTrackRow {
+                    track: map_track_row(r)?,
+                    play_count: r.get(14)?,
+                })
+            })
+            .map_err(|e| NcmError::Db(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(rows)
+    }
+
+    /// 播放总览：`(总播放次数, 去重曲目数)`。
+    pub fn history_totals(&self) -> Result<(i64, i64), NcmError> {
+        self.conn
+            .query_row(
+                "SELECT COUNT(1), COUNT(DISTINCT track_id) FROM play_history",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))
+    }
+
+    /// 按天播放计数（`since_secs` 之后；`day` 为**本地时区** `YYYY-MM-DD`，按日升序）。
+    ///
+    /// 时区交给 SQLite 的 `localtime` 修饰符——与前端分组（HistoryPage 的
+    /// `new Date()` 本地时区）保持同一口径，避免跨 midnight 的双标。
+    pub fn daily_play_counts(&self, since_secs: i64) -> Result<Vec<(String, i64)>, NcmError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT date(played_at, 'unixepoch', 'localtime') AS day, COUNT(1) \
+                 FROM play_history WHERE played_at >= ?1 GROUP BY day ORDER BY day",
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let rows = stmt
+            .query_map([since_secs], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(|e| NcmError::Db(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(rows)
+    }
+
+    /// 最近播放（**按曲目去重**，取每首曲目的最近一次；首页「继续聆听」）。
+    pub fn recent_tracks(&self, limit: i64) -> Result<Vec<TrackRow>, NcmError> {
+        let limit = limit.clamp(1, 100);
+        let mut stmt = self
+            .conn
+            .prepare(&format!(
+                "{TRACK_SELECT}
+                 JOIN (SELECT track_id, MAX(played_at) AS last_at
+                       FROM play_history GROUP BY track_id) h
+                   ON h.track_id = t.id
+                 ORDER BY h.last_at DESC
+                 LIMIT ?1"
+            ))
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let rows = stmt
+            .query_map([limit], map_track_row)
+            .map_err(|e| NcmError::Db(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(rows)
     }
 }
 

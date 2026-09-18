@@ -349,3 +349,24 @@ export interface HistoryEntry extends Track {
   /** 实际播放毫秒（0 = 起播即记，未回写精确时长） */
   msPlayed: number;
 }
+
+// ===================================================== 收藏与统计（P3）
+
+/** 统计总览（stats_overview 一次性拉取） */
+export interface StatsOverview {
+  tracks: number;
+  artists: number;
+  albums: number;
+  totalSize: number;
+  totalDurationMs: number;
+  /** 已喜欢的曲目数 */
+  liked: number;
+  /** 历史累计播放次数 */
+  plays: number;
+  /** 听过的去重曲目数 */
+  playedTracks: number;
+  /** 近 7 天按天计数（本地时区 `YYYY-MM-DD`，升序） */
+  daily: { day: string; count: number }[];
+  /** 最常播放 Top 10（Track + 播放次数） */
+  top: (Track & { playCount: number })[];
+}

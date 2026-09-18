@@ -1,26 +1,42 @@
-// 媒体库概览（P1 曲库体验）：曲库统计卡 + 前 8 首预览；空库时给添加引导。
+// 媒体库概览（P1 建立 / P3 升级）：问候 + 统计卡 + 快捷入口 + 继续聆听。
 import { useEffect, useState } from "react";
-import { IS_DESKTOP, libraryStats, listTracks } from "./api";
-import type { LibraryStats, Track } from "./api";
+import { IS_DESKTOP, listTracks, recentPlays, statsOverview } from "./api";
+import type { StatsOverview, Track } from "./api";
 import { useLang } from "./i18n";
-import { fmtClock, fmtHours, fmtSizeGB } from "./lib/format";
-import { IconClock, IconDisc, IconMusic, IconUser } from "./icons";
+import { fmtHours, fmtSizeGB } from "./lib/format";
+import { IconClock, IconDisc, IconFolder, IconHeart, IconMusic, IconUser } from "./icons";
+import TrackRow from "./TrackRow";
 
 /**
- * 概览页。`goSources` 由外层注入（切到媒体源页）——本组件不持有导航状态。
+ * 概览页。`goSources` / `onNavigate` / `onPlay` 由外层注入——
+ * 本组件不持有导航或播放状态。
  */
-export default function MediaHome({ goSources }: { goSources: () => void }) {
+export default function MediaHome({
+  goSources,
+  onNavigate,
+  onPlay,
+}: {
+  goSources: () => void;
+  onNavigate?: (tab: "favorites" | "history" | "sources") => void;
+  onPlay?: (tracks: Track[], index: number) => Promise<void>;
+}) {
   const { t } = useLang();
-  const [stats, setStats] = useState<LibraryStats | null>(null);
-  const [preview, setPreview] = useState<Track[]>([]);
+  const [stats, setStats] = useState<StatsOverview | null>(null);
+  const [recent, setRecent] = useState<Track[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (!IS_DESKTOP) return;
-    libraryStats()
+    // statsOverview 一次拿全（曲库规模 + 喜欢数）——避免两次 IPC
+    statsOverview()
       .then((s) => {
         setStats(s);
-        if (s.tracks > 0) void listTracks(8, 0).then(setPreview);
+        if (s.tracks === 0) return;
+        // 继续聆听：优先「最近播放」，无历史时回退到按路径序的前 8 首
+        return recentPlays(8).then((r) => {
+          if (r.length > 0) setRecent(r);
+          else return listTracks(8, 0).then(setRecent);
+        });
       })
       .catch((e: unknown) => setErr(String(e)));
   }, []);
@@ -58,11 +74,25 @@ export default function MediaHome({ goSources }: { goSources: () => void }) {
     );
   }
 
+  const hour = new Date().getHours();
+  const greeting =
+    hour < 12
+      ? t.media.greetingMorning
+      : hour < 18
+        ? t.media.greetingAfternoon
+        : t.media.greetingEvening;
+
+  const playFrom = (tr: Track) => {
+    if (!onPlay) return;
+    const idx = recent.findIndex((x) => x.id === tr.id);
+    void onPlay(recent, idx >= 0 ? idx : 0);
+  };
+
   return (
     <>
       <div className="media-head">
         <div>
-          <h2>{t.media.homeTitle}</h2>
+          <h2>{greeting}</h2>
           <p className="sub">
             {t.media.homeSub} · {fmtSizeGB(stats.totalSize)}
           </p>
@@ -108,27 +138,61 @@ export default function MediaHome({ goSources }: { goSources: () => void }) {
         </div>
       </div>
 
-      <section className="section" style={{ marginTop: "var(--sp-5)" }}>
-        <div className="media-head" style={{ marginBottom: 0 }}>
-          <div>
-            <h2 style={{ fontSize: 16 }}>{t.media.previewTitle}</h2>
-            <p className="sub">{t.media.previewSub}</p>
-          </div>
+      {onNavigate && (
+        <div className="quick-grid">
+          <button className="quick-card" onClick={() => onNavigate("favorites")}>
+            <span className="ic">
+              <IconHeart size={18} />
+            </span>
+            <span>
+              <b>{t.media.quickFav}</b>
+              <span>{t.media.favCount(stats.liked)}</span>
+            </span>
+          </button>
+          <button className="quick-card" onClick={() => onNavigate("history")}>
+            <span className="ic">
+              <IconClock size={18} />
+            </span>
+            <span>
+              <b>{t.media.quickHistory}</b>
+              <span>{t.media.continueSub}</span>
+            </span>
+          </button>
+          <button className="quick-card" onClick={() => onNavigate("sources")}>
+            <span className="ic">
+              <IconFolder size={18} />
+            </span>
+            <span>
+              <b>{t.media.quickSources}</b>
+              <span>{t.media.sourcesSub}</span>
+            </span>
+          </button>
         </div>
-        <div className="panel" style={{ padding: 0, overflow: "hidden" }}>
-          {preview.map((tr, i) => (
-            <div className="vt-row" key={tr.id}>
-              <span className="vt-idx">{i + 1}</span>
-              <span className="vt-main">
-                <b title={tr.title ?? undefined}>{tr.title ?? "—"}</b>
-                <span>{tr.artist ?? "—"}</span>
-              </span>
-              <span className="vt-alb" title={tr.album ?? undefined}>
-                {tr.album ?? "—"}
-              </span>
-              <span className="vt-num">{fmtClock(tr.durationMs)}</span>
-              <span className="vt-num">{(tr.format ?? "").toUpperCase()}</span>
-            </div>
+      )}
+
+      <section style={{ marginTop: "var(--sp-5)" }}>
+        <div className="section-head">
+          <h2 style={{ fontSize: 16 }}>{t.media.continueTitle}</h2>
+          <span className="hint" style={{ fontSize: "var(--fs-xs)", color: "var(--text-faint)" }}>
+            {t.media.continueSub}
+          </span>
+        </div>
+        <div className="panel" style={{ padding: 0, overflow: "hidden", marginTop: "var(--sp-3)" }}>
+          <div className="vt-head">
+            <span>{t.media.colIndex}</span>
+            <span>{t.media.colTitle}</span>
+            <span>{t.media.colAlbum}</span>
+            <span style={{ textAlign: "right" }}>{t.media.colTime}</span>
+            <span style={{ textAlign: "right" }}>{t.media.colFormat}</span>
+            <span />
+          </div>
+          {recent.map((tr, i) => (
+            <TrackRow
+              key={tr.id}
+              lead={i + 1}
+              track={tr}
+              onPlay={onPlay ? () => playFrom(tr) : undefined}
+            />
           ))}
         </div>
       </section>

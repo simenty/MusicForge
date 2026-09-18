@@ -217,6 +217,66 @@ pub fn history_clear() -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "cleared": n }))
 }
 
+/// 喜欢的曲目（分页；按收藏时间倒序）——「我喜欢的音乐」页。
+#[tauri::command]
+pub fn liked_tracks(limit: Option<i64>, offset: Option<i64>) -> Result<Vec<serde_json::Value>, String> {
+    let db = open_db()?;
+    let rows = db
+        .list_liked(limit.unwrap_or(200), offset.unwrap_or(0))
+        .map_err(|e| e.to_string())?;
+    Ok(rows.iter().map(track_json).collect())
+}
+
+/// 统计总览（一次拉取）：曲库规模 + 行为计数 + 近 7 天 + 最常播放 Top 10。
+#[tauri::command]
+pub fn stats_overview() -> Result<serde_json::Value, String> {
+    let db = open_db()?;
+    let lib = db.library_stats().map_err(|e| e.to_string())?;
+    let liked = db.liked_count().map_err(|e| e.to_string())?;
+    let (plays, played_tracks) = db.history_totals().map_err(|e| e.to_string())?;
+    let since = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+        - 7 * 86_400;
+    let daily = db.daily_play_counts(since).map_err(|e| e.to_string())?;
+    let top = db.top_tracks(10).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "tracks": lib.tracks,
+        "artists": lib.artists,
+        "albums": lib.albums,
+        "totalSize": lib.total_size,
+        "totalDurationMs": lib.total_duration_ms,
+        "liked": liked,
+        "plays": plays,
+        "playedTracks": played_tracks,
+        "daily": daily
+            .iter()
+            .map(|(day, count)| serde_json::json!({ "day": day, "count": count }))
+            .collect::<Vec<_>>(),
+        "top": top
+            .iter()
+            .map(|t| {
+                let mut v = track_json(&t.track);
+                if let Some(obj) = v.as_object_mut() {
+                    obj.insert("playCount".to_string(), serde_json::json!(t.play_count));
+                }
+                v
+            })
+            .collect::<Vec<_>>(),
+    }))
+}
+
+/// 最近播放（按曲目去重）——首页「继续聆听」。
+#[tauri::command]
+pub fn recent_plays(limit: Option<i64>) -> Result<Vec<serde_json::Value>, String> {
+    let db = open_db()?;
+    let rows = db
+        .recent_tracks(limit.unwrap_or(8))
+        .map_err(|e| e.to_string())?;
+    Ok(rows.iter().map(track_json).collect())
+}
+
 /// 添加媒体源并立即索引（首次向导一键完成）。
 #[tauri::command]
 pub fn sources_add_and_index(

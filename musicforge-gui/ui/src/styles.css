@@ -1797,3 +1797,20 @@ code,
 .qd-t { min-width: 0; }
 .qd-t b { display: block; font-size: var(--fs-sm); font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .qd-t span { display: block; font-size: var(--fs-xs); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* =========================================================================
+ * P3：统计页 7 天条形图 + 首页快捷卡
+ * ======================================================================= */
+.chart7-wrap { margin-top: var(--sp-3); padding: var(--sp-4) var(--sp-4) var(--sp-2); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+.chart7 { display: flex; align-items: flex-end; gap: var(--sp-3); height: 150px; }
+.c7col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 4px; min-width: 0; }
+.c7col b { font-size: var(--fs-xs); color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.c7col i { display: block; width: min(38px, 70%); border-radius: 4px 4px 0 0; background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 55%, transparent)); min-height: 4px; }
+.c7col em { font-size: var(--fs-xs); color: var(--text-faint); font-style: normal; }
+.c7-empty { margin: var(--sp-2) 0 0; font-size: var(--fs-xs); color: var(--text-faint); text-align: center; }
+
+.quick-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--sp-3); margin-top: var(--sp-4); }
+.quick-card { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); text-align: left; transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease); }
+.quick-card:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.quick-card .ic { width: 38px; height: 38px; border-radius: var(--r-sm); display: grid; place-items: center; background: var(--surface-2); color: var(--text-2); flex: none; }
+.quick-card b { display: block; font-size: var(--fs-md); font-weight: 600; }
+.quick-card span { display: block; font-size: var(--fs-xs); color: var(--text-dim); }

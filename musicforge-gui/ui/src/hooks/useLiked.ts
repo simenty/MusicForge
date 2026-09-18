@@ -9,21 +9,28 @@ export interface LikedApi {
   isLiked: (id: number) => boolean;
   toggle: (id: number) => Promise<void>;
   count: number;
+  /** 初始 liked 集合是否已拉取（收藏页过滤依赖它——未加载时不能按空集过滤） */
+  loaded: boolean;
 }
 
 export function useLiked(): LikedApi {
   const [ids, setIds] = useState<Set<number>>(() => new Set());
+  const [loaded, setLoaded] = useState(false);
   // ref 镜像：toggle 需要读「当前」状态，但不应因 ids 变化重建回调
   const idsRef = useRef(ids);
   idsRef.current = ids;
 
   useEffect(() => {
-    if (!IS_DESKTOP) return;
+    if (!IS_DESKTOP) {
+      setLoaded(true);
+      return;
+    }
     likedIds()
       .then((l) => setIds(new Set(l)))
       .catch(() => {
         /* 拉取失败：行状态显示为未喜欢，切换时仍会写库 */
-      });
+      })
+      .finally(() => setLoaded(true));
   }, []);
 
   const toggle = useCallback(async (id: number) => {
@@ -47,5 +54,5 @@ export function useLiked(): LikedApi {
 
   const isLiked = useCallback((id: number) => ids.has(id), [ids]);
 
-  return { isLiked, toggle, count: ids.size };
+  return { isLiked, toggle, count: ids.size, loaded };
 }

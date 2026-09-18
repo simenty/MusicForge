@@ -26,6 +26,8 @@ import ArtistsPage from "./ArtistsPage";
 import AlbumsPage from "./AlbumsPage";
 import SourcesPage from "./SourcesPage";
 import HistoryPage from "./HistoryPage";
+import FavoritesPage from "./FavoritesPage";
+import StatsPage from "./StatsPage";
 import PlayerBar from "./PlayerBar";
 import { usePlayer } from "./hooks/usePlayer";
 import {
@@ -35,6 +37,7 @@ import {
   IconDisc,
   IconDownload,
   IconFolder,
+  IconHeart,
   IconHome,
   IconLibrary,
   IconMenu,
@@ -86,9 +89,9 @@ export default function App() {
   const [libraryTab, setLibraryTab] = useState<
     "scan" | "dedupe" | "organize" | "clean" | "trash"
   >("scan");
-  /** 媒体库分区的二级菜单：概览 / 音乐库 / 艺术家 / 专辑 / 媒体源 / 播放历史 */
+  /** 媒体库分区的二级菜单：概览 / 音乐库 / 艺术家 / 专辑 / 喜欢 / 历史 / 统计 / 媒体源 */
   const [mediaTab, setMediaTab] = useState<
-    "home" | "library" | "artists" | "albums" | "sources" | "history"
+    "home" | "library" | "artists" | "albums" | "favorites" | "history" | "stats" | "sources"
   >("home");
   /** 顶栏标题：当前分区（曲库时附二级项名——布局吸收后导航在左侧栏，顶栏只显示位置） */
   const mediaTabLabel =
@@ -100,9 +103,13 @@ export default function App() {
           ? t.media.tabArtists
           : mediaTab === "albums"
             ? t.media.tabAlbums
-            : mediaTab === "sources"
-              ? t.media.tabSources
-              : t.media.tabHistory;
+            : mediaTab === "favorites"
+              ? t.media.tabFavorites
+              : mediaTab === "history"
+                ? t.media.tabHistory
+                : mediaTab === "stats"
+                  ? t.media.tabStats
+                  : t.media.tabSources;
   const viewLabel =
     view === "media"
       ? `${t.media.nav} · ${mediaTabLabel}`
@@ -307,16 +314,16 @@ export default function App() {
                 </button>
                 <button
                   className={
-                    "nav-item sub" + (view === "media" && mediaTab === "sources" ? " on" : "")
+                    "nav-item sub" + (view === "media" && mediaTab === "favorites" ? " on" : "")
                   }
                   onClick={() => {
                     setView("media");
-                    setMediaTab("sources");
+                    setMediaTab("favorites");
                     setNavOpen(false);
                   }}
                 >
-                  <IconFolder />
-                  <span>{t.media.tabSources}</span>
+                  <IconHeart />
+                  <span>{t.media.tabFavorites}</span>
                 </button>
                 <button
                   className={
@@ -330,6 +337,32 @@ export default function App() {
                 >
                   <IconClock />
                   <span>{t.media.tabHistory}</span>
+                </button>
+                <button
+                  className={
+                    "nav-item sub" + (view === "media" && mediaTab === "stats" ? " on" : "")
+                  }
+                  onClick={() => {
+                    setView("media");
+                    setMediaTab("stats");
+                    setNavOpen(false);
+                  }}
+                >
+                  <IconDisc />
+                  <span>{t.media.tabStats}</span>
+                </button>
+                <button
+                  className={
+                    "nav-item sub" + (view === "media" && mediaTab === "sources" ? " on" : "")
+                  }
+                  onClick={() => {
+                    setView("media");
+                    setMediaTab("sources");
+                    setNavOpen(false);
+                  }}
+                >
+                  <IconFolder />
+                  <span>{t.media.tabSources}</span>
                 </button>
               </div>
             </div>
@@ -694,12 +727,20 @@ export default function App() {
       <ErrorBoundary title={t.app.errorTitle} hint={t.app.errorHint} retry={t.app.errorRetry}>
       {view === "media" && (
         <div className="library-main">
-          {mediaTab === "home" && <MediaHome goSources={() => setMediaTab("sources")} />}
+          {mediaTab === "home" && (
+            <MediaHome
+              goSources={() => setMediaTab("sources")}
+              onNavigate={(tab) => setMediaTab(tab)}
+              onPlay={player.playTracks}
+            />
+          )}
           {mediaTab === "library" && <LibraryPage onPlay={player.playTracks} />}
           {mediaTab === "artists" && <ArtistsPage />}
           {mediaTab === "albums" && <AlbumsPage />}
+          {mediaTab === "favorites" && <FavoritesPage onPlay={player.playTracks} />}
+          {mediaTab === "history" && <HistoryPage onPlay={player.playTracks} />}
+          {mediaTab === "stats" && <StatsPage onPlay={player.playTracks} />}
           {mediaTab === "sources" && <SourcesPage />}
-          {mediaTab === "history" && <HistoryPage />}
         </div>
       )}
       </ErrorBoundary>
