@@ -67,6 +67,12 @@ pub fn player_prev(state: State<'_, PlayerHandle>) -> Result<(), String> {
     state.prev()
 }
 
+/// 跳到队列中的指定位置（队列抽屉点选）。
+#[tauri::command]
+pub fn player_jump(state: State<'_, PlayerHandle>, index: usize) -> Result<(), String> {
+    state.jump(index)
+}
+
 /// 跳转到指定毫秒。
 #[tauri::command]
 pub fn player_seek(state: State<'_, PlayerHandle>, ms: i64) -> Result<(), String> {

@@ -92,6 +92,8 @@ enum Cmd {
     Stop,
     Next,
     Prev,
+    /// 跳到队列中的指定位置（队列抽屉点选）
+    Jump { index: usize },
     Seek { ms: i64 },
     SetVolume(f32),
 }
@@ -187,6 +189,11 @@ impl PlayerHandle {
 
     pub fn prev(&self) -> Result<(), String> {
         self.send(Cmd::Prev)
+    }
+
+    /// 跳到队列中的指定位置（越界忽略）。
+    pub fn jump(&self, index: usize) -> Result<(), String> {
+        self.send(Cmd::Jump { index })
     }
 
     pub fn seek(&self, ms: i64) -> Result<(), String> {
@@ -294,6 +301,12 @@ impl Engine {
             }
             Cmd::Next => self.advance(1),
             Cmd::Prev => self.advance(-1),
+            Cmd::Jump { index } => {
+                if index < self.queue.len() {
+                    self.index = index;
+                    self.load_current(true);
+                }
+            }
             Cmd::Seek { ms } => self.seek(ms),
             Cmd::SetVolume(v) => {
                 let v = v.clamp(0.0, 1.0);

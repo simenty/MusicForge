@@ -9,6 +9,7 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
   const { t } = useLang();
   const { status, playing } = player;
   const [drag, setDrag] = useState<number | null>(null);
+  const [qOpen, setQOpen] = useState(false);
 
   const dur = status?.durationMs ?? 0;
   const pos = drag ?? status?.positionMs ?? 0;
@@ -130,7 +131,50 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
             title={t.player.volume}
           />
         </div>
+        <button
+          className="pb-btn"
+          onClick={() => setQOpen((v) => !v)}
+          disabled={player.queue.length === 0}
+          aria-label={t.player.queue}
+          title={t.player.queue}
+          aria-expanded={qOpen}
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          >
+            <path d="M4 7h16M4 12h16M4 17h10" />
+          </svg>
+        </button>
       </div>
+
+      {qOpen && player.queue.length > 0 && (
+        <div className="pb-queue" role="listbox" aria-label={t.player.queue}>
+          {player.queue.map((it, i) => (
+            <button
+              key={`${it.trackId}-${i}`}
+              className={"qd-item" + (i === status?.queueIndex ? " on" : "")}
+              onClick={() => {
+                void player.jump(i);
+                setQOpen(false);
+              }}
+              role="option"
+              aria-selected={i === status?.queueIndex}
+            >
+              <span className="qd-idx">{i + 1}</span>
+              <span className="qd-t">
+                <b title={it.title ?? undefined}>{it.title ?? "—"}</b>
+                <span>{it.artist ?? "—"}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {isError && status?.error && (
         <div className="pb-err" role="alert">

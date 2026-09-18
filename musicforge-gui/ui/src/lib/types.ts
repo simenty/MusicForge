@@ -341,3 +341,11 @@ export interface QueueItem {
   artist: string | null;
   durationMs: number | null;
 }
+
+/** 播放历史行（Track 字段 + 播放时刻） */
+export interface HistoryEntry extends Track {
+  /** 播放发生时刻（UNIX 秒） */
+  playedAt: number;
+  /** 实际播放毫秒（0 = 起播即记，未回写精确时长） */
+  msPlayed: number;
+}

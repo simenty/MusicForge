@@ -914,6 +914,23 @@ impl Db {
             .map_err(|e| NcmError::Db(e.to_string()))
     }
 
+    /// 全部已喜欢的曲目 id（前端一次性拉取做行状态判定——避免逐行查询）。
+    ///
+    /// 刻意不分页：likes 是用户显式行为，量级远小于曲库本身；即便上万条，
+    /// 一个 i64 数组的传输也远小于分页往返的成本。
+    pub fn all_liked_ids(&self) -> Result<Vec<i64>, NcmError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT track_id FROM likes ORDER BY created_at DESC, track_id DESC")
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let rows = stmt
+            .query_map([], |r| r.get(0))
+            .map_err(|e| NcmError::Db(e.to_string()))?
+            .collect::<Result<Vec<i64>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(rows)
+    }
+
     /// 追加一条播放记录（**追加日志**，不做去重——同一曲目多次播放就是多行）。
     pub fn record_play(
         &self,

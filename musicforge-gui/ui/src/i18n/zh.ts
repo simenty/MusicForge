@@ -169,6 +169,17 @@ export const zh = {
         o.failed ? `，${o.failed} 个文件标签读取失败（已按基础信息入库）` : ""
       }`,
     indexFail: (msg: string) => `索引失败：${msg}`,
+    // —— 播放历史（P2）——
+    tabHistory: "播放历史",
+    historyTitle: "播放历史",
+    historySub: "仅本机记录，可随时清空",
+    historyEmpty: "还没有播放记录",
+    historyClear: "清空历史",
+    historyClearConfirm: "清空全部播放记录？（不可恢复）",
+    historyCleared: (n: number) => `已清空 ${n} 条记录`,
+    today: "今天",
+    yesterday: "昨天",
+    earlier: "更早",
   },
   /** P2 播放（底栏） */
   player: {
@@ -181,6 +192,10 @@ export const zh = {
     progress: "进度",
     dblClickPlay: "双击播放",
     queueN: (n: number) => `队列 ${n} 首`,
+    queue: "播放队列",
+    queueEmpty: "队列为空",
+    like: "喜欢",
+    unlike: "取消喜欢",
     errorPrefix: (msg: string) => `播放错误：${msg}`,
     desktopOnly: "播放需要桌面版",
   },

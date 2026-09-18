@@ -25,9 +25,11 @@ import LibraryPage from "./LibraryPage";
 import ArtistsPage from "./ArtistsPage";
 import AlbumsPage from "./AlbumsPage";
 import SourcesPage from "./SourcesPage";
+import HistoryPage from "./HistoryPage";
 import PlayerBar from "./PlayerBar";
 import { usePlayer } from "./hooks/usePlayer";
 import {
+  IconClock,
   IconConvert,
   IconCopy,
   IconDisc,
@@ -84,10 +86,10 @@ export default function App() {
   const [libraryTab, setLibraryTab] = useState<
     "scan" | "dedupe" | "organize" | "clean" | "trash"
   >("scan");
-  /** 媒体库分区的二级菜单（P1）：概览 / 音乐库 / 艺术家 / 专辑 / 媒体源 */
-  const [mediaTab, setMediaTab] = useState<"home" | "library" | "artists" | "albums" | "sources">(
-    "home"
-  );
+  /** 媒体库分区的二级菜单：概览 / 音乐库 / 艺术家 / 专辑 / 媒体源 / 播放历史 */
+  const [mediaTab, setMediaTab] = useState<
+    "home" | "library" | "artists" | "albums" | "sources" | "history"
+  >("home");
   /** 顶栏标题：当前分区（曲库时附二级项名——布局吸收后导航在左侧栏，顶栏只显示位置） */
   const mediaTabLabel =
     mediaTab === "home"
@@ -98,7 +100,9 @@ export default function App() {
           ? t.media.tabArtists
           : mediaTab === "albums"
             ? t.media.tabAlbums
-            : t.media.tabSources;
+            : mediaTab === "sources"
+              ? t.media.tabSources
+              : t.media.tabHistory;
   const viewLabel =
     view === "media"
       ? `${t.media.nav} · ${mediaTabLabel}`
@@ -313,6 +317,19 @@ export default function App() {
                 >
                   <IconFolder />
                   <span>{t.media.tabSources}</span>
+                </button>
+                <button
+                  className={
+                    "nav-item sub" + (view === "media" && mediaTab === "history" ? " on" : "")
+                  }
+                  onClick={() => {
+                    setView("media");
+                    setMediaTab("history");
+                    setNavOpen(false);
+                  }}
+                >
+                  <IconClock />
+                  <span>{t.media.tabHistory}</span>
                 </button>
               </div>
             </div>
@@ -682,6 +699,7 @@ export default function App() {
           {mediaTab === "artists" && <ArtistsPage />}
           {mediaTab === "albums" && <AlbumsPage />}
           {mediaTab === "sources" && <SourcesPage />}
+          {mediaTab === "history" && <HistoryPage />}
         </div>
       )}
       </ErrorBoundary>

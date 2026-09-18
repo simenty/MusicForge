@@ -174,6 +174,49 @@ pub fn index_source(source_id: i64) -> Result<serde_json::Value, String> {
     Ok(outcome_json(&out))
 }
 
+/// 切换「喜欢」并返回切换后的状态。
+#[tauri::command]
+pub fn track_toggle_like(track_id: i64) -> Result<serde_json::Value, String> {
+    let db = open_db()?;
+    let liked = db.toggle_like(track_id).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "liked": liked }))
+}
+
+/// 全部已喜欢的曲目 id（一次拉取；前端 Set 判定行状态）。
+#[tauri::command]
+pub fn liked_ids() -> Result<Vec<i64>, String> {
+    let db = open_db()?;
+    db.all_liked_ids().map_err(|e| e.to_string())
+}
+
+/// 播放历史（倒序；Track 字段 + playedAt / msPlayed）。
+#[tauri::command]
+pub fn play_history(limit: Option<i64>) -> Result<Vec<serde_json::Value>, String> {
+    let db = open_db()?;
+    let rows = db
+        .list_history(limit.unwrap_or(200))
+        .map_err(|e| e.to_string())?;
+    Ok(rows
+        .iter()
+        .map(|h| {
+            let mut v = track_json(&h.track);
+            if let Some(obj) = v.as_object_mut() {
+                obj.insert("playedAt".to_string(), serde_json::json!(h.played_at));
+                obj.insert("msPlayed".to_string(), serde_json::json!(h.ms_played));
+            }
+            v
+        })
+        .collect())
+}
+
+/// 清空播放历史（返回清空条数）。
+#[tauri::command]
+pub fn history_clear() -> Result<serde_json::Value, String> {
+    let db = open_db()?;
+    let n = db.clear_history().map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "cleared": n }))
+}
+
 /// 添加媒体源并立即索引（首次向导一键完成）。
 #[tauri::command]
 pub fn sources_add_and_index(

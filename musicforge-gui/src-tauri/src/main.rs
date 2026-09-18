@@ -121,6 +121,11 @@ fn main() {
             sources_remove,
             index_source,
             sources_add_and_index,
+            // P2 行为层：喜欢 / 播放历史
+            track_toggle_like,
+            liked_ids,
+            play_history,
+            history_clear,
             // P2 播放：队列/播放控制/状态
             player_play_queue,
             player_toggle,
@@ -128,6 +133,7 @@ fn main() {
             player_stop,
             player_next,
             player_prev,
+            player_jump,
             player_seek,
             player_set_volume,
             player_status

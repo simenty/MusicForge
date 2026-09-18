@@ -32,10 +32,12 @@ function api(over: Partial<PlayerApi> = {}, status: Partial<PlayerSnapshot> | nu
   const base: PlayerApi = {
     status: snapshot,
     playing: false,
+    queue: [],
     playTracks: vi.fn(async () => {}),
     toggle: vi.fn(async () => {}),
     next: vi.fn(async () => {}),
     prev: vi.fn(async () => {}),
+    jump: vi.fn(async () => {}),
     seek: vi.fn(async () => {}),
     setVolume: vi.fn(),
     stop: vi.fn(async () => {}),

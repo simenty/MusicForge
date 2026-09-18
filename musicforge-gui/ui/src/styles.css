@@ -1776,3 +1776,24 @@ code,
   .player-bar { grid-template-columns: minmax(0, 1fr) auto; padding: 8px var(--sp-4); }
   .pb-right { display: none; }
 }
+/* =========================================================================
+ * P2-2：曲目行喜欢按钮 + 播放队列抽屉
+ * ======================================================================= */
+
+/* 曲目表第六列：喜欢 */
+.vt-head, .vt-row { grid-template-columns: 52px minmax(0, 1fr) minmax(0, .62fr) 76px 92px 40px; }
+.vt-heart { display: flex; justify-content: flex-end; }
+.heart-btn { width: 28px; height: 28px; border-radius: 6px; display: grid; place-items: center; color: var(--text-faint); transition: color var(--dur) var(--ease), background var(--dur) var(--ease); }
+.heart-btn:hover { background: var(--surface-2); color: var(--text-2); }
+.heart-btn.on { color: var(--danger); }
+
+/* 播放队列抽屉 */
+.player-bar { position: relative; }
+.pb-queue { position: absolute; right: var(--sp-5); bottom: calc(100% + 6px); width: min(360px, 82vw); max-height: 340px; overflow-y: auto; padding: var(--sp-2); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-md); box-shadow: var(--sh-3); z-index: 40; }
+.qd-item { display: flex; align-items: center; gap: var(--sp-2); width: 100%; padding: 7px 10px; border-radius: var(--r-sm); text-align: left; }
+.qd-item:hover { background: var(--surface-2); }
+.qd-item.on { background: var(--accent-soft); }
+.qd-idx { flex: none; width: 24px; text-align: right; font-size: var(--fs-xs); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.qd-t { min-width: 0; }
+.qd-t b { display: block; font-size: var(--fs-sm); font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qd-t span { display: block; font-size: var(--fs-xs); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

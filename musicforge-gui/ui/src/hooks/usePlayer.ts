@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   IS_DESKTOP,
+  playerJump,
   playerNext,
   playerPlayQueue,
   playerPrev,
@@ -23,11 +24,15 @@ export interface PlayerApi {
   status: PlayerSnapshot | null;
   /** 是否正在播放 */
   playing: boolean;
+  /** 当前队列（前端持有的副本；引擎侧队列经 playTracks 一次性提交） */
+  queue: QueueItem[];
   /** 以 `tracks` 为队列、从 `startIndex` 开始播放 */
   playTracks: (tracks: Track[], startIndex: number) => Promise<void>;
   toggle: () => Promise<void>;
   next: () => Promise<void>;
   prev: () => Promise<void>;
+  /** 跳到队列中的指定位置（队列抽屉点选） */
+  jump: (index: number) => Promise<void>;
   seek: (ms: number) => Promise<void>;
   /** 音量：本地立即生效 + 120ms 节流下发（拖动不刷后端） */
   setVolume: (v: number) => void;
@@ -36,6 +41,7 @@ export interface PlayerApi {
 
 export function usePlayer(): PlayerApi {
   const [status, setStatus] = useState<PlayerSnapshot | null>(null);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
   const alive = useRef(true);
   const volTimer = useRef<number | null>(null);
 
@@ -68,6 +74,7 @@ export function usePlayer(): PlayerApi {
       artist: t.artist,
       durationMs: t.durationMs,
     }));
+    setQueue(items);
     await playerPlayQueue(items, startIndex);
   }, []);
 
@@ -81,6 +88,10 @@ export function usePlayer(): PlayerApi {
 
   const prev = useCallback(async () => {
     await playerPrev();
+  }, []);
+
+  const jump = useCallback(async (index: number) => {
+    await playerJump(index);
   }, []);
 
   const seek = useCallback(async (ms: number) => {
@@ -104,10 +115,12 @@ export function usePlayer(): PlayerApi {
   return {
     status,
     playing: status?.state === "playing",
+    queue,
     playTracks,
     toggle,
     next,
     prev,
+    jump,
     seek,
     setVolume,
     stop,

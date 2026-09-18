@@ -28,6 +28,7 @@ import type {
   FileEntry,
   FileResult,
   FormatMigrateResponse,
+  HistoryEntry,
   IndexOutcome,
   LibraryRefreshReport,
   LibraryStats,
@@ -492,6 +493,11 @@ export async function playerPrev(): Promise<void> {
   return invoke<void>("player_prev");
 }
 
+/** 跳到队列中的指定位置（队列抽屉点选） */
+export async function playerJump(index: number): Promise<void> {
+  return invoke<void>("player_jump", { index });
+}
+
 /** 跳转到指定毫秒 */
 export async function playerSeek(ms: number): Promise<void> {
   return invoke<void>("player_seek", { ms });
@@ -505,6 +511,30 @@ export async function playerSetVolume(volume: number): Promise<void> {
 /** 播放状态快照（含动态位置/欠载计数；前端轮询） */
 export async function playerStatus(): Promise<PlayerSnapshot> {
   return invoke<PlayerSnapshot>("player_status");
+}
+
+// ---------------------------------------------------------------------------
+// 行为域（P2：喜欢 / 播放历史；服务端形态经 invoke 显式降级 MF-DESKTOP-ONLY）
+// ---------------------------------------------------------------------------
+
+/** 切换「喜欢」并返回切换后的状态 */
+export async function trackToggleLike(trackId: number): Promise<{ liked: boolean }> {
+  return invoke<{ liked: boolean }>("track_toggle_like", { trackId });
+}
+
+/** 全部已喜欢的曲目 id（前端 Set 判定行状态；刻意不分页） */
+export async function likedIds(): Promise<number[]> {
+  return invoke<number[]>("liked_ids");
+}
+
+/** 播放历史（倒序；Track 字段 + playedAt/msPlayed） */
+export async function playHistory(limit = 200): Promise<HistoryEntry[]> {
+  return invoke<HistoryEntry[]>("play_history", { limit });
+}
+
+/** 清空播放历史（返回清空条数） */
+export async function historyClear(): Promise<{ cleared: number }> {
+  return invoke<{ cleared: number }>("history_clear");
 }
 
 // ---------------------------------------------------------------------------
@@ -537,6 +567,7 @@ export type {
   FileResult,
   FileStatus,
   FormatMigrateResponse,
+  HistoryEntry,
   IndexOutcome,
   InstalledPlugin,
   LibraryRefreshReport,

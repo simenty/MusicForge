@@ -7,9 +7,23 @@ import type { LibraryStats, Track } from "./api";
 import { useLang } from "./i18n";
 import { fmtClock, fmtSizeGB } from "./lib/format";
 import { useWindowedTracks, TRACK_ROW_H } from "./hooks/useWindowedTracks";
+import { useLiked } from "./hooks/useLiked";
 
-/** 单行（虚拟窗口与搜索结果共用）；`onPlay` 存在时双击播放 */
-function TrackRow({ idx, tr, onPlay }: { idx: number; tr: Track; onPlay?: () => void }) {
+/** 单行（虚拟窗口与搜索结果共用）；双击播放；爱心切换喜欢 */
+function TrackRow({
+  idx,
+  tr,
+  onPlay,
+  liked,
+  onLike,
+}: {
+  idx: number;
+  tr: Track;
+  onPlay?: () => void;
+  liked?: boolean;
+  onLike?: () => void;
+}) {
+  const { t } = useLang();
   return (
     <div className="vt-row" onDoubleClick={onPlay}>
       <span className="vt-idx">{idx}</span>
@@ -25,6 +39,32 @@ function TrackRow({ idx, tr, onPlay }: { idx: number; tr: Track; onPlay?: () => 
         {(tr.format ?? "").toUpperCase()}
         {tr.isLossless ? " · SQ" : ""}
       </span>
+      <span className="vt-heart">
+        {onLike && (
+          <button
+            className={"heart-btn" + (liked ? " on" : "")}
+            onClick={(e) => {
+              e.stopPropagation();
+              onLike();
+            }}
+            aria-label={liked ? t.player.unlike : t.player.like}
+            title={liked ? t.player.unlike : t.player.like}
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill={liked ? "currentColor" : "none"}
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 20s-7-4.6-7-9.6A4 4 0 0112 7a4 4 0 017 3.4c0 5-7 9.6-7 9.6z" />
+            </svg>
+          </button>
+        )}
+      </span>
     </div>
   );
 }
@@ -37,6 +77,7 @@ export default function LibraryPage({
 }) {
   const { t } = useLang();
   const w = useWindowedTracks();
+  const liked = useLiked();
   const [stats, setStats] = useState<LibraryStats | null>(null);
   const [initErr, setInitErr] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -154,6 +195,8 @@ export default function LibraryPage({
                   idx={i + 1}
                   tr={r}
                   onPlay={onPlay ? () => playFrom(r) : undefined}
+                  liked={liked.isLiked(r.id)}
+                  onLike={() => void liked.toggle(r.id)}
                 />
               ))}
             </>
@@ -170,6 +213,8 @@ export default function LibraryPage({
                       idx={i + 1}
                       tr={tr}
                       onPlay={onPlay ? () => playFrom(tr) : undefined}
+                      liked={liked.isLiked(tr.id)}
+                      onLike={() => void liked.toggle(tr.id)}
                     />
                   ) : (
                     <div className="vt-row" key={`ph-${i}`}>

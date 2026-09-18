@@ -168,6 +168,17 @@ export const en: typeof zh = {
         o.removed ? `, removed ${o.removed} stale` : ""
       }${o.failed ? `, ${o.failed} unreadable (indexed with basic info)` : ""}`,
     indexFail: (msg: string) => `Index failed: ${msg}`,
+    // —— Play history (P2) ——
+    tabHistory: "History",
+    historyTitle: "Play history",
+    historySub: "Recorded on this device only; clear any time",
+    historyEmpty: "No play history yet",
+    historyClear: "Clear history",
+    historyClearConfirm: "Clear all play history? (cannot be undone)",
+    historyCleared: (n: number) => `Cleared ${n} record${n === 1 ? "" : "s"}`,
+    today: "Today",
+    yesterday: "Yesterday",
+    earlier: "Earlier",
   },
   /** P2 playback (bottom bar) */
   player: {
@@ -180,6 +191,10 @@ export const en: typeof zh = {
     progress: "Progress",
     dblClickPlay: "Double-click to play",
     queueN: (n: number) => `Queue: ${n}`,
+    queue: "Queue",
+    queueEmpty: "Queue is empty",
+    like: "Like",
+    unlike: "Unlike",
     errorPrefix: (msg: string) => `Playback error: ${msg}`,
     desktopOnly: "Playback requires the desktop build",
   },
