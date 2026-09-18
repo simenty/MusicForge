@@ -3,20 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SPlayer — 音乐播放器界面</title>
+<title>SPlayer — 音乐播放器</title>
 <style>
 /* ============================================================
-   SPlayer UI — 按设计稿还原
-   结构：左侧栏(Logo+菜单) | 右区(顶栏 + 主内容)
-   风格：浅色极简（白/浅灰中性色、细边框、圆角卡片、无重装饰）
-   约束：零依赖、系统字体栈、封面为渐变占位（真实项目替换为图片）
+   SPlayer UI — 全导航页原型（首页 + 音乐库/艺术家/专辑/文件夹/
+   统计/收藏/云盘/媒体源/历史），同一骨架与组件扩展。
+   约束：零依赖、系统字体、封面为渐变占位（真实项目替换图片）。
    ============================================================ */
 :root {
   --bg-side: #f7f7f8;
   --bg: #ffffff;
   --bg-soft: #f2f3f5;
   --bg-active: #e9ebee;
-  --bg-hover: #f2f3f5;
   --border: #ebedf0;
   --border-strong: #dfe2e6;
   --text: #1a1a1a;
@@ -24,134 +22,95 @@
   --text-3: #8a8f99;
   --text-4: #b0b5bd;
   --danger: #e5484d;
-  --r-sm: 8px;
-  --r-md: 12px;
-  --r-lg: 16px;
-  --shadow-1: 0 1px 2px rgba(16, 20, 28, .04);
-  --shadow-2: 0 6px 20px rgba(16, 20, 28, .10);
+  --r-sm: 8px; --r-md: 12px; --r-lg: 16px;
+  --shadow-1: 0 1px 2px rgba(16,20,28,.04);
+  --shadow-2: 0 6px 20px rgba(16,20,28,.10);
   --sidebar-w: 208px;
   --topbar-h: 56px;
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-    "Microsoft YaHei", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
   --dur: 160ms;
   --ease: cubic-bezier(.16, 1, .3, 1);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
-body {
-  font-family: var(--font);
-  color: var(--text);
-  background: var(--bg);
-  -webkit-font-smoothing: antialiased;
-  overflow: hidden;                       /* 桌面壳语义：整窗不滚动，内容区自滚 */
-}
+body { font-family: var(--font); color: var(--text); background: var(--bg); -webkit-font-smoothing: antialiased; overflow: hidden; }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
 input { font: inherit; color: inherit; }
 a { color: inherit; text-decoration: none; }
 svg { display: block; }
 
-/* ======================= 布局骨架 ======================= */
+/* ======================= 骨架 ======================= */
 .app { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); height: 100%; }
 
 /* ======================= 左侧栏 ======================= */
-.sidebar {
-  background: var(--bg-side);
-  border-right: 1px solid var(--border);
-  display: flex; flex-direction: column; min-height: 0;
-}
-.brand {
-  height: var(--topbar-h); flex: none;
-  display: flex; align-items: center; gap: 9px;
-  padding: 0 18px;
-}
-.brand .mark {
-  width: 26px; height: 26px; border-radius: 8px;
-  display: grid; place-items: center; color: #fff;
-  background: linear-gradient(135deg, #2b2f36, #4a5058);
-}
+.sidebar { background: var(--bg-side); border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
+.brand { height: var(--topbar-h); flex: none; display: flex; align-items: center; gap: 9px; padding: 0 18px; }
+.brand .mark { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, #2b2f36, #4a5058); }
 .brand b { font-size: 15.5px; font-weight: 650; letter-spacing: .2px; }
-
 .nav { padding: 4px 10px 10px; overflow-y: auto; flex: 1; min-height: 0; }
 .nav-group { display: flex; flex-direction: column; gap: 2px; }
 .nav-sep { height: 1px; background: var(--border); margin: 10px 6px; }
-.nav-item {
-  display: flex; align-items: center; gap: 10px;
-  height: 36px; padding: 0 10px; border-radius: var(--r-sm);
-  color: var(--text-2); font-size: 13.5px; text-align: left; width: 100%;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-}
+.nav-item { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: var(--r-sm); color: var(--text-2); font-size: 13.5px; text-align: left; width: 100%; transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
 .nav-item svg { flex: none; color: var(--text-3); }
-.nav-item:hover { background: var(--bg-hover); color: var(--text); }
+.nav-item:hover { background: var(--bg-hover, #f2f3f5); color: var(--text); }
+.nav-item:hover { background: var(--bg-soft); }
 .nav-item.on { background: var(--bg-active); color: var(--text); font-weight: 600; }
 .nav-item.on svg { color: var(--text); }
 .nav-item .tail { margin-left: auto; color: var(--text-4); display: grid; place-items: center; }
-.nav-item:hover .tail { color: var(--text-3); }
-
-/* 我的歌单（可折叠分组 + 新建） */
-.pl-head {
-  display: flex; align-items: center; gap: 6px;
-  padding: 0 10px; height: 32px; margin-top: 4px;
-  color: var(--text-3); font-size: 12.5px;
-}
+.pl-head { display: flex; align-items: center; gap: 6px; padding: 0 10px; height: 32px; margin-top: 4px; color: var(--text-3); font-size: 12.5px; }
 .pl-head .caret { transition: transform var(--dur) var(--ease); }
 .pl-head[aria-expanded="false"] .caret { transform: rotate(-90deg); }
-.pl-add {
-  margin-left: auto; width: 24px; height: 24px; border-radius: 6px;
-  display: grid; place-items: center; color: var(--text-3);
-}
-.pl-add:hover { background: var(--bg-hover); color: var(--text); }
+.pl-add { margin-left: auto; width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; color: var(--text-3); }
+.pl-add:hover { background: var(--bg-soft); color: var(--text); }
 .pl-list { display: flex; flex-direction: column; gap: 2px; }
 .pl-list[hidden] { display: none; }
 .pl-empty { padding: 6px 12px 2px; font-size: 12px; color: var(--text-4); }
 
 /* ======================= 右区 ======================= */
 .main-wrap { display: grid; grid-template-rows: var(--topbar-h) minmax(0, 1fr); min-width: 0; }
-
-.topbar {
-  display: flex; align-items: center; gap: 10px;
-  padding: 0 12px 0 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
-}
-.icon-btn {
-  width: 32px; height: 32px; border-radius: 50%; flex: none;
-  display: grid; place-items: center; color: var(--text-2);
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-.icon-btn:hover { background: var(--bg-hover); color: var(--text); }
+.topbar { display: flex; align-items: center; gap: 10px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--border); background: var(--bg); }
+.icon-btn { width: 32px; height: 32px; border-radius: 50%; flex: none; display: grid; place-items: center; color: var(--text-2); transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.icon-btn:hover { background: var(--bg-soft); color: var(--text); }
 .icon-btn:disabled { opacity: .4; cursor: default; }
 .icon-btn.square { border-radius: var(--r-sm); }
-
-.search {
-  position: relative; flex: 1; max-width: 460px; margin-left: 6px;
-}
+.search { position: relative; flex: 1; max-width: 460px; margin-left: 6px; }
 .search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-4); pointer-events: none; }
-.search input {
-  width: 100%; height: 36px; padding: 0 14px 0 36px;
-  background: var(--bg-soft); border: 1px solid transparent; border-radius: 999px;
-  font-size: 13px; outline: none;
-  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
-}
+.search input { width: 100%; height: 36px; padding: 0 14px 0 36px; background: var(--bg-soft); border: 1px solid transparent; border-radius: 999px; font-size: 13px; outline: none; transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
 .search input::placeholder { color: var(--text-4); }
 .search input:hover { background: #eeeef1; }
-.search input:focus { background: var(--bg); border-color: var(--border-strong); box-shadow: 0 0 0 3px rgba(16, 20, 28, .05); }
-
+.search input:focus { background: var(--bg); border-color: var(--border-strong); box-shadow: 0 0 0 3px rgba(16,20,28,.05); }
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 .divider { width: 1px; height: 22px; background: var(--border); margin: 0 6px; }
 .win-controls { display: flex; align-items: center; gap: 2px; }
-.win-btn {
-  width: 34px; height: 30px; border-radius: var(--r-sm);
-  display: grid; place-items: center; color: var(--text-2);
-}
-.win-btn:hover { background: var(--bg-hover); }
+.win-btn { width: 34px; height: 30px; border-radius: var(--r-sm); display: grid; place-items: center; color: var(--text-2); }
+.win-btn:hover { background: var(--bg-soft); }
 .win-btn.close:hover { background: #fdecec; color: var(--danger); }
-/* 移动端才出现的汉堡（桌面壳无此控件） */
 .menu-toggle { display: none; }
 
-/* 主内容区（自滚动） */
 .content { overflow-y: auto; padding: 26px 28px 40px; }
 
-/* ---- 问候 + 统计 ---- */
+/* ======================= 页面切换 ======================= */
+.page[hidden] { display: none; }
+.page-head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.page-head h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: .2px; }
+.page-head .sub { margin: 6px 0 0; font-size: 13px; color: var(--text-3); }
+.page-actions { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+.pbtn { height: 34px; padding: 0 16px; border-radius: 999px; display: inline-flex; align-items: center; gap: 7px; font-size: 13px; border: 1px solid var(--border-strong); color: var(--text-2); background: var(--bg); transition: all var(--dur) var(--ease); }
+.pbtn:hover { border-color: var(--text-4); color: var(--text); }
+.pbtn.primary { background: var(--text); border-color: var(--text); color: #fff; }
+.pbtn.primary:hover { opacity: .88; }
+.crumb { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-3); margin-bottom: 14px; flex-wrap: wrap; }
+.crumb a:hover { color: var(--text); text-decoration: underline; }
+.crumb .cur { color: var(--text); font-weight: 600; }
+.crumb svg { color: var(--text-4); }
+
+/* 区块标题（复用首页） */
+.section { margin-top: 30px; }
+.section-head { display: flex; align-items: baseline; gap: 10px; }
+.section-head h2 { margin: 0; font-size: 17px; font-weight: 650; }
+.section-head .hint { font-size: 12px; color: var(--text-4); }
+
+/* ---- 首页复用 ---- */
 .hero { display: flex; align-items: flex-start; gap: 24px; flex-wrap: wrap; }
 .hero h1 { margin: 0; font-size: 28px; font-weight: 700; letter-spacing: .2px; }
 .hero .sub { margin: 7px 0 0; font-size: 13px; color: var(--text-3); }
@@ -160,102 +119,142 @@ svg { display: block; }
 .stat .n { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .stat .n small { font-size: 12px; font-weight: 500; color: var(--text-3); margin-left: 1px; }
 .stat .l { margin-top: 3px; font-size: 11px; color: var(--text-4); }
-
-/* ---- 快捷入口卡 ---- */
 .quick { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 22px; }
-.qcard {
-  display: flex; align-items: center; gap: 12px;
-  padding: 13px 16px; text-align: left;
-  background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md);
-  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
-}
+.qcard { display: flex; align-items: center; gap: 12px; padding: 13px 16px; text-align: left; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease); }
 .qcard:hover { border-color: var(--border-strong); box-shadow: var(--shadow-1); transform: translateY(-1px); }
 .qcard .ico { flex: none; color: var(--text-2); }
 .qcard b { display: block; font-size: 13.5px; font-weight: 600; }
-.qcard span { display: block; margin-top: 2px; font-size: 11.5px; color: var(--text-3); }
-
-/* ---- 区块标题 ---- */
-.section { margin-top: 30px; }
-.section-head { display: flex; align-items: baseline; gap: 10px; }
-.section-head h2 { margin: 0; font-size: 17px; font-weight: 650; }
-.section-head .hint { font-size: 12px; color: var(--text-4); }
-
-/* ---- 空状态卡（继续聆听） ---- */
-.empty-card {
-  margin-top: 14px; min-height: 152px;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
-  background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md);
-  color: var(--text-4);
-}
+.qcard span span { display: block; margin-top: 2px; font-size: 11.5px; color: var(--text-3); }
+.empty-card { margin-top: 14px; min-height: 152px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); color: var(--text-4); }
 .empty-card p { margin: 0; font-size: 13px; color: var(--text-3); }
 
-/* ---- 歌单网格 ---- */
-.grid { margin-top: 14px; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; }
-.plcard { display: block; text-align: left; }
-.plcard .cover {
-  position: relative; aspect-ratio: 1 / 1; border-radius: 10px; overflow: hidden;
-  box-shadow: var(--shadow-1);
-  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
-}
-.plcard:hover .cover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
-.plcard .cover::after {               /* 播放态遮罩（hover 时出现） */
-  content: ""; position: absolute; inset: 0;
-  background: linear-gradient(180deg, rgba(0,0,0,0) 55%, rgba(0,0,0,.22));
-  opacity: 0; transition: opacity var(--dur) var(--ease);
-}
-.plcard:hover .cover::after { opacity: 1; }
-.plcard .play {
-  position: absolute; right: 10px; bottom: 10px; z-index: 1;
-  width: 32px; height: 32px; border-radius: 50%;
-  display: grid; place-items: center; color: var(--text);
-  background: rgba(255,255,255,.92); box-shadow: var(--shadow-1);
-  opacity: 0; transform: translateY(4px);
-  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
-}
-.plcard:hover .play { opacity: 1; transform: none; }
-.plcard .t {
-  margin-top: 9px; font-size: 13px; line-height: 1.45; color: var(--text);
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-}
-/* 封面占位：# 用渐变 + 图形模拟插画感，真实项目替换为 <img> */
-.cover.c1 { background: linear-gradient(160deg, #dff3e6, #bfe7cf 60%, #a8dcc0); }
-.cover.c2 { background: linear-gradient(160deg, #f6f7f8, #e7e9ec 60%, #d8dbe0); }
-.cover.c3 { background: linear-gradient(160deg, #f3ead9, #e6d6b8 60%, #d9c49e); }
-.cover.c4 { background: linear-gradient(160deg, #dbeaf6, #bcd8ef 60%, #a3c8e8); }
-.cover.c5 { background: linear-gradient(160deg, #f7e3e0, #f0c9c2 60%, #e6b0a6); }
-.cover.c6 { background: linear-gradient(160deg, #efe6f4, #ddcbe9 60%, #cbb3dd); }
-.cover .art { position: absolute; inset: 0; display: grid; place-items: center; color: rgba(20, 24, 30, .28); }
+/* ---- 封面占位色 ---- */
+.cover { position: relative; aspect-ratio: 1/1; border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-1); transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+.cover:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
+.cover.c1 { background: linear-gradient(160deg,#dff3e6,#bfe7cf 60%,#a8dcc0); }
+.cover.c2 { background: linear-gradient(160deg,#f6f7f8,#e7e9ec 60%,#d8dbe0); }
+.cover.c3 { background: linear-gradient(160deg,#f3ead9,#e6d6b8 60%,#d9c49e); }
+.cover.c4 { background: linear-gradient(160deg,#dbeaf6,#bcd8ef 60%,#a3c8e8); }
+.cover.c5 { background: linear-gradient(160deg,#f7e3e0,#f0c9c2 60%,#e6b0a6); }
+.cover.c6 { background: linear-gradient(160deg,#efe6f4,#ddcbe9 60%,#cbb3dd); }
+.cover .art { position: absolute; inset: 0; display: grid; place-items: center; color: rgba(20,24,30,.28); }
+.avatar { aspect-ratio: 1/1; border-radius: 50%; overflow: hidden; box-shadow: var(--shadow-1); display: grid; place-items: center; color: rgba(20,24,30,.30); transition: transform var(--dur) var(--ease); }
+.acard:hover .avatar { transform: translateY(-2px); }
+
+/* ---- 艺术家网格 ---- */
+.acard { display: block; text-align: center; }
+.acard .nm { margin-top: 10px; font-size: 13.5px; font-weight: 600; }
+.acard .ct { margin-top: 2px; font-size: 11.5px; color: var(--text-3); }
+
+/* ---- 专辑/收藏网格 ---- */
+.agrid { margin-top: 14px; display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 16px; }
+.acard-l { display: block; text-align: left; }
+.acard-l .t { margin-top: 9px; font-size: 13px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.acard-l .a { margin-top: 2px; font-size: 12px; color: var(--text-3); }
+
+/* ---- 曲目表 ---- */
+.tools { display: flex; align-items: center; gap: 10px; margin-top: 18px; padding-bottom: 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.tools .cnt { font-size: 13px; color: var(--text-3); margin-right: auto; }
+.tbtn { height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg); color: var(--text-2); font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px; }
+.tbtn:hover { border-color: var(--text-4); color: var(--text); }
+.tracks { margin-top: 6px; }
+.trow { display: grid; grid-template-columns: 34px minmax(0,1fr) minmax(0,.7fr) 64px 78px; gap: 12px; align-items: center; padding: 9px 10px; border-radius: var(--r-sm); transition: background var(--dur) var(--ease); }
+.trow:hover { background: var(--bg-soft); }
+.trow .idx { color: var(--text-4); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; }
+.trow .tt { min-width: 0; }
+.trow .tt b { display: block; font-size: 13.5px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trow .tt span { display: block; font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trow .alb { font-size: 12.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trow .dur { font-size: 12.5px; color: var(--text-3); font-variant-numeric: tabular-nums; text-align: right; }
+.trow .ops { display: flex; gap: 4px; justify-content: flex-end; opacity: 0; transition: opacity var(--dur) var(--ease); }
+.trow:hover .ops { opacity: 1; }
+.trow .ops .mini { width: 28px; height: 28px; border-radius: 6px; display: grid; place-items: center; color: var(--text-3); }
+.trow .ops .mini:hover { background: #e8eaed; color: var(--text); }
+.trow .ops .mini.fav { color: var(--danger); }
+.mini.fav svg { fill: currentColor; }
+
+/* ---- 统计页 ---- */
+.sgrid { margin-top: 20px; display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; }
+.scard { padding: 16px 18px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg); }
+.scard .n { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.scard .l { margin-top: 3px; font-size: 12px; color: var(--text-3); }
+.chart { margin-top: 14px; display: flex; align-items: flex-end; gap: 12px; height: 180px; padding: 8px 6px 0; }
+.bar { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end; }
+.bar i { display: block; width: 100%; max-width: 44px; border-radius: 8px 8px 3px 3px; background: linear-gradient(180deg, #aeb4bd, #8f97a1); transition: transform var(--dur) var(--ease); }
+.bar:hover i { transform: scaleY(1.02); }
+.bar em { font-style: normal; font-size: 11px; color: var(--text-4); }
+.bar b { font-size: 11px; color: var(--text-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+.toplist { margin-top: 6px; }
+
+/* ---- 文件夹 ---- */
+.frow { display: grid; grid-template-columns: 30px minmax(0,1fr) 90px 90px 78px; gap: 12px; align-items: center; padding: 10px 10px; border-radius: var(--r-sm); }
+.frow:hover { background: var(--bg-soft); }
+.frow .ic { color: var(--text-3); }
+.frow .nm { font-size: 13.5px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.frow .meta { font-size: 12px; color: var(--text-3); }
+.frow .meta.r { text-align: right; }
+
+/* ---- 云盘 ---- */
+.cap { margin-top: 16px; padding: 16px 18px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg); }
+.cap .row1 { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+.cap .row1 b { font-size: 15px; }
+.cap .bar-o { margin-top: 10px; height: 8px; border-radius: 999px; background: var(--bg-soft); overflow: hidden; }
+.cap .bar-i { height: 100%; width: 21%; border-radius: inherit; background: linear-gradient(90deg,#8f97a1,#6f7783); }
+.cap .hint { margin-top: 8px; font-size: 11.5px; color: var(--text-4); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; border: 1px solid var(--border); color: var(--text-3); background: var(--bg-soft); }
+.tag.ok { color: #2e7d32; border-color: #cde5cf; background: #eef7ef; }
+.tag.up { color: #b26a00; border-color: #f0dcb8; background: #fdf6e9; }
+
+/* ---- 媒体源 ---- */
+.src-grid { margin-top: 16px; display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
+.src { padding: 18px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg); display: flex; flex-direction: column; gap: 10px; }
+.src .top { display: flex; align-items: center; gap: 10px; }
+.src .top .ic { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; background: var(--bg-soft); color: var(--text-2); }
+.src .top b { font-size: 14px; }
+.src .top .tag { margin-left: auto; }
+.src p { margin: 0; font-size: 12.5px; color: var(--text-3); line-height: 1.6; }
+.src .meta { font-size: 11.5px; color: var(--text-4); font-family: ui-monospace, Consolas, monospace; }
+.src .act { margin-top: auto; display: flex; gap: 8px; }
+.src .act .pbtn { height: 30px; padding: 0 12px; font-size: 12px; }
+
+/* ---- 播放历史 ---- */
+.tl-group { margin-top: 22px; }
+.tl-group h3 { margin: 0 0 10px; font-size: 13px; color: var(--text-3); font-weight: 600; }
+.trow .at { font-size: 12px; color: var(--text-4); text-align: right; white-space: nowrap; }
 
 /* ======================= 响应式 ======================= */
-@media (max-width: 1280px) { .grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+@media (max-width: 1280px) { .agrid { grid-template-columns: repeat(5, minmax(0,1fr)); } }
 @media (max-width: 1080px) {
-  .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .quick { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .agrid { grid-template-columns: repeat(4, minmax(0,1fr)); }
+  .quick { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .sgrid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .src-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
 }
 @media (max-width: 860px) {
   :root { --sidebar-w: 0px; }
-  .app { grid-template-columns: minmax(0, 1fr); }
-  .sidebar {
-    position: fixed; inset: 0 auto 0 0; z-index: 30; width: 232px;
-    transform: translateX(-100%); transition: transform var(--dur) var(--ease);
-    box-shadow: var(--shadow-2);
-  }
+  .app { grid-template-columns: minmax(0,1fr); }
+  .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 30; width: 232px; transform: translateX(-100%); transition: transform var(--dur) var(--ease); box-shadow: var(--shadow-2); }
   .app.nav-open .sidebar { transform: none; }
   .menu-toggle { display: grid; }
-  .stats { margin-left: 0; width: 100%; justify-content: flex-start; }
-  .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .agrid { grid-template-columns: repeat(3, minmax(0,1fr)); }
   .content { padding: 20px 18px 32px; }
+  .trow { grid-template-columns: 28px minmax(0,1fr) 56px 70px; }
+  .trow .alb { display: none; }
+  .frow { grid-template-columns: 30px minmax(0,1fr) 80px; }
+  .frow .hide-m { display: none; }
 }
 @media (max-width: 620px) {
-  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-  .quick { grid-template-columns: minmax(0, 1fr); }
+  .agrid { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+  .quick { grid-template-columns: minmax(0,1fr); }
   .search { max-width: none; }
-  .win-controls, .divider { display: none; }   /* 窄屏隐藏桌面壳控件（浏览器场景无意义） */
-  .hero h1 { font-size: 23px; }
+  .win-controls, .divider { display: none; }
+  .hero h1, .page-head h1 { font-size: 22px; }
+  .stats { gap: 18px; }
+  .sgrid { grid-template-columns: minmax(0,1fr); }
+  .src-grid { grid-template-columns: minmax(0,1fr); }
+  .chart { gap: 6px; }
 }
-@media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; }
-}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
 <body>
@@ -265,36 +264,34 @@ svg { display: block; }
   <aside class="sidebar" aria-label="主导航">
     <div class="brand">
       <span class="mark" aria-hidden="true">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>
-        </svg>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg>
       </span>
       <b>SPlayer</b>
     </div>
 
     <nav class="nav">
       <div class="nav-group">
-        <button class="nav-item on">
+        <button class="nav-item on" data-page="home">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7v8a2 2 0 01-2 2h-4v-6h-4v6H6a2 2 0 01-2-2z"/></svg>
           首页
         </button>
-        <button class="nav-item">
+        <button class="nav-item" data-page="library">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg>
           音乐库
         </button>
-        <button class="nav-item">
+        <button class="nav-item" data-page="artists">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M5 20c1.3-3.4 3.9-5 7-5s5.7 1.6 7 5"/></svg>
           艺术家
         </button>
-        <button class="nav-item">
+        <button class="nav-item" data-page="albums">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.6"/></svg>
           专辑
         </button>
-        <button class="nav-item">
+        <button class="nav-item" data-page="folders">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
           文件夹
         </button>
-        <button class="nav-item">
+        <button class="nav-item" data-page="stats">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>
           统计
         </button>
@@ -303,26 +300,24 @@ svg { display: block; }
       <div class="nav-sep" role="separator"></div>
 
       <div class="nav-group">
-        <button class="nav-item">
+        <button class="nav-item" data-page="favorites">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7-4.6-7-9.6A4 4 0 0112 7a4 4 0 017 3.4c0 5-7 9.6-7 9.6z"/></svg>
           我喜欢的音乐
-          <span class="tail">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7-4.6-7-9.6A4 4 0 0112 7a4 4 0 017 3.4c0 5-7 9.6-7 9.6z"/></svg>
-          </span>
+          <span class="tail"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7-4.6-7-9.6A4 4 0 0112 7a4 4 0 017 3.4c0 5-7 9.6-7 9.6z"/></svg></span>
         </button>
-        <button class="nav-item">
+        <button class="nav-item" data-page="collections">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l2.6 5.6 6 .8-4.4 4.2 1.1 6-5.3-3-5.3 3 1.1-6L3.4 9.9l6-.8z"/></svg>
           我的收藏
         </button>
-        <button class="nav-item">
+        <button class="nav-item" data-page="cloud">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19a4.5 4.5 0 000-9 6 6 0 00-11.6 1.6A3.7 3.7 0 006 19z"/></svg>
           我的云盘
         </button>
-        <button class="nav-item">
+        <button class="nav-item" data-page="sources">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5"/><path d="M8 19V9M12 19v-6M16 19v-9M20 19V7"/></svg>
           媒体源
         </button>
-        <button class="nav-item">
+        <button class="nav-item" data-page="history">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1015 5.2M3.5 12A8.5 8.5 0 0118.5 6.8"/><path d="M3.5 6.5V12h5.5"/></svg>
           播放历史
         </button>
@@ -344,36 +339,21 @@ svg { display: block; }
   <!-- ==================== 右区 ==================== -->
   <div class="main-wrap">
 
-    <!-- 顶栏 -->
     <header class="topbar">
       <button class="icon-btn square menu-toggle" id="menuToggle" aria-label="打开导航">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
       </button>
-
-      <button class="icon-btn" aria-label="后退" title="后退">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 6l-6 6 6 6"/></svg>
-      </button>
-      <button class="icon-btn" aria-label="前进" title="前进" disabled>
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 6l6 6-6 6"/></svg>
-      </button>
-
+      <button class="icon-btn" aria-label="后退" title="后退"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 6l-6 6 6 6"/></svg></button>
+      <button class="icon-btn" aria-label="前进" title="前进" disabled><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 6l6 6-6 6"/></svg></button>
       <label class="search">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="M15.8 15.8L20 20"/></svg>
         <input type="search" placeholder="搜索歌曲、歌手或专辑" aria-label="搜索">
       </label>
-      <button class="icon-btn" aria-label="声音识别" title="声音识别">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 12v.1M8 9v6M12 5.5v13M16 8v8M20 11v2"/></svg>
-      </button>
-
+      <button class="icon-btn" aria-label="声音识别" title="声音识别"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 12v.1M8 9v6M12 5.5v13M16 8v8M20 11v2"/></svg></button>
       <div class="topbar-right">
-        <button class="icon-btn" aria-label="账户" title="账户">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 20c1.3-3.3 3.9-4.9 7-4.9s5.7 1.6 7 4.9"/></svg>
-        </button>
-        <button class="icon-btn" aria-label="设置" title="设置">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-2.9 1.2 2 2 0 11-4 0 1.7 1.7 0 00-2.9-1.2l-.1.1a2 2 0 11-2.8-2.8l.1-.1A1.7 1.7 0 003 15a2 2 0 010-4 1.7 1.7 0 001.2-2.9l-.1-.1a2 2 0 112.8-2.8l.1.1A1.7 1.7 0 0010 4.1a2 2 0 014 0 1.7 1.7 0 002.9 1.2l.1-.1a2 2 0 112.8 2.8l-.1.1A1.7 1.7 0 0021 11a2 2 0 010 4z"/></svg>
-        </button>
+        <button class="icon-btn" aria-label="账户" title="账户"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 20c1.3-3.3 3.9-4.9 7-4.9s5.7 1.6 7 4.9"/></svg></button>
+        <button class="icon-btn" aria-label="设置" title="设置"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-2.9 1.2 2 2 0 11-4 0 1.7 1.7 0 00-2.9-1.2l-.1.1a2 2 0 11-2.8-2.8l.1-.1A1.7 1.7 0 003 15a2 2 0 010-4 1.7 1.7 0 001.2-2.9l-.1-.1a2 2 0 112.8-2.8l.1.1A1.7 1.7 0 0010 4.1a2 2 0 014 0 1.7 1.7 0 002.9 1.2l.1-.1a2 2 0 112.8 2.8l-.1.1A1.7 1.7 0 0021 11a2 2 0 010 4z"/></svg></button>
         <span class="divider" aria-hidden="true"></span>
-        <!-- 桌面壳窗口控件（浏览器中为视觉还原；Tauri/Electron 壳中绑定真实行为） -->
         <div class="win-controls">
           <button class="win-btn" aria-label="最小化" title="最小化"><svg width="14" height="14" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path d="M6 12h12"/></svg></button>
           <button class="win-btn" aria-label="最大化" title="最大化"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg></button>
@@ -382,69 +362,237 @@ svg { display: block; }
       </div>
     </header>
 
-    <!-- 主内容 -->
-    <main class="content">
+    <main class="content" id="content">
 
-      <section class="hero">
-        <div>
-          <h1 id="greeting">下午好</h1>
-          <p class="sub">愿今天有好音乐与你相伴</p>
+      <!-- ============ 首页 ============ -->
+      <section class="page" id="page-home">
+        <div class="hero">
+          <div>
+            <h1 id="greeting">下午好</h1>
+            <p class="sub">愿今天有好音乐与你相伴</p>
+          </div>
+          <div class="stats" role="group" aria-label="收听统计">
+            <div class="stat"><div class="n">12.6<small>h</small></div><div class="l">本周时长</div></div>
+            <div class="stat"><div class="n">28<small>首</small></div><div class="l">新增收藏</div></div>
+            <div class="stat"><div class="n">5<small>天</small></div><div class="l">连续收听</div></div>
+          </div>
         </div>
-        <div class="stats" role="group" aria-label="收听统计">
-          <div class="stat"><div class="n">0.0<small>h</small></div><div class="l">本周时长</div></div>
-          <div class="stat"><div class="n">0<small>首</small></div><div class="l">新增收藏</div></div>
-          <div class="stat"><div class="n">0<small>天</small></div><div class="l">连续收听</div></div>
+
+        <section class="quick" aria-label="快捷入口">
+          <button class="qcard"><span class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="4"/><path d="M12 8.5l4 3.5-4 3.5z" fill="currentColor" stroke="none"/></svg></span><span><b>试试手气</b><span>随机播放一首</span></span></button>
+          <button class="qcard"><span class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="16" rx="3"/><path d="M8 3v4M16 3v4M3.5 10h17"/><path d="M9 14.5l1.6 1.6 3.2-3.2"/></svg></span><span><b>每日推荐</b><span>每天为你精选</span></span></button>
+          <button class="qcard"><span class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7-4.6-7-9.6A4 4 0 0112 7a4 4 0 017 3.4c0 5-7 9.6-7 9.6z"/></svg></span><span><b>心动模式</b><span>根据喜好智能播放</span></span></button>
+          <button class="qcard"><span class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 12v.1M8 9v6M12 5.5v13M16 8v8M20 11v2"/></svg></span><span><b>私人 FM</b><span>为你不停推荐</span></span></button>
+        </section>
+
+        <section class="section">
+          <div class="section-head"><h2>继续聆听</h2><span class="hint">上次播放到 42%</span></div>
+          <div id="continueRow" class="agrid" style="margin-top:14px"></div>
+        </section>
+
+        <section class="section">
+          <div class="section-head"><h2>推荐歌单</h2><span class="hint">大家都在听的热门歌单</span></div>
+          <div id="grid" class="agrid"></div>
+        </section>
+      </section>
+
+      <!-- ============ 音乐库 ============ -->
+      <section class="page" id="page-library" hidden>
+        <div class="page-head">
+          <div>
+            <h1>音乐库</h1>
+            <p class="sub">共 1,286 首 · 86.4 GB · 48 位艺术家 · 86 张专辑</p>
+          </div>
+          <div class="page-actions">
+            <button class="pbtn primary"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>播放全部</button>
+            <button class="pbtn">排序：默认</button>
+          </div>
+        </div>
+        <div class="tools">
+          <span class="cnt">显示 12 / 1,286 首（原型为采样数据）</span>
+          <button class="tbtn">视图：列表</button>
+        </div>
+        <div class="tracks" id="tracksLibrary"></div>
+      </section>
+
+      <!-- ============ 艺术家 ============ -->
+      <section class="page" id="page-artists" hidden>
+        <div class="page-head">
+          <div><h1>艺术家</h1><p class="sub">共 48 位</p></div>
+          <div class="page-actions"><button class="pbtn">按曲目数排序</button></div>
+        </div>
+        <div class="agrid" style="margin-top:18px" id="artistsGrid"></div>
+      </section>
+
+      <!-- ============ 专辑 ============ -->
+      <section class="page" id="page-albums" hidden>
+        <div class="page-head">
+          <div><h1>专辑</h1><p class="sub">共 86 张</p></div>
+          <div class="page-actions"><button class="pbtn">按年份排序</button></div>
+        </div>
+        <div class="agrid" style="margin-top:18px" id="albumsGrid"></div>
+      </section>
+
+      <!-- ============ 文件夹 ============ -->
+      <section class="page" id="page-folders" hidden>
+        <div class="crumb">
+          <a href="#" data-page="folders">音乐库</a>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
+          <a href="#" data-page="folders">华语</a>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
+          <span class="cur">Beyond</span>
+        </div>
+        <div class="page-head">
+          <div><h1>Beyond</h1><p class="sub">4 个子目录 · 38 个音频文件</p></div>
+          <div class="page-actions"><button class="pbtn">在文件管理器中显示</button></div>
+        </div>
+        <div class="tracks" style="margin-top:16px" id="foldersList"></div>
+      </section>
+
+      <!-- ============ 统计 ============ -->
+      <section class="page" id="page-stats" hidden>
+        <div class="page-head">
+          <div><h1>统计</h1><p class="sub">数据来自本地播放记录，仅存于本机</p></div>
+          <div class="page-actions"><button class="pbtn">时间范围：全部</button></div>
+        </div>
+        <div class="sgrid">
+          <div class="scard"><div class="n">1,286</div><div class="l">曲目总数</div></div>
+          <div class="scard"><div class="n">86.4<small style="font-size:12px;color:var(--text-3)"> h</small></div><div class="l">总时长</div></div>
+          <div class="scard"><div class="n">48</div><div class="l">艺术家</div></div>
+          <div class="scard"><div class="n">86</div><div class="l">专辑</div></div>
+        </div>
+        <div class="section" style="margin-top:26px">
+          <div class="section-head"><h2>近 7 天收听</h2><span class="hint">单位：小时</span></div>
+          <div class="card" style="margin-top:14px;padding:18px 18px 10px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg)" id="chart7"></div>
+        </div>
+        <div class="section" style="margin-top:26px">
+          <div class="section-head"><h2>最常播放</h2><span class="hint">按播放次数</span></div>
+          <div class="tracks toplist" id="tracksTop"></div>
         </div>
       </section>
 
-      <section class="quick" aria-label="快捷入口">
-        <button class="qcard">
-          <span class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="4"/><path d="M12 8.5l4 3.5-4 3.5z" fill="currentColor" stroke="none"/></svg></span>
-          <span><b>试试手气</b><span>随机播放一首</span></span>
-        </button>
-        <button class="qcard">
-          <span class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="16" rx="3"/><path d="M8 3v4M16 3v4M3.5 10h17"/><path d="M9 14.5l1.6 1.6 3.2-3.2"/></svg></span>
-          <span><b>每日推荐</b><span>每天为你精选</span></span>
-        </button>
-        <button class="qcard">
-          <span class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7-4.6-7-9.6A4 4 0 0112 7a4 4 0 017 3.4c0 5-7 9.6-7 9.6z"/></svg></span>
-          <span><b>心动模式</b><span>根据喜好智能播放</span></span>
-        </button>
-        <button class="qcard">
-          <span class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 12v.1M8 9v6M12 5.5v13M16 8v8M20 11v2"/></svg></span>
-          <span><b>私人 FM</b><span>为你不停推荐</span></span>
-        </button>
+      <!-- ============ 我喜欢的音乐 ============ -->
+      <section class="page" id="page-favorites" hidden>
+        <div class="hero">
+          <div>
+            <h1>我喜欢的音乐</h1>
+            <p class="sub">256 首 · 按收藏时间排序</p>
+          </div>
+          <div class="page-actions">
+            <button class="pbtn primary"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>播放全部</button>
+            <button class="pbtn">随机播放</button>
+          </div>
+        </div>
+        <div class="tracks" style="margin-top:22px" id="tracksFav"></div>
       </section>
 
-      <section class="section">
-        <div class="section-head"><h2>继续聆听</h2></div>
-        <div class="empty-card" role="status">
-          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14v-2a8 8 0 0116 0v2"/><path d="M4 14a2 2 0 012 2v2a2 2 0 01-4 0v-2a2 2 0 012-2zM20 14a2 2 0 012 2v2a2 2 0 01-4 0v-2a2 2 0 012-2z"/></svg>
-          <p>还没有播放记录，去听点什么吧</p>
+      <!-- ============ 我的收藏 ============ -->
+      <section class="page" id="page-collections" hidden>
+        <div class="page-head">
+          <div><h1>我的收藏</h1><p class="sub">4 个歌单 · 3 张专辑 · 1 位艺术家</p></div>
+        </div>
+        <div class="section" style="margin-top:22px">
+          <div class="section-head"><h2>收藏的歌单</h2></div>
+          <div class="agrid">
+            <a class="acard-l" href="#"><span class="cover c1"><span class="art"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg></span></span><span class="t">华语经典：一代人的BGM</span><span class="a">120 首 · 收藏于 9 月 2 日</span></a>
+            <a class="acard-l" href="#"><span class="cover c4"><span class="art"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 12v.1M8 9v6M12 5.5v13M16 8v8M20 11v2"/></svg></span></span><span class="t">深夜写作 BGM：无人声</span><span class="a">86 首 · 收藏于 8 月 21 日</span></a>
+            <a class="acard-l" href="#"><span class="cover c5"><span class="art"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l2.6 5.6 6 .8-4.4 4.2 1.1 6-5.3-3-5.3 3 1.1-6L3.4 9.9l6-.8z"/></svg></span></span><span class="t">粤语金曲top100</span><span class="a">100 首 · 收藏于 8 月 14 日</span></a>
+            <a class="acard-l" href="#"><span class="cover c3"><span class="art"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3l6 6-2 2-6-6z"/><circle cx="9" cy="15" r="5"/><circle cx="9" cy="15" r="1.6"/></svg></span></span><span class="t">木吉他：炉火与民谣</span><span class="a">64 首 · 收藏于 7 月 30 日</span></a>
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-head"><h2>收藏的专辑</h2></div>
+          <div class="agrid" id="albumsFav"></div>
         </div>
       </section>
 
-      <section class="section">
-        <div class="section-head">
-          <h2>推荐歌单</h2>
-          <span class="hint">大家都在听的热门歌单</span>
+      <!-- ============ 我的云盘 ============ -->
+      <section class="page" id="page-cloud" hidden>
+        <div class="page-head">
+          <div><h1>我的云盘</h1><p class="sub">云盘歌曲会与本地库自动匹配，避免重复上传</p></div>
+          <div class="page-actions"><button class="pbtn primary"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V5M7.5 9.5L12 5l4.5 4.5"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>上传歌曲</button></div>
         </div>
-        <div class="grid" id="grid"><!-- 由下方脚本渲染（占位封面为 CSS 渐变） --></div>
+        <div class="cap">
+          <div class="row1"><b>12.4 GB</b><span style="color:var(--text-3)">/ 60 GB</span><span class="tag ok" style="margin-left:auto">账号已连接</span></div>
+          <div class="bar-o"><div class="bar-i"></div></div>
+          <div class="hint">已用 21% · 文件保存于云端，不计入本地磁盘</div>
+        </div>
+        <div class="tracks" style="margin-top:16px" id="cloudList"></div>
       </section>
+
+      <!-- ============ 媒体源 ============ -->
+      <section class="page" id="page-sources" hidden>
+        <div class="page-head">
+          <div><h1>媒体源</h1><p class="sub">管理曲目来源：本地目录、NAS 挂载与云盘</p></div>
+          <div class="page-actions"><button class="pbtn primary">添加媒体源</button></div>
+        </div>
+        <div class="src-grid">
+          <div class="src">
+            <div class="top"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg></span><b>本地音乐库</b><span class="tag ok">已挂载</span></div>
+            <p>本机磁盘上的音乐目录，改动实时同步进曲库。</p>
+            <div class="meta">/vol3/1080/娱乐音乐（15 个目录 · 28,193 首）</div>
+            <div class="act"><button class="pbtn">管理目录</button><button class="pbtn">重新扫描</button></div>
+          </div>
+          <div class="src">
+            <div class="top"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.1M7 16.5h.1"/></svg></span><b>NAS 挂载</b><span class="tag ok">已连接</span></div>
+            <p>通过 SMB/NFS 挂载的网盘目录，适合大容量无损收藏。</p>
+            <div class="meta">//fnos/media/music（42,310 首）</div>
+            <div class="act"><button class="pbtn">管理挂载</button><button class="pbtn">重新扫描</button></div>
+          </div>
+          <div class="src">
+            <div class="top"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19a4.5 4.5 0 000-9 6 6 0 00-11.6 1.6A3.7 3.7 0 006 19z"/></svg></span><b>云盘</b><span class="tag">未连接</span></div>
+            <p>连接网盘账号后，云端歌曲会与本地库自动匹配。</p>
+            <div class="meta">尚未连接任何云盘账号</div>
+            <div class="act"><button class="pbtn primary">连接云盘</button></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 播放历史 ============ -->
+      <section class="page" id="page-history" hidden>
+        <div class="page-head">
+          <div><h1>播放历史</h1><p class="sub">仅记录本机行为，可随时清空</p></div>
+          <div class="page-actions"><button class="pbtn">清空历史</button></div>
+        </div>
+        <div class="tl-group">
+          <h3>今天</h3>
+          <div class="tracks" id="histToday"></div>
+        </div>
+        <div class="tl-group">
+          <h3>昨天</h3>
+          <div class="tracks" id="histYesterday"></div>
+        </div>
+      </section>
+
+      <!-- PAGES-INSERT-POINT -->
 
     </main>
   </div>
 </div>
 
 <script>
-/* =========================================================================
- * SPlayer 原型交互（仅演示必要的状态，无业务逻辑）
- * ========================================================================= */
-
-/* ---- 歌单网格：占位数据（封面用渐变类 c1..c6 + 中央图形） ---- */
+/* ============ 数据（占位；真实项目来自本地库/后端） ============ */
+const ART = {
+  note: '<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>',
+  vinyl: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.6"/>',
+  mic: '<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0013 0M12 18v3"/>',
+  wave: '<path d="M4 12v.1M8 9v6M12 5.5v13M16 8v8M20 11v2"/>',
+  headphone: '<path d="M4 14v-2a8 8 0 0116 0v2"/><path d="M4 14a2 2 0 012 2v2a2 2 0 01-4 0v-2a2 2 0 012-2zM20 14a2 2 0 012 2v2a2 2 0 01-4 0v-2a2 2 0 012-2z"/>',
+  sparkle: '<path d="M12 4l1.8 5.2L19 11l-5.2 1.8L12 18l-1.8-5.2L5 11l5.2-1.8z"/>',
+  moon: '<path d="M20 13.5A8 8 0 1110.5 4a6.2 6.2 0 009.5 9.5z"/>',
+  guitar: '<path d="M15 3l6 6-2 2-6-6z"/><circle cx="9" cy="15" r="5"/><circle cx="9" cy="15" r="1.6"/>',
+  film: '<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M8 5v14M16 5v14M3.5 9.5h17M3.5 14.5h17"/>',
+  folder: '<path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>',
+  file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
+  person: '<circle cx="12" cy="8" r="3.6"/><path d="M5 20c1.3-3.4 3.9-5 7-5s5.7 1.6 7 5"/>',
+  heart: '<path d="M12 20s-7-4.6-7-9.6A4 4 0 0112 7a4 4 0 017 3.4c0 5-7 9.6-7 9.6z"/>',
+  star: '<path d="M12 3.5l2.6 5.6 6 .8-4.4 4.2 1.1 6-5.3-3-5.3 3 1.1-6L3.4 9.9l6-.8z"/>',
+  cloud: '<path d="M17.5 19a4.5 4.5 0 000-9 6 6 0 00-11.6 1.6A3.7 3.7 0 006 19z"/>',
+  disc: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.6"/>',
+};
 const PLAYLISTS = [
   { t: "2026 超级好听的网易云热门流行歌曲", c: "c1", art: "note" },
-  { t: "udg rapper/视觉系小子顶流最爱懂品歌单", c: "c2", art: "vinyl" },
+  { t: "udg rapper/视觉系小子顶流最爱懂品歌单", c: "c2", art: "mic" },
   { t: "情歌教父｜周传雄的金曲TOP50", c: "c3", art: "mic" },
   { t: "慵懒纯音乐：舒缓缓放松，咖啡馆chill", c: "c4", art: "wave" },
   { t: "「学习专用」戴上耳机舒适度100%", c: "c5", art: "headphone" },
@@ -456,42 +604,62 @@ const PLAYLISTS = [
   { t: "独立摇滚：地下室的声音", c: "c5", art: "mic" },
   { t: "古典钢琴：专注与沉思", c: "c2", art: "note" },
 ];
+const TRACKS = [
+  ["海阔天空", "Beyond", "乐与怒", "5:24"],
+  ["光辉岁月", "Beyond", "命运派对", "5:26"],
+  ["灰色轨迹", "Beyond", "天若有情", "5:05"],
+  ["黄昏", "周传雄", "transfer", "5:47"],
+  ["我怎能离开你", "周传雄", "男人海洋", "4:38"],
+  ["十年", "陈奕迅", "黑白灰", "3:26"],
+  ["富士山下", "陈奕迅", "What's Going On…?", "4:20"],
+  ["晴天", "周杰伦", "叶惠美", "4:29"],
+  ["七里香", "周杰伦", "七里香", "4:59"],
+  ["突然好想你", "五月天", "后青春期的诗", "4:23"],
+  ["温柔", "五月天", "爱情万岁", "4:41"],
+  ["山丘", "李宗盛", "山丘", "5:44"],
+];
 
-const ART = {
-  note:      '<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>',
-  vinyl:     '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.6"/>',
-  mic:       '<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0013 0M12 18v3"/>',
-  wave:      '<path d="M4 12v.1M8 9v6M12 5.5v13M16 8v8M20 11v2"/>',
-  headphone: '<path d="M4 14v-2a8 8 0 0116 0v2"/><path d="M4 14a2 2 0 012 2v2a2 2 0 01-4 0v-2a2 2 0 012-2zM20 14a2 2 0 012 2v2a2 2 0 01-4 0v-2a2 2 0 012-2z"/>',
-  sparkle:   '<path d="M12 4l1.8 5.2L19 11l-5.2 1.8L12 18l-1.8-5.2L5 11l5.2-1.8z"/>',
-  moon:      '<path d="M20 13.5A8 8 0 1110.5 4a6.2 6.2 0 009.5 9.5z"/>',
-  guitar:    '<path d="M15 3l6 6-2 2-6-6z"/><circle cx="9" cy="15" r="5"/><circle cx="9" cy="15" r="1.6"/>',
-  film:      '<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M8 5v14M16 5v14M3.5 9.5h17M3.5 14.5h17"/>',
-};
-
+/* ============ 渲染 ============ */
 const grid = document.getElementById("grid");
 grid.innerHTML = PLAYLISTS.map((p) => `
   <a class="plcard" href="#" aria-label="歌单：${p.t}">
-    <span class="cover ${p.c}">
-      <span class="art">
-        <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${ART[p.art] || ART.note}</svg>
-      </span>
-      <span class="play" aria-hidden="true">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
-      </span>
-    </span>
+    <span class="cover ${p.c}"><span class="art"><svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${ART[p.art] || ART.note}</svg></span></span>
     <span class="t">${p.t}</span>
   </a>`).join("");
+document.getElementById("continueRow").innerHTML = PLAYLISTS.slice(0, 4).map((p) => `
+  <a class="acard-l" href="#"><span class="cover ${p.c}"><span class="art"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${ART[p.art]}</svg></span></span><span class="t">${p.t}</span><span class="a">上次播放到 42%</span></a>`).join("");
 
-/* ---- 侧栏选中态 ---- */
-document.querySelectorAll(".nav-item").forEach((it) =>
-  it.addEventListener("click", () => {
-    document.querySelectorAll(".nav-item").forEach((x) => x.classList.remove("on"));
-    it.classList.add("on");
-  })
-);
+const trackRow = (i, t, a, alb, d, fav) => `
+  <div class="trow">
+    <span class="idx">${i}</span>
+    <span class="tt"><b>${t}</b><span>${a}</span></span>
+    <span class="alb">${alb}</span>
+    <span class="dur">${d}</span>
+    <span class="ops">
+      <button class="mini fav${fav ? " on" : ""}" aria-label="喜欢" title="喜欢"><svg width="15" height="15" viewBox="0 0 24 24" fill="${fav ? "currentColor" : "none"}" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ART.heart}</svg></button>
+      <button class="mini" aria-label="更多" title="更多"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+    </span>
+  </div>`;
 
-/* ---- 「我的歌单」折叠 + 新建（演示：新建仅插入占位项） ---- */
+const libEl = document.getElementById("tracksLibrary");
+if (libEl) libEl.innerHTML = TRACKS.map(([t, a, alb, d], i) => trackRow(i + 1, t, a, alb, d, i < 3)).join("");
+const favEl = document.getElementById("tracksFav");
+if (favEl) favEl.innerHTML = TRACKS.slice(0, 8).map(([t, a, alb, d], i) => trackRow(i + 1, t, a, alb, d, true)).join("");
+const topEl = document.getElementById("tracksTop");
+if (topEl) topEl.innerHTML = TRACKS.slice(0, 5).map(([t, a, alb, d], i) => trackRow(i + 1, t, a, alb, d, true)).join("");
+
+/* ============ 页面路由 ============ */
+const content = document.getElementById("content");
+function showPage(p) {
+  document.querySelectorAll(".page").forEach((s) => { s.hidden = s.id !== "page-" + p; });
+  document.querySelectorAll(".nav-item").forEach((n) => n.classList.toggle("on", n.dataset.page === p));
+  content.scrollTop = 0;
+  app.classList.remove("nav-open");
+}
+document.querySelectorAll("[data-page]").forEach((el) => el.addEventListener("click", () => showPage(el.dataset.page)));
+
+/* ============ 侧栏交互 ============ */
+document.querySelectorAll(".nav-item").forEach((it) => it.addEventListener("click", () => showPage(it.dataset.page || "home")));
 const plHead = document.getElementById("plHead");
 const plList = document.getElementById("plList");
 function togglePlaylists() {
@@ -513,15 +681,11 @@ document.getElementById("plAdd").addEventListener("click", (e) => {
   plList.hidden = false;
   plHead.setAttribute("aria-expanded", "true");
 });
-
-/* ---- 问候语随时间 ---- */
 (function greet() {
   const h = new Date().getHours();
   const g = h < 6 ? "凌晨好" : h < 12 ? "上午好" : h < 14 ? "中午好" : h < 18 ? "下午好" : "晚上好";
   document.getElementById("greeting").textContent = g;
 })();
-
-/* ---- 窄屏侧栏抽屉 ---- */
 const app = document.getElementById("app");
 document.getElementById("menuToggle").addEventListener("click", () => app.classList.toggle("nav-open"));
 document.addEventListener("click", (e) => {
@@ -529,6 +693,93 @@ document.addEventListener("click", (e) => {
   if (e.target.closest(".sidebar") || e.target.closest("#menuToggle")) return;
   app.classList.remove("nav-open");
 });
+
+/* ============ 各页数据渲染（占位数据） ============ */
+const ARTISTS = [
+  ["Beyond", 38, "c1"], ["周杰伦", 72, "c4"], ["陈奕迅", 56, "c2"], ["周传雄", 24, "c3"],
+  ["五月天", 41, "c5"], ["李宗盛", 18, "c6"], ["王菲", 33, "c2"], ["朴树", 12, "c4"],
+  ["许巍", 21, "c1"], ["张学友", 45, "c3"],
+];
+const ag = document.getElementById("artistsGrid");
+if (ag) ag.innerHTML = ARTISTS.map(([n, c, cl]) => `
+  <a class="acard" href="#">
+    <span class="avatar ${cl}"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${ART.person}</svg></span>
+    <span class="nm">${n}</span><span class="ct">${c} 首曲目</span>
+  </a>`).join("");
+
+const ALBUMS = [
+  ["乐与怒", "Beyond", 1999, "c1"], ["命运派对", "Beyond", 1990, "c4"],
+  ["transfer", "周传雄", 2003, "c3"], ["黑白灰", "陈奕迅", 2003, "c2"],
+  ["叶惠美", "周杰伦", 2003, "c6"], ["七里香", "周杰伦", 2004, "c4"],
+  ["后青春期的诗", "五月天", 2008, "c5"], ["山丘", "李宗盛", 2013, "c3"],
+  ["浮躁", "王菲", 1996, "c1"], ["生如夏花", "朴树", 2003, "c2"],
+];
+const alg = document.getElementById("albumsGrid");
+if (alg) alg.innerHTML = ALBUMS.map(([t, a, y, c]) => `
+  <a class="acard-l" href="#"><span class="cover ${c}"><span class="art"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${ART.disc}</svg></span></span><span class="t">${t}</span><span class="a">${a} · ${y}</span></a>`).join("");
+const algf = document.getElementById("albumsFav");
+if (algf) algf.innerHTML = ALBUMS.slice(0, 4).map(([t, a, y, c]) => `
+  <a class="acard-l" href="#"><span class="cover ${c}"><span class="art"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${ART.disc}</svg></span></span><span class="t">${t}</span><span class="a">${a} · ${y}</span></a>`).join("");
+
+const FOLDERS = [
+  ["91-纵贯线", 4, "目录"], ["93-Beyond-爱与生命", 12, "目录"],
+  ["94-Beyond-海阔天空 (DSD)", 11, "目录"], ["96-Beyond- paranoids", 6, "目录"],
+  ["01 - 海阔天空.flac", "48.2 MB", "flac"], ["02 - 光辉岁月.flac", "46.1 MB", "flac"],
+  ["03 - 灰色轨迹.dff", "182.4 MB", "dff"], ["04 - 真的爱你.wav", "39.8 MB", "wav"],
+];
+const fl = document.getElementById("foldersList");
+if (fl) fl.innerHTML = FOLDERS.map(([n, meta, kind]) => `
+  <div class="frow">
+    <span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${kind === "目录" ? ART.folder : ART.file}</svg></span>
+    <span class="nm">${n}</span>
+    <span class="meta hide-m">${kind === "目录" ? kind : ""}</span>
+    <span class="meta hide-m">${meta}</span>
+    <span class="meta r hide-m">${kind === "目录" ? "今天" : "3 天前"}</span>
+  </div>`).join("");
+
+/* 近 7 天收听条形图（CSS 柱状） */
+const WEEK = [["周一", 2.4], ["周二", 1.1], ["周三", 3.6], ["周四", 0.8], ["周五", 2.9], ["周六", 4.2], ["周日", 3.1]];
+const chart = document.getElementById("chart7");
+if (chart) {
+  const max = Math.max(...WEEK.map(([, v]) => v));
+  chart.innerHTML = `<div class="chart" style="margin-top:0">${WEEK.map(([d, v]) => `
+    <div class="bar" title="${d} ${v} 小时"><b>${v}h</b><i style="height:${Math.max(6, (v / max) * 100)}%"></i><em>${d}</em></div>`).join("")}</div>`;
+}
+
+/* 云盘文件列表 */
+const CLOUD = [
+  ["海阔天空.flac", "48.2 MB", "已匹配", "ok"],
+  ["光辉岁月.dff", "182.4 MB", "已匹配", "ok"],
+  ["mountain-and-sea-live.wav", "39.1 MB", "上传中 62%", "up"],
+  ["untitled-demo-01.mp3", "8.6 MB", "已匹配", "ok"],
+  ["summer-fields.flac", "36.9 MB", "已匹配", "ok"],
+  ["riverside.m4a", "12.2 MB", "已匹配", "ok"],
+];
+const cloudEl = document.getElementById("cloudList");
+if (cloudEl) cloudEl.innerHTML = CLOUD.map(([n, s, st, cl]) => `
+  <div class="trow">
+    <span class="idx"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ART.file}</svg></span>
+    <span class="tt"><b>${n}</b></span>
+    <span class="alb">${s}</span>
+    <span class="dur" style="text-align:left"><span class="tag ${cl}">${st}</span></span>
+    <span class="ops" style="opacity:1"><button class="mini" aria-label="更多"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button></span>
+  </div>`).join("");
+
+/* 播放历史（今天/昨天） */
+const HIST_TODAY = [["山丘", "李宗盛", "14:32"], ["富士山下", "陈奕迅", "13:58"], ["灰色轨迹", "Beyond", "11:20"]];
+const HIST_YESTERDAY = [["晴天", "周杰伦", "23:41"], ["温柔", "五月天", "22:17"], ["黄昏", "周传雄", "21:02"], ["光辉岁月", "Beyond", "20:44"]];
+const histRow = (t, a, at) => `
+  <div class="trow">
+    <span class="idx"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></span>
+    <span class="tt"><b>${t}</b><span>${a}</span></span>
+    <span class="alb hide-m">本地库</span>
+    <span class="at">${at}</span>
+    <span class="ops" style="opacity:1"><button class="mini fav" aria-label="喜欢"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ART.heart}</svg></button></span>
+  </div>`;
+const ht = document.getElementById("histToday");
+if (ht) ht.innerHTML = HIST_TODAY.map(([t, a, at]) => histRow(t, a, at)).join("");
+const hy = document.getElementById("histYesterday");
+if (hy) hy.innerHTML = HIST_YESTERDAY.map(([t, a, at]) => histRow(t, a, at)).join("");
 </script>
 </body>
 </html>
