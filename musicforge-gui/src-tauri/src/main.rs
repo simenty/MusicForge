@@ -79,6 +79,11 @@ pub struct BatchArgs {
 /// 重导出（`pub use commands::*`）在 crate root 形成遮蔽冲突。
 mod audio;
 
+/// P2 媒体键 / 媒体面板（仅 Windows / macOS——souvlaki 的 Linux 后端
+/// 依赖 libdbus，musl 交叉编译不可行）。
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+mod media_controls;
+
 #[macro_use]
 mod commands;
 pub use commands::*;
@@ -92,6 +97,24 @@ fn main() {
         .manage(audio::PlayerHandle::spawn(
             musicforge_core::db::default_db_path(),
         ))
+        .setup(|app| {
+            // P2 系统托盘（关闭窗口 = 隐藏到托盘；托盘菜单控制播放与退出）
+            build_tray(app.handle())?;
+            // P2 媒体键（仅 Windows / macOS；初始化失败静默降级）
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            {
+                // hwnd 仅 Windows 需要（SMTC 绑定窗口）；以 usize 跨线程传递
+                #[cfg(target_os = "windows")]
+                let hwnd = app
+                    .get_webview_window("main")
+                    .and_then(|w| w.hwnd().ok())
+                    .map(|h| h.0 as usize);
+                #[cfg(not(target_os = "windows"))]
+                let hwnd: Option<usize> = None;
+                media_controls::spawn(app.state::<audio::PlayerHandle>().inner().clone(), hwnd);
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             collect_files,
             plan_batch,
@@ -138,8 +161,75 @@ fn main() {
             player_set_volume,
             player_status
         ])
+        .on_window_event(|window, event| {
+            // P2：关闭 = 隐藏到托盘（播放不中断）；真正的退出走托盘菜单「退出 MusicForge」。
+            // 常驻托盘是音乐播放器的预期行为（关窗口≠停音乐）。
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// 构建系统托盘：菜单（播放控制 + 显示/退出）+ 左键点击显示主窗口。
+fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+    let play_pause = MenuItem::with_id(app, "play_pause", "播放 / 暂停", true, None::<&str>)?;
+    let prev = MenuItem::with_id(app, "prev", "上一首", true, None::<&str>)?;
+    let next = MenuItem::with_id(app, "next", "下一首", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "退出 MusicForge", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&play_pause, &prev, &next, &show, &quit])?;
+
+    let mut builder = TrayIconBuilder::with_id("mf-tray")
+        .tooltip("MusicForge")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| {
+            let handle = app.state::<audio::PlayerHandle>();
+            match event.id.as_ref() {
+                "play_pause" => {
+                    let _ = handle.toggle();
+                }
+                "prev" => {
+                    let _ = handle.prev();
+                }
+                "next" => {
+                    let _ = handle.next();
+                }
+                "show" => show_main_window(app),
+                "quit" => app.exit(0),
+                _ => {}
+            }
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon().cloned() {
+        builder = builder.icon(icon);
+    }
+    builder.build(app)?;
+    Ok(())
+}
+
+/// 显示并聚焦主窗口（托盘菜单 / 左键点击共用）。
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
 }
 
 // ============ P6a（X37/X36）：插件面板功能态 ============

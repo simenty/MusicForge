@@ -3,6 +3,9 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+// PlayerBar 经 IS_DESKTOP 区分「无曲目」与「服务端形态」文案——测试按桌面形态
+vi.mock("./api", () => ({ IS_DESKTOP: true }));
+
 import { I18nProvider } from "./i18n";
 import { zh } from "./i18n/zh";
 import PlayerBar from "./PlayerBar";
@@ -83,10 +86,19 @@ describe("PlayerBar（播放底栏）", () => {
     expect(p.toggle).toHaveBeenCalledOnce();
   });
 
-  it("错误态：显示错误文案，主按钮禁用", () => {
-    const p = api({}, { state: "error", error: "设备被移除", trackId: 7 });
+  it("断流态：显示错误文案，主按钮可点击（播放即触发流重建恢复）", async () => {
+    const user = userEvent.setup();
+    const p = api(
+      {},
+      { state: "paused", error: "音频输出中断（设备被移除？点播放重试）", trackId: 7 }
+    );
     renderBar(p);
-    expect(screen.getByText(zh.player.errorPrefix("设备被移除"))).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: zh.player.play })).toBeDisabled();
+    expect(
+      screen.getByText(zh.player.errorPrefix("音频输出中断（设备被移除？点播放重试）"))
+    ).toBeInTheDocument();
+    const btn = screen.getByRole("button", { name: zh.player.play });
+    expect(btn).not.toBeDisabled();
+    await user.click(btn);
+    expect(p.toggle).toHaveBeenCalledOnce();
   });
 });

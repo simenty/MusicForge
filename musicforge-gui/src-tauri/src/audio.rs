@@ -121,6 +121,8 @@ struct Shared {
     in_flight: AtomicUsize,
     underruns: AtomicU64,
     volume: AtomicU32,
+    /// 输出流已中断（设备拔出/驱动错误）——恢复播放时据此重建流
+    stream_broken: std::sync::atomic::AtomicBool,
 }
 
 impl Shared {
@@ -132,6 +134,7 @@ impl Shared {
             in_flight: AtomicUsize::new(0),
             underruns: AtomicU64::new(0),
             volume: AtomicU32::new(1.0f32.to_bits()),
+            stream_broken: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -144,6 +147,9 @@ impl Shared {
 }
 
 /// 播放器句柄（Tauri State；只含 Send 成员——`Stream` 在引擎线程内）。
+///
+/// `Clone`：托盘菜单 / 媒体键回调各持一份（共享同一命令通道）。
+#[derive(Clone)]
 pub struct PlayerHandle {
     tx: Sender<Cmd>,
     shared: Arc<Shared>,
@@ -354,6 +360,12 @@ impl Engine {
         match ActiveDecoder::open(Path::new(&item.path)) {
             Ok(dec) => {
                 let spec = (dec.sample_rate, dec.channels);
+                // 断流状态下加载新曲：强制重建（复用会拿到已死的流）
+                if self.shared.stream_broken.swap(false, Ordering::Relaxed) {
+                    self.stream = None;
+                    self.sample_tx = None;
+                    self.stream_spec = None;
+                }
                 if let Err(e) = self.ensure_stream(spec) {
                     self.fail(e);
                     return;
@@ -417,6 +429,19 @@ impl Engine {
                 self.load_current(true);
             }
             return;
+        }
+        // 断流恢复（设备热插拔的自动重试路径）：重建输出流，保留解码器与位置
+        if self.shared.stream_broken.swap(false, Ordering::Relaxed) {
+            let Some(dec) = self.decoder.as_ref() else { return };
+            let spec = (dec.sample_rate, dec.channels);
+            self.stream = None;
+            self.sample_tx = None;
+            self.stream_spec = None;
+            if let Err(e) = self.ensure_stream(spec) {
+                self.shared.lock_snapshot().error = Some(e);
+                return;
+            }
+            self.shared.lock_snapshot().error = None;
         }
         self.playing = true;
         self.shared.lock_snapshot().state = "playing";
@@ -561,10 +586,14 @@ fn build_typed<T: SizedSample + FromSample<f32>>(
         cfg,
         make_callback::<T>(shared, rx),
         move |_e| {
-            // 输出流错误（设备拔出等）：置错误态，前端可见（热插拔恢复为后续版本）
+            // 输出流错误（设备拔出/驱动错误）：标记断流 + 回到「暂停」而非「错误」——
+            // 解码器与播放位置得以保留，用户点播放即触发流重建（见 Engine::resume）。
+            err_shared
+                .stream_broken
+                .store(true, std::sync::atomic::Ordering::Relaxed);
             let mut s = err_shared.lock_snapshot();
-            s.state = "error";
-            s.error = Some("音频输出中断（设备被移除？）".into());
+            s.state = "paused";
+            s.error = Some("音频输出中断（设备被移除？点播放重试）".into());
         },
         None,
     )?;

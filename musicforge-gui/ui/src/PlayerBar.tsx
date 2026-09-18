@@ -1,6 +1,7 @@
 // 播放底栏（P2）：常驻内容区底部——曲目信息 / 上一首·播放暂停·下一首 / 进度 + 音量。
 // 进度拖动：拖动中本地显示（不刷后端），松手才 seek（后端重建解码有成本）。
 import { useState } from "react";
+import { IS_DESKTOP } from "./api";
 import { useLang } from "./i18n";
 import { fmtClock } from "./lib/format";
 import type { PlayerApi } from "./hooks/usePlayer";
@@ -14,7 +15,6 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
   const dur = status?.durationMs ?? 0;
   const pos = drag ?? status?.positionMs ?? 0;
   const hasTrack = !!status && status.trackId !== null;
-  const isError = status?.state === "error";
 
   return (
     <footer className="player-bar" aria-label={t.player.play}>
@@ -38,7 +38,7 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
           </>
         ) : (
           <span className="pb-idle">
-            {isError ? t.player.desktopOnly : t.player.noTrack}
+            {IS_DESKTOP ? t.player.noTrack : t.player.desktopOnly}
           </span>
         )}
       </div>
@@ -58,7 +58,7 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
         <button
           className="pb-btn main"
           onClick={() => void player.toggle()}
-          disabled={!hasTrack || isError}
+          disabled={!hasTrack}
           aria-label={playing ? t.player.pause : t.player.play}
           title={playing ? t.player.pause : t.player.play}
         >
@@ -176,7 +176,7 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
         </div>
       )}
 
-      {isError && status?.error && (
+      {status?.error && (
         <div className="pb-err" role="alert">
           {t.player.errorPrefix(status.error)}
         </div>

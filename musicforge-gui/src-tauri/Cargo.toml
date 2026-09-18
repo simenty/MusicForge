@@ -17,7 +17,8 @@ custom-protocol = ["tauri/custom-protocol"]
 plugin-host = ["musicforge-cli/plugin-host"]
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# tray-icon：系统托盘（关闭窗口 = 隐藏到托盘 + 托盘菜单控制播放）。
+tauri = { version = "2", features = ["tray-icon"] }
 # 原生文件/目录/保存对话框。仅注册为 Rust 侧插件，不向 JS 暴露 API
 # ——前端只能通过下面白名单化的命令调用，ACL 面最小。
 tauri-plugin-dialog = "2"
@@ -33,3 +34,11 @@ symphonia = { version = "0.5", default-features = false, features = [
 ] }
 # cpal：跨平台音频输出（WASAPI / CoreAudio / ALSA）。
 cpal = "0.15"
+
+# ---- 系统媒体键 / 媒体面板（仅 Windows / macOS）----
+# souvlaki：Windows SMTC / macOS Now Playing（系统媒体面板 + 键盘媒体键）。
+# Windows/macOS 后端是内建 target cfg，无需 feature（features 只服务 Linux
+# 的 dbus/zbus 后端）。刻意排除 Linux：其 Linux 后端依赖 libdbus，
+# musl 交叉编译不可行（CI 的 musl build job 会因此失败）；MPRIS 留待后续。
+[target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
+souvlaki = { version = "0.8", default-features = false }
