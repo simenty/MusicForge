@@ -154,7 +154,7 @@ fn parse_one(item: &ScanItem, source_id: i64) -> Parsed {
     match read_audio_meta(&item.path) {
         Some(m) => {
             let tagged = m.title.is_some() || m.artist.is_some();
-            t.title = m.title.or_else(|| Some(stem));
+            t.title = m.title.or(Some(stem));
             t.artist = m.artist;
             t.album = m.album;
             t.album_artist = m.album_artist;
