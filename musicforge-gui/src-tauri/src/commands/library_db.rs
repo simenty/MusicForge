@@ -5,7 +5,7 @@
 // **零业务逻辑**——GUI / CLI / NAS 三端共用同一份 core 实现，不可能分叉。
 
 /// 打开默认状态库（本地配置目录；D16「库不放网络位置」守卫在 core 内）。
-fn open_db() -> Result<musicforge_core::db::Db, String> {
+pub(crate) fn open_db() -> Result<musicforge_core::db::Db, String> {
     musicforge_core::db::Db::open(&musicforge_core::db::default_db_path()).map_err(|e| e.to_string())
 }
 
@@ -100,6 +100,7 @@ pub fn list_albums() -> Result<Vec<serde_json::Value>, String> {
                 "artist": a.artist,
                 "year": a.year,
                 "trackCount": a.track_count,
+                "coverPath": a.cover_path,
             })
         })
         .collect())

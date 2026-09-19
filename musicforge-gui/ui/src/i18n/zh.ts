@@ -35,7 +35,7 @@ export const zh = {
     errorTitle: "此模块渲染出错",
     errorHint: "已阻止错误扩散，其余模块仍可正常使用。",
     errorRetry: "重试",
-    offlineChip: "零网络 · 离线运行",
+    offlineChip: "离线优先 · 零遥测",
     addFiles: "添加文件",
     addFolder: "添加目录",
     clearList: "清除列表",
@@ -75,7 +75,11 @@ export const zh = {
     exportTip: "导出失败清单 CSV",
     noFailures: "没有失败项",
     legal:
-      "MusicForge 仅用于处理你已合法获得的文件的个人本地格式转换 · 不联网 · 不上传 · 不收集任何数据 · MIT License",
+      "MusicForge 仅用于处理你已合法获得的文件的个人本地格式转换 · 本地优先 · 不上传 · 不收集数据（仅在你主动使用在线功能时联网）· MIT License",
+    // P6：在线元数据（默认关；网络请求只由显式操作触发）
+    onlineMeta: "在线元数据（封面补全）",
+    onlineMetaHint:
+      "允许按需从 MusicBrainz / Cover Art Archive 获取专辑封面（HTTPS，仅在你点击「补全封面」时请求；不改动音频文件）",
     fatalTitle: "⚠ 应用初始化异常",
     clickToClose: "点击关闭",
     eventSubFailed: (name: string, e: string) =>
@@ -207,6 +211,11 @@ export const zh = {
     quickFav: "我喜欢的音乐",
     quickHistory: "播放历史",
     quickSources: "媒体源",
+    // —— P6 在线封面 ——
+    coversFetchAll: "补全封面",
+    coversNeedOnline: "在「设置」中开启「在线元数据」后可用",
+    coversProgress: (d: number, n: number) => `抓取中 ${d}/${n}…`,
+    coversMissing: (n: number) => `${n} 张缺封面`,
   },
   /** P4 工具箱：CUE 分轨 */
   cue: {

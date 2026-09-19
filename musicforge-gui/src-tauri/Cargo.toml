@@ -42,6 +42,13 @@ symphonia = { version = "0.5", default-features = false, features = [
 # cpal：跨平台音频输出（WASAPI / CoreAudio / ALSA）。
 cpal = "0.15"
 
+# ---- P6 在线元数据（封面补全；core 保持零网络——网络只在本层）----
+# reqwest(rustls)：MusicBrainz 搜索 + Cover Art Archive 下载。rustls 避免 OpenSSL
+# 的交叉编译问题；仅由用户显式点击触发（dependency-policy.md §4）。
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+# tokio：限速（time::sleep）+ 真网冒烟测试（#[tokio::test] 需要 macros/rt）。
+tokio = { version = "1", features = ["time", "macros", "rt"] }
+
 # ---- 系统媒体键 / 媒体面板（仅 Windows / macOS）----
 # souvlaki：Windows SMTC / macOS Now Playing（系统媒体面板 + 键盘媒体键）。
 # Windows/macOS 后端是内建 target cfg，无需 feature（features 只服务 Linux

@@ -19,6 +19,9 @@ export interface Settings {
   jobs: number;
   /** 仅规划（dry-run）：产出 manifest 计划，不写音频/侧车 */
   dryRun: boolean;
+  /** 在线元数据（P6）：允许按需从 MusicBrainz / Cover Art Archive 抓取专辑封面。
+   *  默认关——开启才使「补全封面」按钮可用（网络请求仅由该按钮触发）。 */
+  onlineMeta: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -29,6 +32,7 @@ export const DEFAULT_SETTINGS: Settings = {
   recursive: true,
   jobs: 4,
   dryRun: false,
+  onlineMeta: false,
 };
 
 const KEY = "musicforge.settings.v1";
@@ -60,6 +64,10 @@ export function loadSettings(): Settings {
           : DEFAULT_SETTINGS.recursive,
       dryRun:
         typeof parsed.dryRun === "boolean" ? parsed.dryRun : DEFAULT_SETTINGS.dryRun,
+      onlineMeta:
+        typeof parsed.onlineMeta === "boolean"
+          ? parsed.onlineMeta
+          : DEFAULT_SETTINGS.onlineMeta,
       jobs,
     };
   } catch {

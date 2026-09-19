@@ -232,6 +232,9 @@ pub struct AlbumRow {
     pub artist: Option<String>,
     pub year: Option<i64>,
     pub track_count: i64,
+    /// 本地封面缓存路径（在线元数据补全；None = 尚无封面）。
+    /// core 只存路径不做 IO——文件落盘与抓取都在 shell 层。
+    pub cover_path: Option<String>,
 }
 
 /// 曲库总览统计。
@@ -765,7 +768,7 @@ impl Db {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT al.id, al.title, ar.name, al.year, COUNT(t.id) AS n
+                "SELECT al.id, al.title, ar.name, al.year, COUNT(t.id) AS n, al.cover_cache
                  FROM albums al
                  JOIN tracks t ON t.album_id = al.id
                  LEFT JOIN artists ar ON ar.id = al.album_artist_id
@@ -781,8 +784,48 @@ impl Db {
                     artist: r.get(2)?,
                     year: r.get(3)?,
                     track_count: r.get(4)?,
+                    cover_path: r.get(5)?,
                 })
             })
+            .map_err(|e| NcmError::Db(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(rows)
+    }
+
+    /// 写入专辑封面缓存路径（文件由调用方负责落盘）。
+    pub fn set_album_cover(&self, album_id: i64, cover_path: &str) -> Result<(), NcmError> {
+        self.conn
+            .execute(
+                "UPDATE albums SET cover_cache = ?1 WHERE id = ?2",
+                params![cover_path, album_id],
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(())
+    }
+
+    /// 尚无封面的专辑（id、标题、专辑艺人名）——在线封面补全的输入，
+    /// 按曲目数降序（优先补最可见的专辑）。
+    pub fn albums_missing_cover(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<(i64, String, Option<String>)>, NcmError> {
+        let limit = limit.clamp(1, 500);
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT al.id, al.title, ar.name
+                 FROM albums al
+                 JOIN tracks t ON t.album_id = al.id
+                 LEFT JOIN artists ar ON ar.id = al.album_artist_id
+                 WHERE al.cover_cache IS NULL
+                 GROUP BY al.id
+                 ORDER BY COUNT(t.id) DESC, al.title
+                 LIMIT ?1",
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let rows = stmt
+            .query_map([limit], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
             .map_err(|e| NcmError::Db(e.to_string()))?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| NcmError::Db(e.to_string()))?;

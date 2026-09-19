@@ -176,10 +176,12 @@ fn main() {
             cue_split,
             // P5 文件关联：冷启动待打开文件
             take_startup_files,
-            // P5 更新（唯一网络行为）
+            // P5 更新（网络边界：updater）
             check_update,
             install_update,
             restart_app,
+            // P6 在线封面（网络边界：用户显式触发）
+            cover_fetch,
             // P2 播放：队列/播放控制/状态
             player_play_queue,
             player_toggle,

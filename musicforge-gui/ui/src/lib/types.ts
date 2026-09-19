@@ -281,6 +281,8 @@ export interface Album {
   artist: string | null;
   year: number | null;
   trackCount: number;
+  /** 本地封面缓存路径（在线补全；null = 尚无封面） */
+  coverPath?: string | null;
 }
 
 /** 曲库总览统计 */

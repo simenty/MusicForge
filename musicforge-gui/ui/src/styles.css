@@ -1814,3 +1814,7 @@ code,
 .quick-card .ic { width: 38px; height: 38px; border-radius: var(--r-sm); display: grid; place-items: center; background: var(--surface-2); color: var(--text-2); flex: none; }
 .quick-card b { display: block; font-size: var(--fs-md); font-weight: 600; }
 .quick-card span { display: block; font-size: var(--fs-xs); color: var(--text-dim); }
+/* =========================================================================
+ * P6：封面图片（在线补全后替换渐变占位；尺寸/圆角沿用 .cover2）
+ * ======================================================================= */
+img.cover2 { object-fit: cover; display: block; }

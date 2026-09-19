@@ -31,7 +31,7 @@ export const en: typeof zh = {
     errorTitle: "This module failed to render",
     errorHint: "The error was contained — other modules remain usable.",
     errorRetry: "Retry",
-    offlineChip: "Zero network · Offline",
+    offlineChip: "Offline-first · No telemetry",
     addFiles: "Add files",
     addFolder: "Add folder",
     clearList: "Clear list",
@@ -71,7 +71,11 @@ export const en: typeof zh = {
     exportTip: "Export failure list as CSV",
     noFailures: "No failures",
     legal:
-      "MusicForge converts files you legally own, locally · No network · No upload · No data collection · MIT License",
+      "MusicForge converts files you legally own, locally · Local-first · No upload · No data collection (network is used only when you explicitly use an online feature) · MIT License",
+    // P6: online metadata (off by default; requests fire only on explicit actions)
+    onlineMeta: "Online metadata (cover art)",
+    onlineMetaHint:
+      "Allow fetching album covers from MusicBrainz / Cover Art Archive on demand (HTTPS, only when you click “Fetch covers”; your audio files are never touched)",
     fatalTitle: "⚠ Initialization error",
     clickToClose: "Click to close",
     eventSubFailed: (name, e) =>
@@ -206,6 +210,11 @@ export const en: typeof zh = {
     quickFav: "Liked songs",
     quickHistory: "Play history",
     quickSources: "Media sources",
+    // —— P6 online covers ——
+    coversFetchAll: "Fetch covers",
+    coversNeedOnline: "Enable “Online metadata” in Settings to use this",
+    coversProgress: (d: number, n: number) => `Fetching ${d}/${n}…`,
+    coversMissing: (n: number) => `${n} without cover`,
   },
   /** P4 toolbox: CUE split */
   cue: {

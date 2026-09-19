@@ -46,16 +46,24 @@ license, size impact (binary growth >10% needs a note), and maintenance status.
 ## 4. Shells (cli/gui/server)
 
 Shells may add UI/platform dependencies (Tauri, notify, axum) but must still contain **zero
-network clients** except:
+network clients** except the following **outbound** exceptions:
 
-- `musicforge-server`'s local HTTP listener (inbound only);
-- the desktop shell's **updater**（P5）—— `tauri-plugin-updater` is the single **outbound**
-  exception: an HTTPS GET of the release `latest.json` plus the minisign-verified installer
-  download. Constraints: Rust-side only (the plugin's JS API stays unauthorised — the frontend
-  can only go through the whitelisted `check_update` / `install_update` commands), user-triggered,
-  and documented in `docs/release.md`.
+- the desktop shell's **updater**（P5）—— `tauri-plugin-updater`: an HTTPS GET of the release
+  `latest.json` plus the minisign-verified installer download. Constraints: Rust-side only
+  (the plugin's JS API stays unauthorised — the frontend can only go through the whitelisted
+  `check_update` / `install_update` commands), user-triggered, documented in `docs/release.md`.
+- the desktop shell's **online metadata**（P6，`commands/covers.rs`）—— `reqwest` (rustls）
+  talking to MusicBrainz / Cover Art Archive for album covers. Constraints: user-triggered
+  only (the “Fetch covers” button; no background polling, no telemetry), the anonymous
+  MusicBrainz rate limit (≤1 req/s) is enforced in code, an identifiable User-Agent is sent,
+  failures degrade silently to the fully-offline behaviour, and nothing but cover image files
+  plus the `albums.cover_cache` path is ever written.
 
-Plugin processes remain the only other components allowed to open outbound connections.
+`musicforge-server`'s local HTTP listener stays inbound-only. Plugin processes remain the only
+other components allowed to open outbound connections.
+
+**Core (`musicforge-core`) remains zero-network**: the cover feature stores a path only
+(`AlbumRow::cover_path` / `set_album_cover`); every HTTP call lives in the shell layer.
 
 ## 5. GitHub Actions pinning (supply chain)
 

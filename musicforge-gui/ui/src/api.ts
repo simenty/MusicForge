@@ -621,6 +621,17 @@ export async function restartApp(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// P6 在线封面（网络边界：仅用户显式触发——见 docs/dependency-policy.md §4）
+// ---------------------------------------------------------------------------
+
+/** 为专辑抓取封面（MusicBrainz → Cover Art Archive → 本地缓存）。
+ *  返回缓存文件路径；未找到封面 → null；网络失败 → 抛错（可重试） */
+export async function coverFetch(albumId: number): Promise<string | null> {
+  if (!IS_DESKTOP) return null;
+  return invoke<string | null>("cover_fetch", { albumId });
+}
+
+// ---------------------------------------------------------------------------
 // 门面（facade）：对外契约 = 原 api.ts 的全部导出。
 // 组件与测试的 `import { ... } from "./api"` 不因拆分而改变。
 // ---------------------------------------------------------------------------

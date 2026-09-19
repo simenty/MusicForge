@@ -901,6 +901,15 @@ export default function App() {
               />
               <span>{t.app.recursive}</span>
             </label>
+            {/* P6：在线元数据开关（默认关；开启后专辑页「补全封面」可用） */}
+            <label className="check" title={t.app.onlineMetaHint}>
+              <input
+                type="checkbox"
+                checked={settings.onlineMeta}
+                onChange={(e) => patch({ onlineMeta: e.target.checked })}
+              />
+              <span>{t.app.onlineMeta}</span>
+            </label>
             <label className="check">
               <input
                 type="checkbox"
