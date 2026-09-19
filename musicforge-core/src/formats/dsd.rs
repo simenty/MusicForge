@@ -223,24 +223,67 @@ fn parse_dff<R: Read + Seek>(r: &mut R) -> Result<Layout, NcmError> {
     })
 }
 
-/// 每声道抽取器：MSB-first 逐位 → 8:1 求和（±1 归一）→ box 抽取到 [`OUT_RATE`]。
+/// 低通 FIR 设计（Blackman 窗 sinc，DC 增益归一化为 1）。
+///
+/// - `n` 抽头数（必须是 2×factor 的整数倍——`48 × factor` 起步）；
+/// - `fc` 通带截止（Hz，本项目固定 40kHz：覆盖音频带并给 88.2kHz 输出留过渡）；
+/// - `fs` 输入率（= OUT_RATE × factor）。
+///
+/// 相比 box（sinc 第一旁瓣仅 −13dB），Blackman 窗阻带约 −74dB——
+/// DSD 的**带外噪声不会被折叠回音频带**（这是音质升级的核心）。
+fn design_lowpass(n: usize, fc: f64, fs: f64) -> Vec<f32> {
+    let m = (n - 1) as f64;
+    let w0 = 2.0 * std::f64::consts::PI * fc / fs;
+    let mut c = vec![0f64; n];
+    let mut sum = 0.0f64;
+    for (i, v) in c.iter_mut().enumerate() {
+        let x = i as f64 - m / 2.0;
+        let sinc = if x.abs() < 1e-12 {
+            1.0
+        } else {
+            (w0 * x).sin() / (w0 * x)
+        };
+        let t = 2.0 * std::f64::consts::PI * i as f64 / m;
+        let win = 0.42 - 0.5 * t.cos() + 0.08 * (2.0 * t).cos();
+        *v = sinc * win;
+        sum += *v;
+    }
+    let g = 1.0 / sum;
+    c.iter().map(|v| (v * g) as f32).collect()
+}
+
+/// 每声道抽取器（P6.7）：MSB-first 逐位 → 8:1 求和（±1 归一）→
+/// **多相 FIR 低通抽取**到 [`OUT_RATE`]（每 `factor` 个中间样本出一个输出帧）。
+///
+/// 抽头数 `48 × factor`（factor=4→192 / 8→384 / 16→768）：过渡带宽度按输入率
+/// 归一化后保持不变（≈8kHz @88.2k 输出域），阻带 ~74dB。
 struct DsdDecimator {
     bit_sum: i32,
     bit_cnt: u32,
-    acc: f32,
-    acc_cnt: u32,
-    /// 每输出帧的字节数（= 8:1 中间样本数）
+    /// 每输出帧的中间样本数
     factor: u32,
+    /// 距上次输出的中间样本数
+    mid_cnt: u32,
+    /// 环形延时线（输入域样本）
+    hist: Vec<f32>,
+    /// 最老样本位置（推进后即指向它）
+    hist_pos: usize,
+    /// FIR 系数（与 hist 时间序对齐）
+    coeffs: Vec<f32>,
 }
 
 impl DsdDecimator {
     fn new(factor: u32) -> Self {
+        let n = (48 * factor) as usize;
+        let coeffs = design_lowpass(n, 40_000.0, OUT_RATE as f64 * factor as f64);
         Self {
             bit_sum: 0,
             bit_cnt: 0,
-            acc: 0.0,
-            acc_cnt: 0,
             factor,
+            mid_cnt: 0,
+            hist: vec![0.0; n],
+            hist_pos: 0,
+            coeffs,
         }
     }
 
@@ -255,16 +298,26 @@ impl DsdDecimator {
                 let mid = self.bit_sum as f32 / 8.0;
                 self.bit_sum = 0;
                 self.bit_cnt = 0;
-                // 二级：box 平均到输出率
-                self.acc += mid;
-                self.acc_cnt += 1;
-                if self.acc_cnt == self.factor {
-                    out.push(self.acc / self.factor as f32);
-                    self.acc = 0.0;
-                    self.acc_cnt = 0;
-                }
+                self.push_mid(mid, out);
             }
         }
+    }
+
+    fn push_mid(&mut self, mid: f32, out: &mut Vec<f32>) {
+        let n = self.hist.len();
+        self.hist[self.hist_pos] = mid;
+        self.hist_pos = (self.hist_pos + 1) % n;
+        self.mid_cnt += 1;
+        if self.mid_cnt < self.factor {
+            return;
+        }
+        self.mid_cnt = 0;
+        // 卷积：hist 按时间序读取（hist_pos 指向最老），与 coeffs 对齐
+        let mut acc = 0.0f32;
+        for (k, c) in self.coeffs.iter().enumerate() {
+            acc += self.hist[(self.hist_pos + k) % n] * c;
+        }
+        out.push(acc);
     }
 }
 
@@ -428,28 +481,32 @@ mod tests {
         f.write_all(data).unwrap();
     }
 
+    /// FIR 群延迟（192 taps → 96 中间样本 ≈ 24 输出帧）内的输出是暂态——
+    /// 断言只看稳态段（后段）。
+    const STEADY: usize = 48;
+
     #[test]
     fn dsf_probe_and_decode_all_ones_is_dc_one() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("t.dsf");
-        // 32 字节全 0xFF → 每位 +1 → 中间样本全 +1 → PCM 全 1.0
-        write_min_dsf(&p, 2_822_400, 32, &[0xFFu8; 32]);
+        // 512 字节全 0xFF → 每位 +1 → 中间样本全 +1 → PCM 稳态全 +1.0
+        write_min_dsf(&p, 2_822_400, 512, &[0xFFu8; 512]);
 
         let info = probe_dsd(&p).unwrap();
         assert_eq!(info.kind, DsdKind::Dsf);
         assert_eq!(info.channels, 1);
         assert_eq!(info.dsd_rate, 2_822_400);
-        // 32 字节 = 256 位 / 2.8224M = 90.7µs
-        assert!((info.duration_secs - 256.0 / 2_822_400.0).abs() < 1e-9);
+        // 512 字节 = 4096 位 / 2.8224M = 1.4512ms
+        assert!((info.duration_secs - 4096.0 / 2_822_400.0).abs() < 1e-9);
 
         let mut r = DsdReader::open(&p).unwrap();
         let pcm = r.read_pcm_f32(64).unwrap();
-        // 32 字节 → 32 个中间样本(352.8k) → factor=4 → 8 个输出帧
-        assert_eq!(pcm.len(), 8);
-        for v in &pcm {
-            assert!((v - 1.0).abs() < 1e-6, "全 1 位流应为 DC +1，实际 {v}");
+        assert_eq!(pcm.len(), 64);
+        for v in &pcm[STEADY..] {
+            assert!((v - 1.0).abs() < 1e-3, "全 1 位流稳态应为 DC +1，实际 {v}");
         }
-        // EOF：再读为空
+        // 组粒度超量帧在内部缓冲：第二次仍能取满，第三次才 EOF
+        assert_eq!(r.read_pcm_f32(64).unwrap().len(), 64);
         assert!(r.read_pcm_f32(64).unwrap().is_empty());
     }
 
@@ -457,17 +514,39 @@ mod tests {
     fn dsf_all_zero_is_dc_minus_one_and_seek() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("z.dsf");
-        write_min_dsf(&p, 2_822_400, 64, &[0x00u8; 64]);
+        write_min_dsf(&p, 2_822_400, 512, &[0x00u8; 512]);
         let mut r = DsdReader::open(&p).unwrap();
-        let pcm = r.read_pcm_f32(16).unwrap();
-        assert_eq!(pcm.len(), 16); // 64 字节 → 16 输出帧
-        assert!((pcm[0] + 1.0).abs() < 1e-6);
+        let pcm = r.read_pcm_f32(64).unwrap();
+        assert_eq!(pcm.len(), 64); // 512 字节 → 128 输出帧（取 64）
+        for v in &pcm[STEADY..] {
+            assert!((v + 1.0).abs() < 1e-3, "全 0 位流稳态应为 DC −1，实际 {v}");
+        }
         r.seek_ms(0).unwrap();
         let again = r.read_pcm_f32(4).unwrap();
-        assert_eq!(again.len(), 4);
+        assert_eq!(again.len(), 4, "seek 后长度守恒（前段为 FIR 暂态，不做值断言）");
         // seek 到尾部 → 空
         r.seek_ms(100_000).unwrap();
         assert!(r.read_pcm_f32(4).unwrap().is_empty());
+    }
+
+    /// FIR 阻带验证：176.4kHz 方波（0xFF/0x00 交替 → 中间样本 +1/−1 交替）
+    /// 超出 88.2k 输出奈奎斯特 → 稳态幅度应被压到接近零。
+    /// （这是音质升级的核心属性：DSD 带外噪声不会被折叠回音频带。）
+    #[test]
+    fn fir_suppresses_out_of_band() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("hf.dsf");
+        let mut data = vec![0u8; 1024];
+        for (i, b) in data.iter_mut().enumerate() {
+            *b = if i % 2 == 0 { 0xFF } else { 0x00 };
+        }
+        write_min_dsf(&p, 2_822_400, 1024, &data);
+        let mut r = DsdReader::open(&p).unwrap();
+        let pcm = r.read_pcm_f32(256).unwrap();
+        assert_eq!(pcm.len(), 256);
+        let steady = &pcm[STEADY..];
+        let peak = steady.iter().fold(0f32, |m, v| m.max(v.abs()));
+        assert!(peak < 0.05, "带外 176.4kHz 应被低通抑制，实测稳态峰值 {peak}");
     }
 
     /// 构造最小 DFF：mono、byte 交错（mono 即普通字节流）。
