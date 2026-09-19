@@ -21,6 +21,8 @@ on:
       - "musicforge-core/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      # 自身变更也触发（改 workflow 即验证它——否则改了不跑）
+      - ".github/workflows/gui-portability.yml"
   workflow_dispatch:
 
 env:
