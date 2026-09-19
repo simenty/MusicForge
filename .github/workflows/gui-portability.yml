@@ -1,0 +1,102 @@
+name: GUI portability (Linux / macOS build)
+
+# P6.8：跨平台 GUI **可构建性验证** + 未签名 beta 产物留档。
+#
+# 触发：
+#   - master push（仅当 gui/core/依赖变化——避免每次 push 都跑昂贵 job）
+#   - 手动 dispatch
+#
+# 说明：正式 Release 的收编（把 dmg/deb/AppImage 挂进 Release）留待发布收编一轮；
+# 本 workflow 的价值 = **持续验证跨平台构建不回归**（防未来代码破坏 Linux/macOS）
+# + 未签名 beta 产物可在 Actions artifact 里手动取用（蓝图策略：签名后置）。
+#
+# 注：GUI 的 Windows 正式包由 release-installer.yml 负责；这里用 --config 关闭
+# updater 产物（未签名 beta 不参与自动更新，也无需签名密钥）。
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "musicforge-gui/**"
+      - "musicforge-core/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux-gui:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps（webkit2gtk-4.1 / appindicator / rsvg / alsa / patchelf）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+
+      - name: Install Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build frontend
+        run: |
+          npm --prefix musicforge-gui/ui ci
+          npm --prefix musicforge-gui/ui run build
+
+      - name: Build GUI（deb + AppImage；未签名 beta——关闭 updater 产物）
+        working-directory: musicforge-gui
+        run: |
+          node ui/node_modules/@tauri-apps/cli/tauri.js build --features plugin-host \
+            --bundles deb,appimage \
+            --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: musicforge-linux-gui
+          path: |
+            target/release/bundle/deb/*.deb
+            target/release/bundle/appimage/*.AppImage
+
+  macos-gui:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+
+      - name: Install Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build frontend
+        run: |
+          npm --prefix musicforge-gui/ui ci
+          npm --prefix musicforge-gui/ui run build
+
+      - name: Build GUI（dmg；未签名 beta——关闭 updater 产物）
+        working-directory: musicforge-gui
+        run: |
+          node ui/node_modules/@tauri-apps/cli/tauri.js build --features plugin-host \
+            --bundles dmg \
+            --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: musicforge-macos-gui
+          path: target/release/bundle/dmg/*.dmg
