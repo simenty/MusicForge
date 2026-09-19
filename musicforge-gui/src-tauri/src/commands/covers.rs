@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::{Deserialize, Deserializer};
+use tauri_plugin_dialog::DialogExt;
 
 use super::library_db::open_db;
 
@@ -86,6 +87,9 @@ struct MbReleaseGroup {
     /// 用宽松反序列化两种都吃（P6 真网冒烟抓到的第一枚）。
     #[serde(default, deserialize_with = "de_score_lenient")]
     score: Option<String>,
+    /// 首发日期（`YYYY-MM-DD` 或精度更低）——顺手回填专辑年份（零额外请求）。
+    #[serde(rename = "first-release-date", default)]
+    first_release_date: Option<String>,
 }
 
 /// 容忍 `score` 为整数或字符串，统一存为 String。
@@ -107,14 +111,14 @@ fn score_ok(score: Option<&str>) -> bool {
 /// 网络失败 → `Err`（前端提示，可重试——不影响离线功能）。
 #[tauri::command]
 pub async fn cover_fetch(album_id: i64) -> Result<Option<String>, String> {
-    let (title, artist) = {
+    let (title, artist, cur_year) = {
         let db = open_db()?;
         let albums = db.list_albums().map_err(|e| e.to_string())?;
         let a = albums
             .into_iter()
             .find(|a| a.id == album_id)
             .ok_or_else(|| format!("专辑 {album_id} 不存在"))?;
-        (a.title, a.artist.unwrap_or_default())
+        (a.title, a.artist.unwrap_or_default(), a.year)
     };
 
     let client = reqwest::Client::builder()
@@ -145,6 +149,19 @@ pub async fn cover_fetch(album_id: i64) -> Result<Option<String>, String> {
     else {
         return Ok(None);
     };
+
+    // ①′ 顺手回填年份（复用同一次搜索响应——零额外请求；core 侧有 year IS NULL 守卫）
+    if cur_year.is_none() {
+        if let Some(y) = rg
+            .first_release_date
+            .as_deref()
+            .and_then(|d| d.get(0..4))
+            .and_then(|s| s.parse::<i64>().ok())
+        {
+            let db = open_db()?;
+            db.set_album_year(album_id, y).map_err(|e| e.to_string())?;
+        }
+    }
 
     // ② Cover Art Archive：front-250（302 → 图片；该 release-group 无封面 → 404）
     throttle().await;
@@ -188,6 +205,100 @@ pub async fn cover_fetch(album_id: i64) -> Result<Option<String>, String> {
             .map_err(|e| e.to_string())?;
     }
     Ok(Some(path_s))
+}
+
+/// 原生选择图片（png/jpg/webp）——本地封面用。取消 → null。
+#[tauri::command]
+pub async fn cover_pick_image(app: tauri::AppHandle) -> Option<String> {
+    app.dialog()
+        .file()
+        .add_filter("图片", &["png", "jpg", "jpeg", "webp"])
+        .set_title("选择封面图片")
+        .blocking_pick_file()
+        .and_then(|p| p.into_path().ok())
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+/// 本地封面（**离线能力，不需要联网**）：把用户选择的图片复制进封面缓存并写回 db。
+#[tauri::command]
+pub async fn cover_set_local(album_id: i64, src_path: String) -> Result<String, String> {
+    let src = std::path::Path::new(&src_path);
+    let ext = src
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .filter(|e| matches!(e.as_str(), "png" | "jpg" | "jpeg" | "webp"))
+        .ok_or_else(|| format!("不支持的图片格式：{src_path}"))?;
+    let ext = if ext == "jpeg" { "jpg".to_string() } else { ext };
+    let bytes = std::fs::read(src).map_err(|e| format!("读取图片失败：{e}"))?;
+    if bytes.len() < 512 {
+        return Err("图片文件过小，已拒绝".to_string());
+    }
+    let dir = covers_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("无法创建封面目录：{e}"))?;
+    // 换格式时旧文件会遗留——先清同专辑的旧封面
+    for old_ext in ["jpg", "png", "webp"] {
+        let _ = std::fs::remove_file(dir.join(format!("{album_id}.{old_ext}")));
+    }
+    let path = dir.join(format!("{album_id}.{ext}"));
+    std::fs::write(&path, &bytes).map_err(|e| format!("写入失败：{e}"))?;
+    let path_s = path.to_string_lossy().into_owned();
+    let db = open_db()?;
+    db.set_album_cover(album_id, &path_s)
+        .map_err(|e| e.to_string())?;
+    Ok(path_s)
+}
+
+/// 当前曲目所在专辑的封面路径（底栏封面；无 → null）。
+#[tauri::command]
+pub fn track_cover(track_id: i64) -> Result<Option<String>, String> {
+    let db = open_db()?;
+    db.track_cover_path(track_id).map_err(|e| e.to_string())
+}
+
+/// 艺术家代表图的**本地查询**（不发网络）：最热专辑已有封面 → 路径；否则 null。
+/// 艺术家页 mount 时可安全批量调用（纯 db 查询）。
+#[tauri::command]
+pub fn artist_cover_local(artist_id: i64) -> Result<Option<String>, String> {
+    let db = open_db()?;
+    let top = db.artist_top_album(artist_id).map_err(|e| e.to_string())?;
+    Ok(top.and_then(|(_, cover)| cover))
+}
+
+/// 艺术家代表图**批量本地查询**（艺术家页 mount 用——一次 IPC 拉全部已有封面，
+/// 避免逐卡调用造成的 IPC 泛洪）。返回 `{ artistId: coverPath }`。
+#[tauri::command]
+pub fn artist_covers_local(
+    ids: Vec<i64>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let db = open_db()?;
+    let mut out = std::collections::HashMap::new();
+    for id in ids {
+        if let Ok(Some((_, Some(cover)))) = db.artist_top_album(id) {
+            out.insert(id.to_string(), cover);
+        }
+    }
+    Ok(out)
+}
+
+/// 艺术家代表图：其曲目最多专辑的封面；尚未抓过则**当场抓一次**（在线）。
+/// 无专辑 / 抓不到 → null（前端回落字母头像）。
+///
+/// ⚠️ 前端**不得**在列表渲染时逐个调用（1 req/s 限速下会拖垮体验）——
+/// 只由「补全头像」按钮或单卡片显式触发。
+#[tauri::command]
+pub async fn artist_cover(artist_id: i64) -> Result<Option<String>, String> {
+    let top = {
+        let db = open_db()?;
+        db.artist_top_album(artist_id).map_err(|e| e.to_string())?
+    };
+    let Some((album_id, cover)) = top else {
+        return Ok(None);
+    };
+    if let Some(p) = cover {
+        return Ok(Some(p));
+    }
+    cover_fetch(album_id).await
 }
 
 #[cfg(test)]

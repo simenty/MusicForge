@@ -19,6 +19,8 @@ pub mod library;
 #[macro_use]
 pub mod library_db;
 #[macro_use]
+pub mod lyrics;
+#[macro_use]
 pub mod player;
 #[macro_use]
 pub mod plugins;
@@ -28,5 +30,6 @@ pub use covers::*;
 pub use cue_tool::*;
 pub use library::*;
 pub use library_db::*;
+pub use lyrics::*;
 pub use player::*;
 pub use plugins::*;

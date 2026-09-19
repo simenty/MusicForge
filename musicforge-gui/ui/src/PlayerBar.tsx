@@ -1,32 +1,71 @@
 // 播放底栏（P2）：常驻内容区底部——曲目信息 / 上一首·播放暂停·下一首 / 进度 + 音量。
 // 进度拖动：拖动中本地显示（不刷后端），松手才 seek（后端重建解码有成本）。
-import { useState } from "react";
-import { IS_DESKTOP } from "./api";
+import { useEffect, useState } from "react";
+import { IS_DESKTOP, trackCover } from "./api";
 import { useLang } from "./i18n";
 import { fmtClock } from "./lib/format";
+import { assetUrl } from "./lib/asset";
 import type { PlayerApi } from "./hooks/usePlayer";
+import LyricsPanel from "./LyricsPanel";
 
 export default function PlayerBar({ player }: { player: PlayerApi }) {
   const { t } = useLang();
   const { status, playing } = player;
   const [drag, setDrag] = useState<number | null>(null);
   const [qOpen, setQOpen] = useState(false);
+  const [lyrOpen, setLyrOpen] = useState(false);
+  /** 当前曲目封面（本地缓存路径 → asset URL；无 → null 显示图标占位） */
+  const [cover, setCover] = useState<string | null>(null);
+
+  // 曲目切换时拉一次封面（纯本地 db 查询，不发网络）
+  const trackId = status?.trackId ?? null;
+  useEffect(() => {
+    if (trackId === null || !IS_DESKTOP) {
+      setCover(null);
+      return;
+    }
+    let alive = true;
+    void trackCover(trackId)
+      .then((p) => {
+        if (alive) setCover(assetUrl(p));
+      })
+      .catch(() => {
+        if (alive) setCover(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [trackId]);
 
   const dur = status?.durationMs ?? 0;
   const pos = drag ?? status?.positionMs ?? 0;
   const hasTrack = !!status && status.trackId !== null;
 
   return (
+    <>
     <footer className="player-bar" aria-label={t.player.play}>
       <div className="pb-info">
         {hasTrack ? (
           <>
             <span className="pb-cover" aria-hidden="true">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 18V6l10-2v12" />
-                <circle cx="6.5" cy="18" r="2.5" />
-                <circle cx="16.5" cy="16" r="2.5" />
-              </svg>
+              {cover ? (
+                <img src={cover} alt="" />
+              ) : (
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M9 18V6l10-2v12" />
+                  <circle cx="6.5" cy="18" r="2.5" />
+                  <circle cx="16.5" cy="16" r="2.5" />
+                </svg>
+              )}
             </span>
             <span className="pb-title">
               <b title={status.title ?? undefined}>{status.title ?? "—"}</b>
@@ -81,6 +120,28 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
         >
           <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
             <path d="M15 6h2v12h-2zM4 6v12l9-6z" />
+          </svg>
+        </button>
+        {/* P6：歌词（LRCLIB；打开且未缓存时联网一次） */}
+        <button
+          className="pb-btn"
+          onClick={() => setLyrOpen(true)}
+          disabled={!hasTrack}
+          aria-label={t.player.lyrics}
+          title={t.player.lyrics}
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          >
+            <path d="M5 7h9M5 12h6" />
+            <path d="M17 11v6.5" />
+            <circle cx="15" cy="17.5" r="2" />
           </svg>
         </button>
       </div>
@@ -181,6 +242,10 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
           {t.player.errorPrefix(status.error)}
         </div>
       )}
-    </footer>
-  );
+      </footer>
+
+      {/* P6：歌词面板（LRCLIB；打开且未缓存时联网一次） */}
+      {lyrOpen && <LyricsPanel player={player} onClose={() => setLyrOpen(false)} />}
+      </>
+    );
 }

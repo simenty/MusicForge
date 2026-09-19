@@ -4,7 +4,12 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 // PlayerBar 经 IS_DESKTOP 区分「无曲目」与「服务端形态」文案——测试按桌面形态
-vi.mock("./api", () => ({ IS_DESKTOP: true }));
+// P6：组件在曲目切换时会查封面（trackCover）并提供歌词入口（LyricsPanel）
+vi.mock("./api", () => ({
+  IS_DESKTOP: true,
+  trackCover: vi.fn(async () => null),
+  lyricsFetch: vi.fn(async () => null),
+}));
 
 import { I18nProvider } from "./i18n";
 import { zh } from "./i18n/zh";

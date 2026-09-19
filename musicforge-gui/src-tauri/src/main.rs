@@ -182,6 +182,14 @@ fn main() {
             restart_app,
             // P6 在线封面（网络边界：用户显式触发）
             cover_fetch,
+            cover_pick_image,
+            cover_set_local,
+            track_cover,
+            artist_cover,
+            artist_cover_local,
+            artist_covers_local,
+            // P6 歌词（网络边界：打开歌词面板时）
+            lyrics_fetch,
             // P2 播放：队列/播放控制/状态
             player_play_queue,
             player_toggle,

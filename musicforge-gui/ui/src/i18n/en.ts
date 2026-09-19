@@ -215,6 +215,9 @@ export const en: typeof zh = {
     coversNeedOnline: "Enable “Online metadata” in Settings to use this",
     coversProgress: (d: number, n: number) => `Fetching ${d}/${n}…`,
     coversMissing: (n: number) => `${n} without cover`,
+    coverLocal: "Set a local cover (pick an image)",
+    artistsFetchAll: "Fetch artist images",
+    artistsProgress: (d: number, n: number) => `Fetching ${d}/${n}…`,
   },
   /** P4 toolbox: CUE split */
   cue: {
@@ -286,6 +289,11 @@ export const en: typeof zh = {
     unlike: "Unlike",
     errorPrefix: (msg: string) => `Playback error: ${msg}`,
     desktopOnly: "Playback requires the desktop build",
+    // —— P6 lyrics (LRCLIB) ——
+    lyrics: "Lyrics",
+    lyricsTitle: (name: string) => `Lyrics · ${name}`,
+    lyricsNone: "No lyrics found (not in LRCLIB yet)",
+    close: "Close",
   },
   serverInfo: {
     head: "Server info (fnOS / self-hosted)",

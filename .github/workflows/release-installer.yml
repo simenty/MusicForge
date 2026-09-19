@@ -31,6 +31,10 @@ env:
 jobs:
   nsis:
     runs-on: windows-latest
+    # P6：安装包签名（updater minisign）——未配置 secret 时相关步骤自动跳过
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -97,6 +101,18 @@ jobs:
             /DVERSION=$env:VERSION musicforge.nsi
           if ($LASTEXITCODE -ne 0) { throw "makensis failed with $LASTEXITCODE" }
 
+      # P6：给**同一个安装包**做 updater 签名（minisign）——自动更新与手动下载
+      # 从此指向同一载体（P5.5 安装器双轨问题在此收敛）。无密钥 → 跳过。
+      - name: Sign installer for updater
+        if: env.TAURI_SIGNING_PRIVATE_KEY != ''
+        shell: pwsh
+        working-directory: installer
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          node ..\musicforge-gui\ui\node_modules\@tauri-apps\cli\tauri.js signer sign "MusicForge-$env:VERSION-setup.exe"
+          if (-not (Test-Path "MusicForge-$env:VERSION-setup.exe.sig")) { throw "签名未产出" }
+
       - name: Smoke test（静默安装 → 卸载 → 校验清理）
         shell: pwsh
         working-directory: installer
@@ -130,6 +146,7 @@ jobs:
           name: musicforge-windows-${{ steps.ver.outputs.version }}
           path: |
             installer/MusicForge-${{ steps.ver.outputs.version }}-setup.exe
+            installer/MusicForge-${{ steps.ver.outputs.version }}-setup.exe.sig
             dist/musicforge-v${{ steps.ver.outputs.version }}-windows-x64.zip
 
   # ---- P7：unix CLI 资产（musl 静态 + macos aarch64；GUI CLI 先行不打包）----
@@ -263,16 +280,15 @@ jobs:
             assets/SHA256SUMS.txt
             assets/SBOM.cdx.json
 
-  # ---- P5：updater 产物（签名）+ latest.json ----
-  # 前置：一次性配置签名密钥 secret（见 docs/release.md）。
-  # 未配置时 Guard 步骤跳过全部构建（不影响既有发布线）；产出签名更新包
-  # （.nsis.zip + .sig）与 latest.json，追加到同一 Release（needs: release 避免竞态）。
+  # ---- P6：updater 元数据（latest.json）----
+  # 安装器统一（P5.5 遗留修复）：latest.json 指向 **nsis job 的同一个自定义安装包**
+  # （+ 其 minisign 签名）——用户手动下载与自动更新从此是同一载体，安装路径不再漂移。
+  # 本 job 不再重编译（省 ~15 分钟）：只聚合 nsis artifact → 写 latest.json → 附加 Release。
+  # 未配置签名密钥时整 job 跳过（不影响既有发布线）。
   updater:
     needs: [release]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-
       - name: Guard（签名密钥缺失 → 跳过）
         id: guard
         shell: bash
@@ -280,7 +296,7 @@ jobs:
           KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
           if [ -z "$KEY" ]; then
-            echo "TAURI_SIGNING_PRIVATE_KEY 未配置：跳过 updater 产物（见 docs/release.md）"
+            echo "TAURI_SIGNING_PRIVATE_KEY 未配置：跳过 latest.json（见 docs/release.md）"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -297,46 +313,27 @@ jobs:
             echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install Rust stable
+      - name: Download windows installer（含签名）
         if: steps.guard.outputs.skip == 'false'
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        uses: actions/download-artifact@v4
         with:
-          toolchain: stable
+          name: musicforge-windows-${{ steps.ver.outputs.version }}
+          path: win
 
-      - name: Install Node 20
-        if: steps.guard.outputs.skip == 'false'
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Build frontend
-        if: steps.guard.outputs.skip == 'false'
-        run: |
-          npm --prefix musicforge-gui/ui ci
-          npm --prefix musicforge-gui/ui run build
-
-      - name: Build signed updater bundle（tauri bundler）
-        if: steps.guard.outputs.skip == 'false'
-        working-directory: musicforge-gui
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: node ui/node_modules/@tauri-apps/cli/tauri.js build --features plugin-host
-
-      - name: Stage latest.json（签名 + 更新包）
+      - name: Stage latest.json
         if: steps.guard.outputs.skip == 'false'
         shell: pwsh
         env:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          $bundle = "target/release/bundle/nsis"
-          $exe = Join-Path $bundle "MusicForge_${env:VERSION}_x64-setup.exe"
-          if (-not (Test-Path $exe)) { throw "updater bundle 缺失: $exe" }
-          if (-not (Test-Path "$exe.sig")) { throw "签名缺失: $exe.sig（检查 TAURI_SIGNING_PRIVATE_KEY）" }
-          $sig = (Get-Content "$exe.sig" -Raw).Trim()
+          $exe = Get-ChildItem -Recurse win -Filter "MusicForge-*-setup.exe" | Select-Object -First 1
+          if (-not $exe) { throw "未找到安装包（nsis artifact）" }
+          $sigFile = "$($exe.FullName).sig"
+          if (-not (Test-Path $sigFile)) {
+            throw "签名缺失：$($exe.Name).sig —— 检查 nsis job 的 Sign installer 步骤与 secret"
+          }
+          $sig = (Get-Content $sigFile -Raw).Trim()
           New-Item -ItemType Directory -Force -Path dist-updater | Out-Null
-          Copy-Item $exe "dist-updater/"
-          Copy-Item "$exe.sig" "dist-updater/"
           $json = @{
             version   = $env:VERSION
             notes     = "见 GitHub Release 说明"
@@ -344,12 +341,12 @@ jobs:
             platforms = @{
               "windows-x86_64" = @{
                 signature = $sig
-                url       = "https://github.com/${{ github.repository }}/releases/download/v${env:VERSION}/MusicForge_${env:VERSION}_x64-setup.exe"
+                url       = "https://github.com/${{ github.repository }}/releases/download/v${env:VERSION}/MusicForge-${env:VERSION}-setup.exe"
               }
             }
           } | ConvertTo-Json -Depth 6
           Set-Content "dist-updater/latest.json" $json -Encoding utf8
-          Get-ChildItem dist-updater | ForEach-Object { Write-Host "  updater asset: $($_.Name)" }
+          Write-Host "latest.json → $($exe.Name)"
 
       - name: Attach to GitHub Release
         if: steps.guard.outputs.skip == 'false'
@@ -358,6 +355,5 @@ jobs:
           tag_name: v${{ steps.ver.outputs.version }}
           files: |
             dist-updater/latest.json
-            dist-updater/*.exe
-            dist-updater/*.exe.sig
+            win/installer/*.exe.sig
 

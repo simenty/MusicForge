@@ -2,22 +2,12 @@
 // 否则渐变占位。「补全封面」按需抓取（MusicBrainz → Cover Art Archive），
 // 需要先在设置里开启「在线元数据」——网络请求只由这个按钮触发。
 import { useEffect, useState } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
-import { IS_DESKTOP, coverFetch, listAlbums } from "./api";
+import { IS_DESKTOP, coverFetch, coverPickImage, coverSetLocal, listAlbums } from "./api";
 import type { Album } from "./api";
 import { useLang } from "./i18n";
 import { useSettings } from "./hooks/useSettings";
+import { assetUrl } from "./lib/asset";
 import { IconDisc, IconDownload } from "./icons";
-
-/** 本地封面路径 → webview 可加载的 asset URL（非桌面 / 异常 → null，回退占位图）。 */
-function coverSrc(p: string | null | undefined): string | null {
-  if (!IS_DESKTOP || !p) return null;
-  try {
-    return convertFileSrc(p);
-  } catch {
-    return null;
-  }
-}
 
 export default function AlbumsPage() {
   const { t } = useLang();
@@ -58,6 +48,20 @@ export default function AlbumsPage() {
 
   const missing = rows.filter((a) => !a.coverPath);
   const online = settings.onlineMeta;
+
+  /** 设置本地封面（**离线能力**：选一张图片，不走网络）。 */
+  const pickCover = async (a: Album) => {
+    const p = await coverPickImage();
+    if (!p) return;
+    try {
+      const stored = await coverSetLocal(a.id, p);
+      setRows(
+        (prev) => prev?.map((x) => (x.id === a.id ? { ...x, coverPath: stored } : x)) ?? prev
+      );
+    } catch (e) {
+      setErr(String(e));
+    }
+  };
 
   /** 逐个补全缺失封面。网络失败即停（限速下没有重试余量，由用户稍后再来）。 */
   const fetchAll = async () => {
@@ -114,7 +118,7 @@ export default function AlbumsPage() {
       {err && <p className="scan-error">{err}</p>}
       <div className="mgrid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
         {rows.map((a, i) => {
-          const src = coverSrc(a.coverPath);
+          const src = assetUrl(a.coverPath);
           return (
             <div className="mcard" key={a.id}>
               {src ? (
@@ -124,6 +128,28 @@ export default function AlbumsPage() {
                   <IconDisc size={38} />
                 </span>
               )}
+              {/* P6：本地封面（离线；hover 显现） */}
+              <button
+                className="cover-edit"
+                onClick={() => void pickCover(a)}
+                title={t.media.coverLocal}
+                aria-label={t.media.coverLocal}
+              >
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="3" y="5" width="18" height="14" rx="2" />
+                  <circle cx="9" cy="10" r="1.6" />
+                  <path d="M4 17l5-4 4 3 3-2 4 3" />
+                </svg>
+              </button>
               <span className="nm" title={a.title}>
                 {a.title}
               </span>

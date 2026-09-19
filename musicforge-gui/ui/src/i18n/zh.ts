@@ -216,6 +216,9 @@ export const zh = {
     coversNeedOnline: "在「设置」中开启「在线元数据」后可用",
     coversProgress: (d: number, n: number) => `抓取中 ${d}/${n}…`,
     coversMissing: (n: number) => `${n} 张缺封面`,
+    coverLocal: "设置本地封面（选图片）",
+    artistsFetchAll: "补全头像",
+    artistsProgress: (d: number, n: number) => `抓取中 ${d}/${n}…`,
   },
   /** P4 工具箱：CUE 分轨 */
   cue: {
@@ -287,6 +290,11 @@ export const zh = {
     unlike: "取消喜欢",
     errorPrefix: (msg: string) => `播放错误：${msg}`,
     desktopOnly: "播放需要桌面版",
+    // —— P6 歌词（LRCLIB）——
+    lyrics: "歌词",
+    lyricsTitle: (name: string) => `歌词 · ${name}`,
+    lyricsNone: "未找到歌词（LRCLIB 暂未收录或尚在整理）",
+    close: "关闭",
   },
   serverInfo: {
     head: "服务端信息（fnOS / 自建 server）",

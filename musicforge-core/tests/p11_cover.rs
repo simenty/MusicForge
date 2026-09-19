@@ -50,3 +50,51 @@ fn album_cover_roundtrip() {
         "已补封面的专辑不再出现在缺失列表"
     );
 }
+
+/// 年份回填守卫 + 曲目封面查找 + 艺术家最热专辑。
+#[test]
+fn meta_predicates_roundtrip() {
+    let db = Db::open_in_memory().unwrap();
+    let sid = db.upsert_source("/m", None).unwrap();
+    let mut a = track("/m/a.flac", "a");
+    a.source_id = sid;
+    a.album = Some("乐与怒".to_string());
+    a.artist = Some("Beyond".to_string());
+    a.year = None;
+    db.upsert_tracks_batch(&[a], 1).unwrap();
+
+    let album = db.list_albums().unwrap().remove(0);
+    let album_id = album.id;
+    let tracks = db.list_tracks(10, 0).unwrap();
+    assert_eq!(tracks.len(), 1);
+
+    // 年份回填：空 → 写入
+    db.set_album_year(album_id, 1993).unwrap();
+    assert_eq!(db.list_albums().unwrap()[0].year, Some(1993));
+    // 已有年份 → 守卫拒绝覆盖
+    db.set_album_year(album_id, 2020).unwrap();
+    assert_eq!(db.list_albums().unwrap()[0].year, Some(1993), "不覆盖已有年份");
+
+    // 曲目封面查找：无封面 → None；补上 → Some
+    let track_id = tracks[0].id;
+    assert_eq!(
+        db.get_track(track_id).unwrap().unwrap().title.as_deref(),
+        Some("a")
+    );
+    assert!(db.track_cover_path(track_id).unwrap().is_none());
+    db.set_album_cover(album_id, "C:\\c\\1.jpg").unwrap();
+    assert_eq!(
+        db.track_cover_path(track_id).unwrap().as_deref(),
+        Some("C:\\c\\1.jpg")
+    );
+
+    // 艺术家最热专辑：曲目数最多的那（此处唯一）
+    let artists = db.list_artists().unwrap();
+    let aid = artists
+        .iter()
+        .find(|x| x.track_count > 0)
+        .map(|x| x.id)
+        .unwrap();
+    let top = db.artist_top_album(aid).unwrap();
+    assert_eq!(top.unwrap().0, album_id);
+}

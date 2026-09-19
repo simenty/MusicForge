@@ -631,6 +631,52 @@ export async function coverFetch(albumId: number): Promise<string | null> {
   return invoke<string | null>("cover_fetch", { albumId });
 }
 
+/** 选择本地图片（原生对话框；取消 → null） */
+export async function coverPickImage(): Promise<string | null> {
+  if (!IS_DESKTOP) return null;
+  return invoke<string | null>("cover_pick_image");
+}
+
+/** 设置本地封面（**离线能力**：不需要联网；复制进缓存并写回库）。
+ *  返回缓存文件路径 */
+export async function coverSetLocal(albumId: number, srcPath: string): Promise<string> {
+  return invoke<string>("cover_set_local", { albumId, srcPath });
+}
+
+/** 曲目所在专辑的封面路径（底栏封面；无 → null） */
+export async function trackCover(trackId: number): Promise<string | null> {
+  if (!IS_DESKTOP) return null;
+  return invoke<string | null>("track_cover", { trackId });
+}
+
+/** 艺术家代表图（本地查询，不发网络——列表 mount 可安全批量调用） */
+export async function artistCoverLocal(artistId: number): Promise<string | null> {
+  if (!IS_DESKTOP) return null;
+  return invoke<string | null>("artist_cover_local", { artistId });
+}
+
+/** 艺术家代表图批量本地查询（一次 IPC 拉全部已有封面；`{ id: path }`） */
+export async function artistCoversLocal(ids: number[]): Promise<Record<string, string>> {
+  if (!IS_DESKTOP) return {};
+  return invoke<Record<string, string>>("artist_covers_local", { ids });
+}
+
+/** 艺术家代表图（未抓过会当场抓一次——在线；补全按钮用） */
+export async function artistCover(artistId: number): Promise<string | null> {
+  if (!IS_DESKTOP) return null;
+  return invoke<string | null>("artist_cover", { artistId });
+}
+
+// ---------------------------------------------------------------------------
+// P6 歌词（网络边界：打开歌词面板且缓存未命中时——LRCLIB，合规公开 API）
+// ---------------------------------------------------------------------------
+
+/** 取歌词（LRC 文本）。缓存优先；无收录 → null；网络失败 → 抛错 */
+export async function lyricsFetch(trackId: number): Promise<string | null> {
+  if (!IS_DESKTOP) return null;
+  return invoke<string | null>("lyrics_fetch", { trackId });
+}
+
 // ---------------------------------------------------------------------------
 // 门面（facade）：对外契约 = 原 api.ts 的全部导出。
 // 组件与测试的 `import { ... } from "./api"` 不因拆分而改变。

@@ -804,6 +804,75 @@ impl Db {
         Ok(())
     }
 
+    /// 回填专辑年份（在线元数据：MusicBrainz first-release-date）。
+    /// **本地已有年份时不覆盖**（`year IS NULL` 守卫——用户标签优先）。
+    pub fn set_album_year(&self, album_id: i64, year: i64) -> Result<(), NcmError> {
+        self.conn
+            .execute(
+                "UPDATE albums SET year = ?1 WHERE id = ?2 AND year IS NULL",
+                params![year, album_id],
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(())
+    }
+
+    /// 按 id 取单曲（显示名已解析；不存在 → None）。
+    pub fn get_track(&self, track_id: i64) -> Result<Option<TrackRow>, NcmError> {
+        let mut stmt = self
+            .conn
+            .prepare(&format!("{TRACK_SELECT} WHERE t.id = ?1"))
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let rows = stmt
+            .query_map([track_id], map_track_row)
+            .map_err(|e| NcmError::Db(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(rows.into_iter().next())
+    }
+
+    /// 某曲目所在专辑的封面路径（底栏封面用；无专辑 / 无封面 → None）。
+    pub fn track_cover_path(&self, track_id: i64) -> Result<Option<String>, NcmError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT al.cover_cache
+                 FROM tracks t JOIN albums al ON al.id = t.album_id
+                 WHERE t.id = ?1",
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let rows = stmt
+            .query_map([track_id], |r| r.get::<_, Option<String>>(0))
+            .map_err(|e| NcmError::Db(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(rows.into_iter().next().flatten())
+    }
+
+    /// 某艺术家曲目数最多的专辑（id + 封面路径）——艺术家图片的**降级来源**：
+    /// 没有免 key 的艺术家图片源时，用其最热门专辑的封面代表（P6 决策，见记忆）。
+    pub fn artist_top_album(
+        &self,
+        artist_id: i64,
+    ) -> Result<Option<(i64, Option<String>)>, NcmError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT al.id, al.cover_cache
+                 FROM tracks t JOIN albums al ON al.id = t.album_id
+                 WHERE t.artist_id = ?1
+                 GROUP BY al.id
+                 ORDER BY COUNT(t.id) DESC
+                 LIMIT 1",
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let rows = stmt
+            .query_map([artist_id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(|e| NcmError::Db(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(rows.into_iter().next())
+    }
+
     /// 尚无封面的专辑（id、标题、专辑艺人名）——在线封面补全的输入，
     /// 按曲目数降序（优先补最可见的专辑）。
     pub fn albums_missing_cover(
