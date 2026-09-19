@@ -151,7 +151,7 @@ fn parse_one(item: &ScanItem, source_id: i64) -> Parsed {
         ..Default::default()
     };
 
-    match read_audio_meta(&item.path) {
+    let parsed = match read_audio_meta(&item.path) {
         Some(m) => {
             let tagged = m.title.is_some() || m.artist.is_some();
             t.title = m.title.or(Some(stem));
@@ -171,7 +171,20 @@ fn parse_one(item: &ScanItem, source_id: i64) -> Parsed {
             t.title = Some(stem);
             (t, false, true)
         }
+    };
+    // P6.3：DSD 容器（DSF/DFF）的时长/位率/声道由自带解析器补齐——
+    // lofty 对 DFF 不读容器属性（对部分 DSF 亦然）；统一以 probe 为准（只读头，便宜）。
+    let (mut t, tagged, failed) = parsed;
+    if matches!(ext.as_str(), "dsf" | "dff") {
+        if let Ok(info) = crate::formats::dsd::probe_dsd(&item.path) {
+            t.duration_ms = Some((info.duration_secs * 1000.0) as i64);
+            t.sample_rate = Some(info.dsd_rate as i64);
+            t.bit_depth = Some(1);
+            t.channels = Some(info.channels as i64);
+            t.is_lossless = true;
+        }
     }
+    (t, tagged, failed)
 }
 
 /// 从音频文件读出的一批元数据（读不到的字段为 `None`）。

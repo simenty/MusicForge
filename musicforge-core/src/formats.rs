@@ -6,6 +6,7 @@
 //! 旧公开路径 `crate::crypto` / `crate::decoder` / `crate::header` / `crate::format`
 //! 由 `lib.rs` 的模块重导出保持可编译（P1c 起新代码走 `formats::registry`）。
 
+pub mod dsd;
 pub mod ncm;
 pub mod probe;
 pub mod registry;

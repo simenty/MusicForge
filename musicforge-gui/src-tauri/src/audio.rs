@@ -359,7 +359,7 @@ impl Engine {
         };
         match ActiveDecoder::open(Path::new(&item.path)) {
             Ok(dec) => {
-                let spec = (dec.sample_rate, dec.channels);
+                let spec = (dec.sample_rate(), dec.channels());
                 // 断流状态下加载新曲：强制重建（复用会拿到已死的流）
                 if self.shared.stream_broken.swap(false, Ordering::Relaxed) {
                     self.stream = None;
@@ -433,7 +433,7 @@ impl Engine {
         // 断流恢复（设备热插拔的自动重试路径）：重建输出流，保留解码器与位置
         if self.shared.stream_broken.swap(false, Ordering::Relaxed) {
             let Some(dec) = self.decoder.as_ref() else { return };
-            let spec = (dec.sample_rate, dec.channels);
+            let spec = (dec.sample_rate(), dec.channels());
             self.stream = None;
             self.sample_tx = None;
             self.stream_spec = None;
@@ -473,8 +473,8 @@ impl Engine {
                 self.shared.generation.fetch_add(1, Ordering::Relaxed);
                 self.generation = self.shared.generation.load(Ordering::Relaxed);
                 self.shared.in_flight.store(0, Ordering::Relaxed);
-                let rate = dec.sample_rate as u64;
-                let ch = dec.channels as u64;
+                let rate = dec.sample_rate() as u64;
+                let ch = dec.channels() as u64;
                 let frames = (ms as u64) * rate / 1000;
                 self.shared
                     .samples_played
@@ -655,8 +655,8 @@ fn make_callback<T: SizedSample + FromSample<f32>>(
 
 // ------------------------------------------------------------ symphonia --
 
-/// 活动的解码器（含格式读取器 + 编解码器 + 首帧预读）。
-struct ActiveDecoder {
+/// symphonia 解码器（含格式读取器 + 编解码器 + 首帧预读）。
+struct SymDecoder {
     format: Box<dyn FormatReader>,
     decoder: Box<dyn Decoder>,
     track_id: u32,
@@ -667,7 +667,7 @@ struct ActiveDecoder {
     eof: bool,
 }
 
-impl ActiveDecoder {
+impl SymDecoder {
     /// 打开文件并**预读首块**——采样率/声道以真实解码结果为准
     /// （容器头的 codec_params 可能缺失或与真实帧不符）。
     fn open(path: &Path) -> Result<Self, String> {
@@ -784,5 +784,93 @@ impl ActiveDecoder {
         self.eof = false;
         self.pending = None;
         Ok(())
+    }
+}
+
+// ------------------------------------------------------------ DSD（P6.3）--
+
+/// DSD 解码器：DSF/DFF → PCM 88.2kHz f32（**非原生 DoP**——原生输出是路线图项）。
+/// 位流抽取质量见 core::formats::dsd 的如实标注（8 位求和 + box，非发烧级 FIR）。
+struct DsdDecoder {
+    reader: musicforge_core::formats::dsd::DsdReader,
+    out_rate: u32,
+    channels: u16,
+}
+
+impl DsdDecoder {
+    fn open(path: &Path) -> Result<Self, String> {
+        let reader = musicforge_core::formats::dsd::DsdReader::open(path)
+            .map_err(|e| format!("DSD 打开失败: {e}"))?;
+        let out_rate = reader.out_rate;
+        let channels = reader.channels as u16;
+        Ok(Self {
+            reader,
+            out_rate,
+            channels,
+        })
+    }
+
+    fn next_chunk(&mut self) -> Result<Option<Vec<f32>>, String> {
+        // 4096 帧/块（~46ms @88.2k）——与 symphonia 路径的块量级一致
+        let v = self
+            .reader
+            .read_pcm_f32(4096)
+            .map_err(|e| format!("DSD 解码失败: {e}"))?;
+        Ok(if v.is_empty() { None } else { Some(v) })
+    }
+
+    fn seek(&mut self, ms: i64) -> Result<(), String> {
+        self.reader
+            .seek_ms(ms)
+            .map_err(|e| format!("DSD 定位失败: {e}"))
+    }
+}
+
+/// 活动解码器：symphonia（常规格式）或 DSD（DSF/DFF → PCM 抽取路径）。
+enum ActiveDecoder {
+    Sym(SymDecoder),
+    Dsd(DsdDecoder),
+}
+
+impl ActiveDecoder {
+    /// 按扩展名分派（dsf/dff → DSD 路径；其余 symphonia）。
+    fn open(path: &Path) -> Result<Self, String> {
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .unwrap_or_default();
+        if ext == "dsf" || ext == "dff" {
+            return DsdDecoder::open(path).map(Self::Dsd);
+        }
+        SymDecoder::open(path).map(Self::Sym)
+    }
+
+    fn sample_rate(&self) -> u32 {
+        match self {
+            Self::Sym(d) => d.sample_rate,
+            Self::Dsd(d) => d.out_rate,
+        }
+    }
+
+    fn channels(&self) -> u16 {
+        match self {
+            Self::Sym(d) => d.channels,
+            Self::Dsd(d) => d.channels,
+        }
+    }
+
+    fn next_chunk(&mut self) -> Result<Option<Vec<f32>>, String> {
+        match self {
+            Self::Sym(d) => d.next_chunk(),
+            Self::Dsd(d) => d.next_chunk(),
+        }
+    }
+
+    fn seek(&mut self, ms: i64) -> Result<(), String> {
+        match self {
+            Self::Sym(d) => d.seek(ms),
+            Self::Dsd(d) => d.seek(ms),
+        }
     }
 }

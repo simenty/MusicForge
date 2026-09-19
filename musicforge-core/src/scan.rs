@@ -219,8 +219,9 @@ pub fn is_audio_ext(ext: &str) -> bool {
     // 属性测试 `audio_ext_is_case_insensitive` 在 CI（Windows 随机种子）命中反例
     // 后按「契约一致 + 自防御」修正。当前两处调用点（scan.rs / watcher.rs 的
     // `ext_of`）本已小写化，故行为不变，仅消除隐性依赖。
-    const AUDIO_EXTS: [&str; 10] = [
-        "mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "ape", "wv", "wma",
+    // P6.3：加入 dsf/dff（DSD）——播放经 PCM 抽取路径（audio.rs 的 DsdDecoder）
+    const AUDIO_EXTS: [&str; 12] = [
+        "mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "ape", "wv", "wma", "dsf", "dff",
     ];
     AUDIO_EXTS.iter().any(|a| a.eq_ignore_ascii_case(ext))
 }
