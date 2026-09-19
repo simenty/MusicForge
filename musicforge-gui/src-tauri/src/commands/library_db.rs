@@ -10,7 +10,7 @@ pub(crate) fn open_db() -> Result<musicforge_core::db::Db, String> {
 }
 
 /// 曲目行 → 前端 JSON（camelCase；分页契约见 `list_tracks`）。
-fn track_json(t: &musicforge_core::db::TrackRow) -> serde_json::Value {
+pub(crate) fn track_json(t: &musicforge_core::db::TrackRow) -> serde_json::Value {
     serde_json::json!({
         "id": t.id,
         "sourceId": t.source_id,

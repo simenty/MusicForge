@@ -190,6 +190,14 @@ fn main() {
             artist_covers_local,
             // P6 歌词（网络边界：打开歌词面板时）
             lyrics_fetch,
+            // P6.4 歌单
+            playlist_create,
+            playlists_list,
+            playlist_tracks,
+            playlist_add,
+            playlist_remove,
+            playlist_rename,
+            playlist_delete,
             // P2 播放：队列/播放控制/状态
             player_play_queue,
             player_toggle,

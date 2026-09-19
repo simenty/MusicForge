@@ -9,6 +9,7 @@ import { fmtSizeGB } from "./lib/format";
 import { useWindowedTracks, TRACK_ROW_H } from "./hooks/useWindowedTracks";
 import { useLiked } from "./hooks/useLiked";
 import TrackRow from "./TrackRow";
+import AddToPlaylistDialog from "./AddToPlaylistDialog";
 
 export default function LibraryPage({
   onPlay,
@@ -19,6 +20,8 @@ export default function LibraryPage({
   const { t } = useLang();
   const w = useWindowedTracks();
   const liked = useLiked();
+  /** P6.4：待加入歌单的曲目（null = 弹层关闭） */
+  const [addTarget, setAddTarget] = useState<Track | null>(null);
   const [stats, setStats] = useState<LibraryStats | null>(null);
   const [initErr, setInitErr] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -138,6 +141,7 @@ export default function LibraryPage({
                   onPlay={onPlay ? () => playFrom(r) : undefined}
                   liked={liked.isLiked(r.id)}
                   onLike={() => void liked.toggle(r.id)}
+                  onAdd={() => setAddTarget(r)}
                 />
               ))}
             </>
@@ -156,6 +160,7 @@ export default function LibraryPage({
                       onPlay={onPlay ? () => playFrom(tr) : undefined}
                       liked={liked.isLiked(tr.id)}
                       onLike={() => void liked.toggle(tr.id)}
+                      onAdd={() => setAddTarget(tr)}
                     />
                   ) : (
                     <div className="vt-row" key={`ph-${i}`}>
@@ -171,6 +176,12 @@ export default function LibraryPage({
           </div>
         )}
       </div>
+
+      {/* P6.4：加入歌单弹层 */}
+      <AddToPlaylistDialog
+        tracks={addTarget ? [addTarget] : null}
+        onClose={() => setAddTarget(null)}
+      />
     </>
   );
 }

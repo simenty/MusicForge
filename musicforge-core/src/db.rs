@@ -266,6 +266,14 @@ pub struct TopTrackRow {
     pub play_count: i64,
 }
 
+/// 歌单行（v3）：id + 名称 + 曲目数。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaylistRow {
+    pub id: i64,
+    pub name: String,
+    pub track_count: i64,
+}
+
 impl Db {
     /// 打开（不存在则创建）状态库并完成迁移。
     ///
@@ -1190,6 +1198,200 @@ impl Db {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| NcmError::Db(e.to_string()))?;
         Ok(rows)
+    }
+
+    // -------------------------------------------------------- 歌单（P6.4）--
+
+    /// 创建歌单；名称 trim 后不得为空。返回新 id。
+    pub fn create_playlist(&self, name: &str) -> Result<i64, NcmError> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(NcmError::Db("歌单名称不能为空".to_string()));
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        self.conn
+            .execute(
+                "INSERT INTO playlists(name, created_at) VALUES (?1, ?2)",
+                params![name, now],
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// 歌单列表（创建序；含曲目数）。
+    pub fn list_playlists(&self) -> Result<Vec<PlaylistRow>, NcmError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT p.id, p.name, COUNT(i.track_id) AS n
+                 FROM playlists p
+                 LEFT JOIN playlist_items i ON i.playlist_id = p.id
+                 GROUP BY p.id
+                 ORDER BY p.created_at, p.id",
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(PlaylistRow {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    track_count: r.get(2)?,
+                })
+            })
+            .map_err(|e| NcmError::Db(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(rows)
+    }
+
+    /// 歌单内曲目（按 position 顺序；显示名已解析）。
+    /// INNER JOIN 语义：曲目行被移除（源删除）后条目自动隐藏。
+    pub fn playlist_tracks(&self, playlist_id: i64) -> Result<Vec<TrackRow>, NcmError> {
+        let mut stmt = self
+            .conn
+            .prepare(&format!(
+                "{TRACK_SELECT}
+                 JOIN playlist_items pi ON pi.track_id = t.id AND pi.playlist_id = ?1
+                 ORDER BY pi.position"
+            ))
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let rows = stmt
+            .query_map([playlist_id], map_track_row)
+            .map_err(|e| NcmError::Db(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(rows)
+    }
+
+    /// 追加曲目到歌单：跳过已在歌单中的、跳过不存在的 track id；
+    /// position 从尾部续接。返回实际追加数（单事务）。
+    pub fn playlist_add_tracks(
+        &self,
+        playlist_id: i64,
+        track_ids: &[i64],
+    ) -> Result<usize, NcmError> {
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let exists: i64 = tx
+            .query_row(
+                "SELECT COUNT(1) FROM playlists WHERE id = ?1",
+                [playlist_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        if exists == 0 {
+            return Err(NcmError::Db(format!("歌单 {playlist_id} 不存在")));
+        }
+        let mut have: std::collections::HashSet<i64> = {
+            let mut stmt = tx
+                .prepare("SELECT track_id FROM playlist_items WHERE playlist_id = ?1")
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+            let rows = stmt
+                .query_map([playlist_id], |r| r.get::<_, i64>(0))
+                .map_err(|e| NcmError::Db(e.to_string()))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+            rows.into_iter().collect()
+        };
+        let mut pos: i64 = tx
+            .query_row(
+                "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_items WHERE playlist_id = ?1",
+                [playlist_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let mut added = 0usize;
+        for &id in track_ids {
+            if have.contains(&id) {
+                continue;
+            }
+            // 曲目不存在则跳过（FK 是活的——静默跳过比报 FK 错更符合"批量加"语义）
+            let ok: i64 = tx
+                .query_row("SELECT COUNT(1) FROM tracks WHERE id = ?1", [id], |r| {
+                    r.get(0)
+                })
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+            if ok == 0 {
+                continue;
+            }
+            tx.execute(
+                "INSERT INTO playlist_items(playlist_id, track_id, position) VALUES (?1, ?2, ?3)",
+                params![playlist_id, id, pos],
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+            have.insert(id);
+            pos += 1;
+            added += 1;
+        }
+        tx.commit().map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(added)
+    }
+
+    /// 从歌单移除曲目（后续 position 前移，保持连续；单事务）。
+    pub fn playlist_remove_track(&self, playlist_id: i64, track_id: i64) -> Result<(), NcmError> {
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let pos: Option<i64> = tx
+            .query_row(
+                "SELECT position FROM playlist_items WHERE playlist_id = ?1 AND track_id = ?2",
+                params![playlist_id, track_id],
+                |r| r.get(0),
+            )
+            .ok();
+        if let Some(p) = pos {
+            tx.execute(
+                "DELETE FROM playlist_items WHERE playlist_id = ?1 AND position = ?2",
+                params![playlist_id, p],
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+            tx.execute(
+                "UPDATE playlist_items SET position = position - 1 \
+                 WHERE playlist_id = ?1 AND position > ?2",
+                params![playlist_id, p],
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        }
+        tx.commit().map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(())
+    }
+
+    /// 重命名歌单（名称 trim 后不得为空）。
+    pub fn playlist_rename(&self, playlist_id: i64, name: &str) -> Result<(), NcmError> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(NcmError::Db("歌单名称不能为空".to_string()));
+        }
+        self.conn
+            .execute(
+                "UPDATE playlists SET name = ?1 WHERE id = ?2",
+                params![name, playlist_id],
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(())
+    }
+
+    /// 删除歌单及其条目（FK 无级联——手动两条 DELETE，单事务；**不动曲目行**）。
+    pub fn playlist_delete(&self, playlist_id: i64) -> Result<(), NcmError> {
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        tx.execute(
+            "DELETE FROM playlist_items WHERE playlist_id = ?1",
+            [playlist_id],
+        )
+        .map_err(|e| NcmError::Db(e.to_string()))?;
+        tx.execute("DELETE FROM playlists WHERE id = ?1", [playlist_id])
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        tx.commit().map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(())
     }
 }
 

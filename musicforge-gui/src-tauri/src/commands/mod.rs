@@ -23,6 +23,8 @@ pub mod lyrics;
 #[macro_use]
 pub mod player;
 #[macro_use]
+pub mod playlists;
+#[macro_use]
 pub mod plugins;
 
 pub use batch::*;
@@ -32,4 +34,5 @@ pub use library::*;
 pub use library_db::*;
 pub use lyrics::*;
 pub use player::*;
+pub use playlists::*;
 pub use plugins::*;

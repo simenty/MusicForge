@@ -17,7 +17,9 @@ export interface TrackRowProps {
   onPlay?: () => void;
   liked?: boolean;
   onLike?: () => void;
-  /** 会话自定义的第 6 列（优先于爱心；如统计页的播放次数） */
+  /** 「加入歌单」入口（提供时尾列渲染 ＋ 按钮，与爱心并排） */
+  onAdd?: () => void;
+  /** 会话自定义的第 6 列（优先于 ＋/爱心；如统计页的播放次数） */
   trailing?: ReactNode;
 }
 
@@ -27,6 +29,7 @@ export default function TrackRow({
   onPlay,
   liked,
   onLike,
+  onAdd,
   trailing,
 }: TrackRowProps) {
   const { t } = useLang();
@@ -47,29 +50,56 @@ export default function TrackRow({
       </span>
       <span className="vt-heart">
         {trailing ??
-          (onLike && (
-            <button
-              className={"heart-btn" + (liked ? " on" : "")}
-              onClick={(e) => {
-                e.stopPropagation();
-                onLike();
-              }}
-              aria-label={liked ? t.player.unlike : t.player.like}
-              title={liked ? t.player.unlike : t.player.like}
-            >
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill={liked ? "currentColor" : "none"}
-                stroke="currentColor"
-                strokeWidth="1.7"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M12 20s-7-4.6-7-9.6A4 4 0 0112 7a4 4 0 017 3.4c0 5-7 9.6-7 9.6z" />
-              </svg>
-            </button>
+          ((onAdd || onLike) && (
+            <>
+              {onAdd && (
+                <button
+                  className="heart-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAdd();
+                  }}
+                  aria-label={t.pl.addTo}
+                  title={t.pl.addTo}
+                >
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                  >
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </button>
+              )}
+              {onLike && (
+                <button
+                  className={"heart-btn" + (liked ? " on" : "")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onLike();
+                  }}
+                  aria-label={liked ? t.player.unlike : t.player.like}
+                  title={liked ? t.player.unlike : t.player.like}
+                >
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill={liked ? "currentColor" : "none"}
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M12 20s-7-4.6-7-9.6A4 4 0 0112 7a4 4 0 017 3.4c0 5-7 9.6-7 9.6z" />
+                  </svg>
+                </button>
+              )}
+            </>
           ))}
       </span>
     </div>

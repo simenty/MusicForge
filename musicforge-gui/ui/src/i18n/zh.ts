@@ -219,6 +219,30 @@ export const zh = {
     coverLocal: "设置本地封面（选图片）",
     artistsFetchAll: "补全头像",
     artistsProgress: (d: number, n: number) => `抓取中 ${d}/${n}…`,
+    tabPlaylists: "歌单",
+  },
+  /** P6.4 库内歌单 */
+  pl: {
+    psTitle: "歌单",
+    psSub: (n: number) => `共 ${n} 个歌单`,
+    psNone: "还没有歌单——在上方输入名称创建一个",
+    psCreate: "新建",
+    psNamePlaceholder: "歌单名称",
+    psCount: (n: number) => `${n} 首`,
+    psEmpty: "歌单为空——在音乐库里点曲目行的 ＋ 添加",
+    psBack: "返回歌单",
+    psRename: "重命名",
+    psOk: "确定",
+    psCancel: "取消",
+    psDelete: "删除歌单",
+    psDeleteTitle: "删除歌单",
+    psDeleteSummary: (name: string) =>
+      `将删除歌单「${name}」及其条目（不影响曲库中的曲目文件）：`,
+    psDeleteAck: "我了解：仅删除歌单，不删除曲目",
+    psRemove: "从歌单移除",
+    addTo: "加入歌单",
+    addedN: (n: number) => `已添加 ${n} 首`,
+    alreadyIn: "这些曲目已在歌单中",
   },
   /** P4 工具箱：CUE 分轨 */
   cue: {

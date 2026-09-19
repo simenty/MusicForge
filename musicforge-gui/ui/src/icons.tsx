@@ -249,6 +249,20 @@ export function IconHeart({ size = 16, className }: IconProps) {
   );
 }
 
+/** 歌单（列表） */
+export function IconList({ size = 16, className }: IconProps) {
+  return svg(
+    <>
+      <path d="M9 6h11M9 12h11M9 18h11" />
+      <circle cx="4.5" cy="6" r="1.3" fill="currentColor" stroke="none" />
+      <circle cx="4.5" cy="12" r="1.3" fill="currentColor" stroke="none" />
+      <circle cx="4.5" cy="18" r="1.3" fill="currentColor" stroke="none" />
+    </>,
+    size,
+    className
+  );
+}
+
 /** 重复去重（两份重叠） */
 export function IconCopy({ size = 16, className }: IconProps) {
   return svg(

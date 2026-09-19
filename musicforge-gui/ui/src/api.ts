@@ -678,6 +678,54 @@ export async function lyricsFetch(trackId: number): Promise<string | null> {
 }
 
 // ---------------------------------------------------------------------------
+// P6.4 歌单（库内歌单；与 `playlist.rs` 的 M3U 导入导出是两回事）
+// ---------------------------------------------------------------------------
+
+/** 歌单（含曲目数） */
+export interface Playlist {
+  id: number;
+  name: string;
+  trackCount: number;
+}
+
+/** 创建歌单（返回新 id；空名会被后端拒绝） */
+export async function playlistCreate(name: string): Promise<number> {
+  return invoke<number>("playlist_create", { name });
+}
+
+/** 歌单列表（创建序） */
+export async function playlistsList(): Promise<Playlist[]> {
+  if (!IS_DESKTOP) return [];
+  return invoke<Playlist[]>("playlists_list");
+}
+
+/** 歌单内曲目（按歌单顺序） */
+export async function playlistTracks(playlistId: number): Promise<Track[]> {
+  if (!IS_DESKTOP) return [];
+  return invoke<Track[]>("playlist_tracks", { playlistId });
+}
+
+/** 追加曲目（重复与不存在跳过；返回实际追加数） */
+export async function playlistAdd(playlistId: number, trackIds: number[]): Promise<number> {
+  return invoke<number>("playlist_add", { playlistId, trackIds });
+}
+
+/** 从歌单移除曲目（后续顺序前移） */
+export async function playlistRemove(playlistId: number, trackId: number): Promise<void> {
+  return invoke<void>("playlist_remove", { playlistId, trackId });
+}
+
+/** 重命名歌单 */
+export async function playlistRename(playlistId: number, name: string): Promise<void> {
+  return invoke<void>("playlist_rename", { playlistId, name });
+}
+
+/** 删除歌单（条目连带清理；不动曲目行） */
+export async function playlistDelete(playlistId: number): Promise<void> {
+  return invoke<void>("playlist_delete", { playlistId });
+}
+
+// ---------------------------------------------------------------------------
 // 门面（facade）：对外契约 = 原 api.ts 的全部导出。
 // 组件与测试的 `import { ... } from "./api"` 不因拆分而改变。
 // ---------------------------------------------------------------------------

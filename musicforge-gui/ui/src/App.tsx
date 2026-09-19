@@ -26,6 +26,7 @@ import MediaHome from "./MediaHome";
 import LibraryPage from "./LibraryPage";
 import ArtistsPage from "./ArtistsPage";
 import AlbumsPage from "./AlbumsPage";
+import PlaylistsPage from "./PlaylistsPage";
 import SourcesPage from "./SourcesPage";
 import HistoryPage from "./HistoryPage";
 import FavoritesPage from "./FavoritesPage";
@@ -45,6 +46,7 @@ import {
   IconHeart,
   IconHome,
   IconLibrary,
+  IconList,
   IconMenu,
   IconPlan,
   IconPlay,
@@ -94,9 +96,17 @@ export default function App() {
   const [toolboxTab, setToolboxTab] = useState<
     "convert" | "scan" | "dedupe" | "organize" | "clean" | "trash" | "cue" | "plugins"
   >("convert");
-  /** 媒体库分区的二级菜单：概览 / 音乐库 / 艺术家 / 专辑 / 喜欢 / 历史 / 统计 / 媒体源 */
+  /** 媒体库分区的二级菜单：概览 / 音乐库 / 艺术家 / 专辑 / 歌单 / 喜欢 / 历史 / 统计 / 媒体源 */
   const [mediaTab, setMediaTab] = useState<
-    "home" | "library" | "artists" | "albums" | "favorites" | "history" | "stats" | "sources"
+    | "home"
+    | "library"
+    | "artists"
+    | "albums"
+    | "playlists"
+    | "favorites"
+    | "history"
+    | "stats"
+    | "sources"
   >("home");
   /** 顶栏标题：当前分区（曲库时附二级项名——布局吸收后导航在左侧栏，顶栏只显示位置） */
   const mediaTabLabel =
@@ -108,7 +118,9 @@ export default function App() {
           ? t.media.tabArtists
           : mediaTab === "albums"
             ? t.media.tabAlbums
-            : mediaTab === "favorites"
+            : mediaTab === "playlists"
+              ? t.media.tabPlaylists
+              : mediaTab === "favorites"
               ? t.media.tabFavorites
               : mediaTab === "history"
                 ? t.media.tabHistory
@@ -338,6 +350,19 @@ export default function App() {
                 >
                   <IconDisc />
                   <span>{t.media.tabAlbums}</span>
+                </button>
+                <button
+                  className={
+                    "nav-item sub" + (view === "media" && mediaTab === "playlists" ? " on" : "")
+                  }
+                  onClick={() => {
+                    setView("media");
+                    setMediaTab("playlists");
+                    setNavOpen(false);
+                  }}
+                >
+                  <IconList />
+                  <span>{t.media.tabPlaylists}</span>
                 </button>
                 <button
                   className={
@@ -772,6 +797,7 @@ export default function App() {
           {mediaTab === "library" && <LibraryPage onPlay={player.playTracks} />}
           {mediaTab === "artists" && <ArtistsPage />}
           {mediaTab === "albums" && <AlbumsPage />}
+          {mediaTab === "playlists" && <PlaylistsPage onPlay={player.playTracks} />}
           {mediaTab === "favorites" && <FavoritesPage onPlay={player.playTracks} />}
           {mediaTab === "history" && <HistoryPage onPlay={player.playTracks} />}
           {mediaTab === "stats" && <StatsPage onPlay={player.playTracks} />}

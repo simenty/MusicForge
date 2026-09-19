@@ -218,6 +218,30 @@ export const en: typeof zh = {
     coverLocal: "Set a local cover (pick an image)",
     artistsFetchAll: "Fetch artist images",
     artistsProgress: (d: number, n: number) => `Fetching ${d}/${n}…`,
+    tabPlaylists: "Playlists",
+  },
+  /** P6.4 in-library playlists */
+  pl: {
+    psTitle: "Playlists",
+    psSub: (n: number) => `${n} playlist${n === 1 ? "" : "s"}`,
+    psNone: "No playlists yet — type a name above to create one",
+    psCreate: "Create",
+    psNamePlaceholder: "Playlist name",
+    psCount: (n: number) => `${n} track${n === 1 ? "" : "s"}`,
+    psEmpty: "Empty playlist — add tracks with the ＋ button in the library",
+    psBack: "Back to playlists",
+    psRename: "Rename",
+    psOk: "OK",
+    psCancel: "Cancel",
+    psDelete: "Delete playlist",
+    psDeleteTitle: "Delete playlist",
+    psDeleteSummary: (name: string) =>
+      `This deletes the playlist “${name}” and its entries (your track files are untouched):`,
+    psDeleteAck: "I understand: only the playlist is deleted, not the tracks",
+    psRemove: "Remove from playlist",
+    addTo: "Add to playlist",
+    addedN: (n: number) => `Added ${n} track${n === 1 ? "" : "s"}`,
+    alreadyIn: "Already in that playlist",
   },
   /** P4 toolbox: CUE split */
   cue: {
