@@ -130,6 +130,32 @@ pub fn export_playlists(
     Ok(report)
 }
 
+/// 把**一条**歌单（已解析的条目）导出为单个 `.m3u8`（P6.6：库内歌单导出）。
+///
+/// 与 [`export_playlists`] 共用 [`render_m3u8`]——格式只有一份实现，不会漂移。
+/// `entries` = `(路径, 标题, 时长秒)`；时长未知用 -1。返回写入条目数。
+pub fn export_one_m3u8(
+    dst: &Path,
+    entries: &[(PathBuf, String, i64)],
+) -> Result<usize, NcmError> {
+    let items: Vec<PlaylistEntry> = entries
+        .iter()
+        .map(|(p, t, d)| PlaylistEntry {
+            path: p.clone(),
+            title: t.clone(),
+            duration_secs: *d,
+        })
+        .collect();
+    let body = render_m3u8(dst, &items)?;
+    if let Some(parent) = dst.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    std::fs::write(dst, body)?;
+    Ok(items.len())
+}
+
 /// 渲染 M3U8 文本（`#EXTM3U` + `#EXTINF`；条目路径优先相对清单位置）。
 fn render_m3u8(playlist_path: &Path, entries: &[PlaylistEntry]) -> Result<String, NcmError> {
     let base = playlist_path

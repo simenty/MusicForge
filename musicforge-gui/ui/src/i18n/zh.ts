@@ -243,6 +243,9 @@ export const zh = {
     addTo: "加入歌单",
     addedN: (n: number) => `已添加 ${n} 首`,
     alreadyIn: "这些曲目已在歌单中",
+    psExport: "导出 M3U8",
+    psExported: (n: number) => `已导出 ${n} 首到文件`,
+    psDragHint: "拖拽行可调整顺序",
   },
   /** P4 工具箱：CUE 分轨 */
   cue: {

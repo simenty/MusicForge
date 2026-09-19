@@ -5,6 +5,8 @@ import {
   IS_DESKTOP,
   playlistCreate,
   playlistDelete,
+  playlistExport,
+  playlistMove,
   playlistRemove,
   playlistRename,
   playlistTracks,
@@ -30,6 +32,10 @@ export default function PlaylistsPage({
   const [delTarget, setDelTarget] = useState<Playlist | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [renameVal, setRenameVal] = useState("");
+  /** 拖拽排序：当前拖起的行下标（P6.6） */
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  /** 操作反馈（导出成功等） */
+  const [note, setNote] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     if (!IS_DESKTOP) return;
@@ -88,6 +94,37 @@ export default function PlaylistsPage({
     }
   };
 
+  /** 拖拽落位：本地乐观重排 + 后端持久化（失败仅提示，刷新即回到真相） */
+  const moveTo = async (toIdx: number) => {
+    if (!open || dragIdx === null || !items || dragIdx === toIdx) {
+      setDragIdx(null);
+      return;
+    }
+    const from = dragIdx;
+    setDragIdx(null);
+    const next = items.slice();
+    const [moved] = next.splice(from, 1);
+    next.splice(toIdx, 0, moved);
+    setItems(next);
+    try {
+      await playlistMove(open.id, moved.id, toIdx);
+    } catch (e) {
+      setErr(String(e));
+    }
+  };
+
+  /** 导出为 M3U8（原生保存对话框） */
+  const doExport = async () => {
+    if (!open) return;
+    setNote(null);
+    try {
+      const r = await playlistExport(open.id);
+      if (r) setNote(t.pl.psExported(r.tracks));
+    } catch (e) {
+      setErr(String(e));
+    }
+  };
+
   const doRename = async () => {
     if (!open) return;
     const name = renameVal.trim();
@@ -137,7 +174,9 @@ export default function PlaylistsPage({
           </div>
           <div>
             <h2>{open.name}</h2>
-            <p className="sub">{t.pl.psCount(items?.length ?? open.trackCount)}</p>
+            <p className="sub">
+              {t.pl.psCount(items?.length ?? open.trackCount)} · {t.pl.psDragHint}
+            </p>
           </div>
           <div className="act">
             <button
@@ -157,6 +196,9 @@ export default function PlaylistsPage({
               }}
             >
               {t.pl.psRename}
+            </button>
+            <button className="btn sm" onClick={() => void doExport()}>
+              {t.pl.psExport}
             </button>
             <button className="btn sm" onClick={() => setDelTarget(open)}>
               {t.pl.psDelete}
@@ -185,6 +227,7 @@ export default function PlaylistsPage({
           </div>
         )}
         {err && <p className="scan-error">{err}</p>}
+        {note && <p className="scan-note">{note}</p>}
 
         {items === null ? (
           <p className="scan-note">{t.media.loading}</p>
@@ -207,6 +250,13 @@ export default function PlaylistsPage({
                 key={r.id}
                 lead={i + 1}
                 track={r}
+                dragProps={{
+                  draggable: true,
+                  onDragStart: () => setDragIdx(i),
+                  onDragOver: (e) => e.preventDefault(),
+                  onDrop: () => void moveTo(i),
+                  style: { cursor: "grab" },
+                }}
                 onPlay={
                   onPlay
                     ? () => {

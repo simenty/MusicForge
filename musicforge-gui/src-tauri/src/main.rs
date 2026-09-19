@@ -108,6 +108,20 @@ fn main() {
         // P5 更新：唯一网络行为（dependency-policy.md 显式例外）——JS API 不授权，
         // 前端只能走白名单命令 check_update / install_update / restart_app
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // P6.6 全局快捷键：Ctrl+Alt+Space = 播放/暂停（任何界面生效）。
+        // 注册在被占用时失败——setup 中的 register 静默忽略，不影响启动。
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, shortcut, event| {
+                    use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
+                    if event.state() == ShortcutState::Pressed
+                        && shortcut.matches(Modifiers::CONTROL | Modifiers::ALT, Code::Space)
+                    {
+                        let _ = app.state::<audio::PlayerHandle>().toggle();
+                    }
+                })
+                .build(),
+        )
         .manage(AppState::default())
         .manage(StartupFiles(Mutex::new(startup_files)))
         // P2：播放引擎句柄（引擎线程随进程存活；音频设备懒打开——首播时才建立输出流）
@@ -129,6 +143,14 @@ fn main() {
                 #[cfg(not(target_os = "windows"))]
                 let hwnd: Option<usize> = None;
                 media_controls::spawn(app.state::<audio::PlayerHandle>().inner().clone(), hwnd);
+            }
+            // P6.6：全局快捷键注册（Ctrl+Alt+Space；被占用时静默降级）
+            {
+                use tauri_plugin_global_shortcut::{
+                    Code, GlobalShortcutExt, Modifiers, Shortcut,
+                };
+                let sc = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::Space);
+                let _ = app.global_shortcut().register(sc);
             }
             Ok(())
         })
@@ -198,6 +220,8 @@ fn main() {
             playlist_remove,
             playlist_rename,
             playlist_delete,
+            playlist_move,
+            playlist_export,
             // P2 播放：队列/播放控制/状态
             player_play_queue,
             player_toggle,

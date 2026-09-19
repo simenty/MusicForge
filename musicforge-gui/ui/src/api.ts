@@ -725,6 +725,23 @@ export async function playlistDelete(playlistId: number): Promise<void> {
   return invoke<void>("playlist_delete", { playlistId });
 }
 
+/** 歌单内移动曲目（拖拽排序；`toIndex` 为 0-based 目标下标） */
+export async function playlistMove(
+  playlistId: number,
+  trackId: number,
+  toIndex: number
+): Promise<void> {
+  return invoke<void>("playlist_move", { playlistId, trackId, toIndex });
+}
+
+/** 导出歌单为 .m3u8（原生保存对话框）。返回 {path, tracks}；取消 → null */
+export async function playlistExport(
+  playlistId: number
+): Promise<{ path: string; tracks: number } | null> {
+  if (!IS_DESKTOP) return null;
+  return invoke<{ path: string; tracks: number } | null>("playlist_export", { playlistId });
+}
+
 // ---------------------------------------------------------------------------
 // 门面（facade）：对外契约 = 原 api.ts 的全部导出。
 // 组件与测试的 `import { ... } from "./api"` 不因拆分而改变。

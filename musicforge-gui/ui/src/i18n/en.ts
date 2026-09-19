@@ -242,6 +242,9 @@ export const en: typeof zh = {
     addTo: "Add to playlist",
     addedN: (n: number) => `Added ${n} track${n === 1 ? "" : "s"}`,
     alreadyIn: "Already in that playlist",
+    psExport: "Export M3U8",
+    psExported: (n: number) => `Exported ${n} track${n === 1 ? "" : "s"}`,
+    psDragHint: "Drag rows to reorder",
   },
   /** P4 toolbox: CUE split */
   cue: {

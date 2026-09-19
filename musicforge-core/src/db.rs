@@ -1362,6 +1362,65 @@ impl Db {
         Ok(())
     }
 
+    /// 歌单内移动曲目到目标下标（拖拽排序；position 重排后保持连续 0..n-1）。
+    /// 越界下标 clamp；曲目不在歌单 → 空操作。
+    ///
+    /// ⚠️ `playlist_items` 的 PK 是 `(playlist_id, position)`：逐行 ±1 的
+    /// "中间段平移"会中途撞唯一约束（SQLite 逐行更新，顺序不保证）。
+    /// 实现走**两阶段**：先把全部 position 抬到过渡区间（+100000），
+    /// 再按新顺序逐行写回——无约束技巧依赖，长度上限远低于偏移量。
+    pub fn playlist_move_track(
+        &self,
+        playlist_id: i64,
+        track_id: i64,
+        to_index: i64,
+    ) -> Result<(), NcmError> {
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        // ① 读全序（按 position）
+        let mut ids: Vec<i64> = {
+            let mut stmt = tx
+                .prepare(
+                    "SELECT track_id FROM playlist_items WHERE playlist_id = ?1 ORDER BY position",
+                )
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+            let rows = stmt
+                .query_map([playlist_id], |r| r.get::<_, i64>(0))
+                .map_err(|e| NcmError::Db(e.to_string()))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+            rows
+        };
+        let Some(pos) = ids.iter().position(|&x| x == track_id) else {
+            return Ok(()); // 不在歌单 → 空操作
+        };
+        let to = to_index.clamp(0, (ids.len() as i64 - 1).max(0)) as usize;
+        if pos == to {
+            return Ok(());
+        }
+        // ② 新顺序
+        let moved = ids.remove(pos);
+        ids.insert(to, moved);
+        // ③ 抬到过渡区间（脱离 0..n-1，消除约束冲突）
+        tx.execute(
+            "UPDATE playlist_items SET position = position + 100000 WHERE playlist_id = ?1",
+            [playlist_id],
+        )
+        .map_err(|e| NcmError::Db(e.to_string()))?;
+        // ④ 按新顺序写回
+        for (i, id) in ids.iter().enumerate() {
+            tx.execute(
+                "UPDATE playlist_items SET position = ?1 WHERE playlist_id = ?2 AND track_id = ?3",
+                params![i as i64, playlist_id, id],
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        }
+        tx.commit().map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(())
+    }
+
     /// 重命名歌单（名称 trim 后不得为空）。
     pub fn playlist_rename(&self, playlist_id: i64, name: &str) -> Result<(), NcmError> {
         let name = name.trim();

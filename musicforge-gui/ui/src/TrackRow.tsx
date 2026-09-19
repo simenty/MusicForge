@@ -4,7 +4,7 @@
 // 列契约（与 styles.css 的 .vt-head/.vt-row 六列网格对齐）：
 //   1 前导（序号 / 时刻 / 排名）· 2 标题+艺术家 · 3 专辑 · 4 时长 · 5 格式
 //   6 尾列 = `trailing`（自定义，如播放次数）或爱心按钮（提供 onLike 时）。
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 import { useLang } from "./i18n";
 import { fmtClock } from "./lib/format";
 import type { Track } from "./api";
@@ -21,6 +21,8 @@ export interface TrackRowProps {
   onAdd?: () => void;
   /** 会话自定义的第 6 列（优先于 ＋/爱心；如统计页的播放次数） */
   trailing?: ReactNode;
+  /** 透传到根 div 的属性（歌单页拖拽排序用：draggable/onDragStart/onDrop…） */
+  dragProps?: HTMLAttributes<HTMLDivElement>;
 }
 
 export default function TrackRow({
@@ -31,10 +33,11 @@ export default function TrackRow({
   onLike,
   onAdd,
   trailing,
+  dragProps,
 }: TrackRowProps) {
   const { t } = useLang();
   return (
-    <div className="vt-row" onDoubleClick={onPlay}>
+    <div className="vt-row" onDoubleClick={onPlay} {...dragProps}>
       <span className="vt-idx">{lead}</span>
       <span className="vt-main">
         <b title={tr.title ?? undefined}>{tr.title ?? "—"}</b>

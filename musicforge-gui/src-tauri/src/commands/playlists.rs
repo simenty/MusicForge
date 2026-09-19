@@ -68,3 +68,64 @@ pub fn playlist_delete(playlist_id: i64) -> Result<(), String> {
     let db = open_db()?;
     db.playlist_delete(playlist_id).map_err(|e| e.to_string())
 }
+
+/// 歌单内移动曲目（拖拽排序；`to_index` 为 0-based 目标下标）。
+#[tauri::command]
+pub fn playlist_move(playlist_id: i64, track_id: i64, to_index: i64) -> Result<(), String> {
+    let db = open_db()?;
+    db.playlist_move_track(playlist_id, track_id, to_index)
+        .map_err(|e| e.to_string())
+}
+
+/// 导出歌单为 `.m3u8`（原生保存对话框；格式与「按分类导出」**共用同一实现**）。
+/// 用户取消 → `Ok(None)`；歌单为空 → `Err`（明确提示）。
+#[tauri::command]
+pub async fn playlist_export(
+    app: tauri::AppHandle,
+    playlist_id: i64,
+) -> Result<Option<serde_json::Value>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (name, items) = {
+        let db = open_db()?;
+        let name = db
+            .list_playlists()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|p| p.id == playlist_id)
+            .map(|p| p.name)
+            .ok_or_else(|| format!("歌单 {playlist_id} 不存在"))?;
+        let items = db.playlist_tracks(playlist_id).map_err(|e| e.to_string())?;
+        (name, items)
+    };
+    if items.is_empty() {
+        return Err("歌单为空，无可导出内容".to_string());
+    }
+    let default_name = format!("{}.m3u8", musicforge_core::template::sanitize(&name));
+    let chosen = app
+        .dialog()
+        .file()
+        .add_filter("M3U8 播放列表", &["m3u8"])
+        .set_file_name(&default_name)
+        .set_title("导出歌单")
+        .blocking_save_file();
+    let Some(p) = chosen else {
+        return Ok(None); // 用户取消
+    };
+    let dst = p.into_path().map_err(|e| format!("保存路径无效：{e}"))?;
+    let entries: Vec<(std::path::PathBuf, String, i64)> = items
+        .iter()
+        .map(|t| {
+            (
+                std::path::PathBuf::from(&t.path),
+                t.title.clone().unwrap_or_default(),
+                t.duration_ms.map(|d| d / 1000).unwrap_or(-1),
+            )
+        })
+        .collect();
+    let n =
+        musicforge_core::playlist::export_one_m3u8(&dst, &entries).map_err(|e| e.to_string())?;
+    Ok(Some(serde_json::json!({
+        "path": dst.to_string_lossy(),
+        "tracks": n,
+    })))
+}
