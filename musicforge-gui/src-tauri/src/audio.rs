@@ -826,14 +826,16 @@ impl DsdDecoder {
     }
 }
 
-/// 活动解码器：symphonia（常规格式）或 DSD（DSF/DFF → PCM 抽取路径）。
+/// 活动解码器：symphonia（常规格式）/ DSD（DSF/DFF → PCM 抽取）/ ffmpeg 回退。
 enum ActiveDecoder {
     Sym(SymDecoder),
     Dsd(DsdDecoder),
+    Ff(FfmpegDecoder),
 }
 
 impl ActiveDecoder {
-    /// 按扩展名分派（dsf/dff → DSD 路径；其余 symphonia）。
+    /// 按扩展名分派（dsf/dff → DSD 路径；其余 symphonia），
+    /// symphonia 打不开时**回退 ffmpeg**（APE/WavPack/WMA 等——错误信息拼接两段，便于诊断）。
     fn open(path: &Path) -> Result<Self, String> {
         let ext = path
             .extension()
@@ -843,13 +845,19 @@ impl ActiveDecoder {
         if ext == "dsf" || ext == "dff" {
             return DsdDecoder::open(path).map(Self::Dsd);
         }
-        SymDecoder::open(path).map(Self::Sym)
+        match SymDecoder::open(path) {
+            Ok(d) => Ok(Self::Sym(d)),
+            Err(e) => FfmpegDecoder::open(path, 0)
+                .map(Self::Ff)
+                .map_err(|fe| format!("{e}；ffmpeg 回退失败：{fe}")),
+        }
     }
 
     fn sample_rate(&self) -> u32 {
         match self {
             Self::Sym(d) => d.sample_rate,
             Self::Dsd(d) => d.out_rate,
+            Self::Ff(d) => d.out_rate,
         }
     }
 
@@ -857,6 +865,7 @@ impl ActiveDecoder {
         match self {
             Self::Sym(d) => d.channels,
             Self::Dsd(d) => d.channels,
+            Self::Ff(d) => d.out_channels,
         }
     }
 
@@ -864,6 +873,7 @@ impl ActiveDecoder {
         match self {
             Self::Sym(d) => d.next_chunk(),
             Self::Dsd(d) => d.next_chunk(),
+            Self::Ff(d) => d.next_chunk(),
         }
     }
 
@@ -871,6 +881,221 @@ impl ActiveDecoder {
         match self {
             Self::Sym(d) => d.seek(ms),
             Self::Dsd(d) => d.seek(ms),
+            Self::Ff(d) => d.seek(ms),
         }
+    }
+}
+
+// ------------------------------------------------------ ffmpeg 回退（P6.5）--
+
+/// ffmpeg 解码器：symphonia 打不开的格式（APE / WavPack / WMA…）回退到
+/// ffmpeg 解码为 **44.1kHz 立体声 f32** PCM（stdout 管道流式读取）。
+///
+/// - ffmpeg 查找走 core 的五级探测（显式 → **应用同目录** → PATH → 常见位置）——
+///   即支持"把 ffmpeg.exe 放到应用旁边"的 sidecar 分发；找不到时报错并给出获取指引，
+///   **绝不静默失败**。
+/// - seek = 重启进程 + `-ss`（输入级快速定位）；进程在 Drop 时杀掉（防切歌残留）。
+const FF_OUT_RATE: u32 = 44_100;
+const FF_OUT_CHANNELS: u16 = 2;
+
+/// ffmpeg 输出 PCM 的参数（f32le → stdout）。
+/// `-ss` 放 `-i` **前**（输入级 seek）；`-nostdin` 防其抢读 stdin。
+fn ffmpeg_pcm_args(path: &Path, ss_ms: i64) -> Vec<std::ffi::OsString> {
+    let mut a: Vec<std::ffi::OsString> =
+        vec!["-nostdin".into(), "-loglevel".into(), "error".into()];
+    if ss_ms > 0 {
+        a.push("-ss".into());
+        a.push(format!("{:.3}", ss_ms as f64 / 1000.0).into());
+    }
+    a.push("-i".into());
+    a.push(path.into());
+    a.extend([
+        "-f".into(),
+        "f32le".into(),
+        "-acodec".into(),
+        "pcm_f32le".into(),
+        "-ar".into(),
+        FF_OUT_RATE.to_string().into(),
+        "-ac".into(),
+        FF_OUT_CHANNELS.to_string().into(),
+        "-".into(),
+    ]);
+    a
+}
+
+struct FfmpegDecoder {
+    proc: std::process::Child,
+    stdout: std::io::BufReader<std::process::ChildStdout>,
+    path: std::path::PathBuf,
+    out_rate: u32,
+    out_channels: u16,
+    eof: bool,
+}
+
+impl FfmpegDecoder {
+    fn open(path: &Path, at_ms: i64) -> Result<Self, String> {
+        use std::process::{Command, Stdio};
+        let ff = musicforge_core::ffmpeg::Ffmpeg::find(None).map_err(|e| {
+            format!(
+                "此格式需要 ffmpeg 解码，但未找到（{e}）。\
+                 请安装 ffmpeg 并加入 PATH，或把 ffmpeg.exe 放到应用同目录"
+            )
+        })?;
+        let mut proc = Command::new(&ff.path)
+            .args(ffmpeg_pcm_args(path, at_ms))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("启动 ffmpeg 失败: {e}"))?;
+        let stdout = proc
+            .stdout
+            .take()
+            .ok_or_else(|| "ffmpeg stdout 不可用".to_string())?;
+        Ok(Self {
+            proc,
+            stdout: std::io::BufReader::new(stdout),
+            path: path.to_path_buf(),
+            out_rate: FF_OUT_RATE,
+            out_channels: FF_OUT_CHANNELS,
+            eof: false,
+        })
+    }
+
+    fn next_chunk(&mut self) -> Result<Option<Vec<f32>>, String> {
+        use std::io::Read;
+        if self.eof {
+            return Ok(None);
+        }
+        const FRAMES: usize = 4096;
+        let ch = FF_OUT_CHANNELS as usize;
+        let mut buf = vec![0u8; FRAMES * ch * 4];
+        let mut filled = 0usize;
+        // read 可能短读：读满或 EOF
+        while filled < buf.len() {
+            match self.stdout.read(&mut buf[filled..]) {
+                Ok(0) => break,
+                Ok(n) => filled += n,
+                Err(e) => return Err(format!("读取 ffmpeg 输出失败: {e}")),
+            }
+        }
+        if filled == 0 {
+            self.eof = true;
+            return Ok(None);
+        }
+        let samples = filled / 4; // 残字节（非 4 对齐）丢弃
+        let mut out = Vec::with_capacity(samples);
+        for i in 0..samples {
+            let b = &buf[i * 4..i * 4 + 4];
+            out.push(f32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+        }
+        Ok(Some(out))
+    }
+
+    fn seek(&mut self, ms: i64) -> Result<(), String> {
+        // 杀掉旧进程再重启（防两个 ffmpeg 并存输出到同一管道）
+        let _ = self.proc.kill();
+        let _ = self.proc.wait();
+        let mut fresh = Self::open(&self.path, ms.max(0))?;
+        std::mem::swap(self, &mut fresh);
+        // fresh（持有旧的已杀资源）离开作用域 → Drop（再次 kill 无害）
+        Ok(())
+    }
+}
+
+impl Drop for FfmpegDecoder {
+    fn drop(&mut self) {
+        // 切歌/停止时必须杀掉 ffmpeg——否则进程泄漏
+        let _ = self.proc.kill();
+        let _ = self.proc.wait();
+    }
+}
+
+#[cfg(test)]
+mod ffmpeg_tests {
+    use super::*;
+
+    /// 参数构造：`-ss` 必须在 `-i` 之前（输入级 seek）；0ms 不带 `-ss`；
+    /// 末尾必须是 stdout 占位 `-`。
+    #[test]
+    fn pcm_args_shape() {
+        let a = ffmpeg_pcm_args(Path::new("x.ape"), 0);
+        let s: Vec<String> = a.iter().map(|x| x.to_string_lossy().into_owned()).collect();
+        assert!(s.contains(&"-nostdin".to_string()));
+        assert!(!s.contains(&"-ss".to_string()), "0ms 不带 -ss");
+        assert_eq!(s.last().map(String::as_str), Some("-"));
+        assert!(s.windows(2).any(|w| w[0] == "-ar" && w[1] == "44100"));
+        assert!(s.windows(2).any(|w| w[0] == "-ac" && w[1] == "2"));
+
+        let a2 = ffmpeg_pcm_args(Path::new("x.wv"), 12_345);
+        let s2: Vec<String> = a2
+            .iter()
+            .map(|x| x.to_string_lossy().into_owned())
+            .collect();
+        let ss = s2.iter().position(|x| x == "-ss").unwrap();
+        assert_eq!(s2[ss + 1], "12.345");
+        let i = s2.iter().position(|x| x == "-i").unwrap();
+        assert!(ss < i, "-ss 必须在 -i 之前");
+    }
+
+    /// 真机冒烟（需要 ffmpeg；找不到则**跳过不红**——CI 保持离线可过）。
+    /// 链路：ffmpeg 生成 0.2s 440Hz 正弦 WavPack → FfmpegDecoder 解码 → 校验帧数与能量。
+    #[test]
+    fn ffmpeg_decoder_real_smoke() {
+        let Ok(ff) = musicforge_core::ffmpeg::Ffmpeg::find(None) else {
+            eprintln!("（跳过：本机无 ffmpeg）");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("mf-ff-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let wv = dir.join("sine.wv");
+        let st = std::process::Command::new(&ff.path)
+            .args([
+                "-nostdin",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=0.2",
+                "-c:a",
+                "wavpack",
+                "-y",
+            ])
+            .arg(&wv)
+            .status()
+            .expect("ffmpeg 生成 wv 应可执行");
+        assert!(st.success(), "ffmpeg 生成 WavPack 失败（编码器缺失？）");
+
+        let mut d = FfmpegDecoder::open(&wv, 0).expect("WavPack 应可打开");
+        let mut total = 0usize;
+        let mut energy = 0.0f64;
+        while let Some(c) = d.next_chunk().unwrap() {
+            for v in &c {
+                energy += (*v as f64) * (*v as f64);
+            }
+            total += c.len();
+        }
+        let frames = total / FF_OUT_CHANNELS as usize;
+        assert!(
+            (frames as i64 - 8820).abs() < 441,
+            "0.2s @44.1k 应约 8820 帧，实际 {frames}"
+        );
+        let rms = (energy / total as f64).sqrt();
+        assert!(rms > 0.2 && rms < 1.0, "440Hz 正弦 RMS 应约 0.7，实际 {rms:.3}");
+
+        // seek：从头 100ms 起 → 约 4410 帧
+        d.seek(100).unwrap();
+        let mut t2 = 0usize;
+        while let Some(c) = d.next_chunk().unwrap() {
+            t2 += c.len();
+        }
+        let f2 = t2 / FF_OUT_CHANNELS as usize;
+        assert!(
+            (f2 as i64 - 4410).abs() < 441,
+            "seek 100ms 后应约 4410 帧，实际 {f2}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
