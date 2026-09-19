@@ -38,6 +38,8 @@ docs/*
 !docs/dependency-policy.md
 !docs/plugin-protocol.md
 !docs/result-codes.md
+# 发布契约（签名密钥配置 / 发布与验收流程；不含任何密钥本体的说明文档）
+!docs/release.md
 # 设计变量（UI 设计系统真源导出，供 Figma 建库 / 设计-代码对齐）
 !docs/design-tokens.figma.json
 !docs/assets/
