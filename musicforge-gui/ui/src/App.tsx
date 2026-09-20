@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import {
   onOpenFiles,
   selectDirectory,
@@ -14,27 +14,32 @@ import { useToast } from "./hooks/useToast";
 import { useSettings } from "./hooks/useSettings";
 import { useBatch, ROW_H, type FilterKey, type RowStatus } from "./hooks/useBatch";
 import { fileName, relOutput, formatDuration } from "./lib/format";
-import DedupePanel from "./DedupePanel";
-import ScanPanel from "./ScanPanel";
-import PluginPanel from "./PluginPanel";
-import OrganizePanel from "./OrganizePanel";
-import CleanPanel from "./CleanPanel";
-import TrashPanel from "./TrashPanel";
+// 外壳常驻（首屏必装）：错误边界 / 服务端信息卡 / 首启引导 / 播放底栏
 import ErrorBoundary from "./ErrorBoundary";
 import ServerInfoCard from "./ServerInfoCard";
-import MediaHome from "./MediaHome";
-import LibraryPage from "./LibraryPage";
-import ArtistsPage from "./ArtistsPage";
-import AlbumsPage from "./AlbumsPage";
-import PlaylistsPage from "./PlaylistsPage";
-import SourcesPage from "./SourcesPage";
-import HistoryPage from "./HistoryPage";
-import FavoritesPage from "./FavoritesPage";
-import StatsPage from "./StatsPage";
-import CuePanel from "./CuePanel";
-import UpdateSection from "./UpdateSection";
 import WelcomeGuide from "./WelcomeGuide";
 import PlayerBar from "./PlayerBar";
+
+// P6.13 体积治理：页面级懒加载——首屏只装外壳，页面在首次进入时才取
+// （Vite 依据动态 import 自动切分 chunk）。共享件（TrackRow / api / i18n / 图标）
+// 仍留在主包：被多个页面用到，拆出去只会重复下载。
+const MediaHome = lazy(() => import("./MediaHome"));
+const LibraryPage = lazy(() => import("./LibraryPage"));
+const ArtistsPage = lazy(() => import("./ArtistsPage"));
+const AlbumsPage = lazy(() => import("./AlbumsPage"));
+const PlaylistsPage = lazy(() => import("./PlaylistsPage"));
+const SourcesPage = lazy(() => import("./SourcesPage"));
+const HistoryPage = lazy(() => import("./HistoryPage"));
+const FavoritesPage = lazy(() => import("./FavoritesPage"));
+const StatsPage = lazy(() => import("./StatsPage"));
+const CuePanel = lazy(() => import("./CuePanel"));
+const ScanPanel = lazy(() => import("./ScanPanel"));
+const DedupePanel = lazy(() => import("./DedupePanel"));
+const OrganizePanel = lazy(() => import("./OrganizePanel"));
+const CleanPanel = lazy(() => import("./CleanPanel"));
+const TrashPanel = lazy(() => import("./TrashPanel"));
+const PluginPanel = lazy(() => import("./PluginPanel"));
+const UpdateSection = lazy(() => import("./UpdateSection"));
 import { usePlayer } from "./hooks/usePlayer";
 import {
   IconClock,
@@ -594,6 +599,8 @@ export default function App() {
         </header>
 
       <main className="main">
+      {/* P6.13：懒加载页面首次进入时的占位（本地文件加载，通常一闪而过） */}
+      <Suspense fallback={<div className="media-empty"><p>{t.media.loading}</p></div>}>
       {/* P0-2：分区级错误边界——任一分区渲染异常只降级该分区，不带走整个应用 */}
       <ErrorBoundary
         title={t.app.errorTitle}
@@ -979,6 +986,7 @@ export default function App() {
         <ServerInfoCard />
       </ErrorBoundary>
 
+      </Suspense>
       </main>
 
       {/* P2：播放底栏（常驻；.main 内部滚动、底栏固定） */}

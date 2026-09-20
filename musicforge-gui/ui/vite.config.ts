@@ -13,5 +13,8 @@ export default defineConfig({
   build: {
     target: "es2021",
     outDir: "dist",
+    // P6.13：产出 manifest——体积护栏据此区分「首屏静态链」与「懒加载 chunk」
+    // （只看总体积会掩盖首屏变胖；只看入口又会漏掉懒加载块的膨胀）。
+    manifest: true,
   },
 });

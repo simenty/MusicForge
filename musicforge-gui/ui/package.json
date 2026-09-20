@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build && node -e \"const fs=require('fs');const b='dist/assets';const g=fs.readdirSync(b).filter(f=>f.endsWith('.css'));if(!g.length){console.error('X CSS 产物缺失: styles.css 可能未被 import（历史 bug，勿回归）');process.exit(1)}const js=fs.readdirSync(b).filter(f=>f.endsWith('.js'));const total=js.reduce((n,f)=>n+fs.statSync(b+'/'+f).size,0);const BUDGET=350*1024;if(total>BUDGET){console.error('X JS 体积超预算: '+(total/1024).toFixed(0)+'KB > 350KB——检查依赖或代码分割');process.exit(1)}console.log('产物 OK: CSS '+g.join(',')+' / JS '+(total/1024).toFixed(0)+'KB（预算 350KB）')\"",
+    "build": "tsc --noEmit && vite build && node scripts/check-bundle.mjs",
     "lint": "eslint src",
     "preview": "vite preview",
     "test": "vitest run"
