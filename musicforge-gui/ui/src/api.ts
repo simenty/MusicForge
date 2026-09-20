@@ -531,6 +531,16 @@ export async function playerSetVolume(volume: number): Promise<void> {
   return invoke<void>("player_set_volume", { volume });
 }
 
+/** 队列内重排（P6.15）：`from` 移到 `to` 前 */
+export async function playerQueueMove(from: number, to: number): Promise<void> {
+  return invoke<void>("player_queue_move", { from, to });
+}
+
+/** 从队列移除指定位置（P6.15） */
+export async function playerQueueRemove(index: number): Promise<void> {
+  return invoke<void>("player_queue_remove", { index });
+}
+
 /** 播放状态快照（含动态位置/欠载计数；前端轮询） */
 export async function playerStatus(): Promise<PlayerSnapshot> {
   return invoke<PlayerSnapshot>("player_status");

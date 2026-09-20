@@ -49,6 +49,8 @@ function api(over: Partial<PlayerApi> = {}, status: Partial<PlayerSnapshot> | nu
     next: vi.fn(async () => {}),
     prev: vi.fn(async () => {}),
     jump: vi.fn(async () => {}),
+    queueMove: vi.fn(async () => {}),
+    queueRemove: vi.fn(async () => {}),
     seek: vi.fn(async () => {}),
     setVolume: vi.fn(),
     stop: vi.fn(async () => {}),
@@ -164,4 +166,35 @@ describe("PlayerBar（播放底栏）", () => {
       vi.useRealTimers();
     }
   }, 20_000);
+
+  it("队列可编辑：上移 / 移除 / 点选跳转分别调用对应方法（P6.15）", async () => {
+    const user = userEvent.setup();
+    const queue = [
+      { trackId: 1, path: "a", title: "A", artist: "x", durationMs: 1 },
+      { trackId: 2, path: "b", title: "B", artist: "y", durationMs: 1 },
+      { trackId: 3, path: "c", title: "C", artist: "z", durationMs: 1 },
+    ];
+    const p = api(
+      { queue },
+      { state: "playing", queueLen: 3, queueIndex: 0, trackId: 1, title: "A" }
+    );
+    renderBar(p);
+    await user.click(screen.getByRole("button", { name: zh.player.queue })); // 打开队列抽屉
+
+    // 3 项 → 3 个上移按钮（首项禁用）；点第 2 项上移 → queueMove(1, 0)
+    const ups = screen.getAllByRole("button", { name: zh.player.queueUp });
+    expect(ups).toHaveLength(3);
+    await user.click(ups[1]);
+    expect(p.queueMove).toHaveBeenCalledWith(1, 0);
+
+    // 末项移除 → queueRemove(2)
+    const removes = screen.getAllByRole("button", { name: zh.player.queueRemove });
+    await user.click(removes[2]);
+    expect(p.queueRemove).toHaveBeenCalledWith(2);
+
+    // 点选曲目 → jump(0)（并关闭抽屉）
+    const jumps = screen.getAllByRole("button", { name: zh.player.jumpTo });
+    await user.click(jumps[0]);
+    expect(p.jump).toHaveBeenCalledWith(0);
+  });
 });

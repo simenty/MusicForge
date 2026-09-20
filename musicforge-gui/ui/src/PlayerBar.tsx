@@ -288,24 +288,58 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
       </div>
 
       {qOpen && player.queue.length > 0 && (
-        <div className="pb-queue" role="listbox" aria-label={t.player.queue}>
+        <div className="pb-queue" role="list" aria-label={t.player.queue}>
           {player.queue.map((it, i) => (
-            <button
+            <div
               key={`${it.trackId}-${i}`}
               className={"qd-item" + (i === status?.queueIndex ? " on" : "")}
-              onClick={() => {
-                void player.jump(i);
-                setQOpen(false);
-              }}
-              role="option"
-              aria-selected={i === status?.queueIndex}
+              role="listitem"
+              aria-current={i === status?.queueIndex}
             >
               <span className="qd-idx">{i + 1}</span>
-              <span className="qd-t">
-                <b title={it.title ?? undefined}>{it.title ?? "—"}</b>
-                <span>{it.artist ?? "—"}</span>
+              <button
+                className="qd-jump"
+                onClick={() => {
+                  void player.jump(i);
+                  setQOpen(false);
+                }}
+                aria-label={t.player.jumpTo}
+                title={t.player.jumpTo}
+              >
+                <span className="qd-t">
+                  <b title={it.title ?? undefined}>{it.title ?? "—"}</b>
+                  <span>{it.artist ?? "—"}</span>
+                </span>
+              </button>
+              <span className="qd-act">
+                <button
+                  type="button"
+                  disabled={i === 0}
+                  onClick={() => void player.queueMove(i, i - 1)}
+                  aria-label={t.player.queueUp}
+                  title={t.player.queueUp}
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  disabled={i === player.queue.length - 1}
+                  onClick={() => void player.queueMove(i, i + 1)}
+                  aria-label={t.player.queueDown}
+                  title={t.player.queueDown}
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void player.queueRemove(i)}
+                  aria-label={t.player.queueRemove}
+                  title={t.player.queueRemove}
+                >
+                  ✕
+                </button>
               </span>
-            </button>
+            </div>
           ))}
         </div>
       )}

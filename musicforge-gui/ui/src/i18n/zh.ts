@@ -348,6 +348,10 @@ export const zh = {
     sleepMin: (n: number) => `${n} 分钟后暂停`,
     sleepLeft: (n: number) => `睡眠定时：剩余约 ${n} 分钟（点击修改）`,
     sessionResume: "上次播放 · 点按继续",
+    jumpTo: "跳转到此曲",
+    queueUp: "上移",
+    queueDown: "下移",
+    queueRemove: "移除",
   },
   serverInfo: {
     head: "服务端信息（fnOS / 自建 server）",

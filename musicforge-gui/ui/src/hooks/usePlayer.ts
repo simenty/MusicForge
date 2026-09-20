@@ -9,6 +9,8 @@ import {
   playerNext,
   playerPlayQueue,
   playerPrev,
+  playerQueueMove,
+  playerQueueRemove,
   playerSeek,
   playerSetVolume,
   playerStatus,
@@ -40,6 +42,10 @@ export interface PlayerApi {
   prev: () => Promise<void>;
   /** 跳到队列中的指定位置（队列抽屉点选） */
   jump: (index: number) => Promise<void>;
+  /** 队列内重排（P6.15）：`from` 移到 `to` 前；保留播放进度 */
+  queueMove: (from: number, to: number) => Promise<void>;
+  /** 从队列移除指定位置（P6.15） */
+  queueRemove: (index: number) => Promise<void>;
   seek: (ms: number) => Promise<void>;
   /** 音量：本地立即生效 + 120ms 节流下发（拖动不刷后端） */
   setVolume: (v: number) => void;
@@ -157,6 +163,33 @@ export function usePlayer(): PlayerApi {
     await playerJump(index);
   }, []);
 
+  // P6.15 队列编辑：前端副本与引擎同步重排；两端 splice 算法一致（to>from → 前移一格），
+  // 故引擎侧「正在播放的曲目」保持当前项、进度不中断。
+  const queueMove = useCallback(
+    async (from: number, to: number) => {
+      const items = [...queue];
+      if (
+        to < 0 ||
+        to >= items.length ||
+        from < 0 ||
+        from >= items.length ||
+        from === to
+      ) {
+        return;
+      }
+      const [m] = items.splice(from, 1);
+      items.splice(to > from ? to - 1 : to, 0, m);
+      setQueue(items);
+      await playerQueueMove(from, to);
+    },
+    [queue],
+  );
+
+  const queueRemove = useCallback(async (index: number) => {
+    setQueue((q) => q.filter((_, i) => i !== index));
+    await playerQueueRemove(index);
+  }, []);
+
   const seek = useCallback(async (ms: number) => {
     await playerSeek(ms);
   }, []);
@@ -197,6 +230,8 @@ export function usePlayer(): PlayerApi {
     next,
     prev,
     jump,
+    queueMove,
+    queueRemove,
     seek,
     setVolume,
     stop,

@@ -1884,3 +1884,13 @@ button.lyric-line:hover { color: var(--text-2); }
 .sp-meta { font-size: var(--fs-xs); color: var(--text-faint); font-variant-numeric: tabular-nums; flex: none; }
 .sp-foot { padding: var(--sp-2) var(--sp-4); border-top: 1px solid var(--border); font-size: var(--fs-xs); color: var(--text-faint); }
 .search-btn { display: inline-flex; align-items: center; gap: 6px; }
+/* ========================================================================
+ * P6.15：队列可编辑（重排 / 移除）——行内操作按钮
+ * ====================================================================== */
+.qd-item { display: flex; align-items: center; gap: var(--sp-2); }
+.qd-jump { flex: 1; min-width: 0; text-align: left; background: none; border: 0; color: inherit; font: inherit; padding: 2px 0; cursor: pointer; border-radius: var(--r-sm); }
+.qd-jump:hover { color: var(--text); }
+.qd-act { display: flex; align-items: center; gap: 2px; flex: none; }
+.qd-act button { width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: none; background: none; color: var(--text-3); border-radius: var(--r-sm); cursor: pointer; font-size: 13px; line-height: 1; }
+.qd-act button:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.qd-act button:disabled { opacity: .3; cursor: default; }

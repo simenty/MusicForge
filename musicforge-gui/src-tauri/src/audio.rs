@@ -96,6 +96,10 @@ enum Cmd {
     Jump { index: usize },
     Seek { ms: i64 },
     SetVolume(f32),
+    /// 队列内重排（from→to；越界/相等忽略）。保持当前曲目不变、播放进度不中断。
+    QueueMove { from: usize, to: usize },
+    /// 从队列移除指定位置（移除当前曲目则从其开头重新加载；否则保持播放）。
+    QueueRemove { index: usize },
 }
 
 /// 解码产出的样本块（带代际——seek 后旧块被回调丢弃）。
@@ -210,6 +214,16 @@ impl PlayerHandle {
         self.send(Cmd::SetVolume(v))
     }
 
+    /// 队列内重排（前端队列抽屉的上/下）。
+    pub fn queue_move(&self, from: usize, to: usize) -> Result<(), String> {
+        self.send(Cmd::QueueMove { from, to })
+    }
+
+    /// 从队列移除（前端队列抽屉的移除）。
+    pub fn queue_remove(&self, index: usize) -> Result<(), String> {
+        self.send(Cmd::QueueRemove { index })
+    }
+
     /// 状态快照（含动态位置；前端轮询此命令）。
     pub fn status(&self) -> PlayerSnapshot {
         let mut s = self.shared.lock_snapshot().clone();
@@ -319,6 +333,8 @@ impl Engine {
                 self.shared.volume.store(v.to_bits(), Ordering::Relaxed);
                 self.shared.lock_snapshot().volume = v;
             }
+            Cmd::QueueMove { from, to } => self.reorder(from, to),
+            Cmd::QueueRemove { index } => self.remove_from_queue(index),
         }
     }
 
@@ -493,8 +509,64 @@ impl Engine {
         self.shared.in_flight.store(0, Ordering::Relaxed);
     }
 
-    fn set_idle(&mut self) {
+    /// 队列内重排（P6.15）：保持「正在播放的曲目」仍为当前项，故播放进度不中断。
+    fn reorder(&mut self, from: usize, to: usize) {
+        let n = self.queue.len();
+        if n == 0 || from >= n || to >= n || from == to {
+            return;
+        }
+        let cur_id = self.queue.get(self.index).map(|x| x.track_id);
+        let item = self.queue.remove(from);
+        // 注意：从 `from` 移除后，原 `to` 处的索引需前移一格
+        let dest = if to > from { to - 1 } else { to };
+        self.queue.insert(dest, item);
+        if let Some(id) = cur_id {
+            if let Some(p) = self.queue.iter().position(|x| x.track_id == id) {
+                self.index = p;
+            }
+        }
+        self.sync_queue_meta();
+    }
+
+    /// 从队列移除（P6.15）。
+    fn remove_from_queue(&mut self, index: usize) {
+        if index >= self.queue.len() {
+            return;
+        }
+        let removing_current = index == self.index;
+        self.queue.remove(index);
+        if self.queue.is_empty() {
+            self.playing = false;
+            self.decoder = None;
+            self.flush_channel();
+            self.set_idle();
+            return;
+        }
+        if removing_current {
+            // 删的是正在听的：从新位置（或末项）开头重新加载
+            self.index = if index >= self.queue.len() {
+                self.queue.len() - 1
+            } else {
+                index
+            };
+            self.load_current(true);
+        } else {
+            // 删的是前面的：当前项左移一位；删后面/本身不是当前 → 索引不变
+            if index < self.index {
+                self.index -= 1;
+            }
+            self.sync_queue_meta();
+        }
+    }
+
+    /// 仅把队列长度与当前索引同步到快照（不重载、不动播放进度）。
+    fn sync_queue_meta(&mut self) {
         let mut s = self.shared.lock_snapshot();
+        s.queue_len = self.queue.len();
+        s.queue_index = Some(self.index);
+    }
+
+    fn set_idle(&mut self) {        let mut s = self.shared.lock_snapshot();
         s.state = "idle";
         s.track_id = None;
         s.title = None;
@@ -1036,6 +1108,47 @@ mod ffmpeg_tests {
         assert_eq!(s2[ss + 1], "12.345");
         let i = s2.iter().position(|x| x == "-i").unwrap();
         assert!(ss < i, "-ss 必须在 -i 之前");
+    }
+
+    /// 队列重排 / 移除（P6.15）：保持「正在播放的曲目」不变、索引随之调整；
+    /// 移除非当前项不动播放；移除当前项则落到新位置并重新加载。
+    #[test]
+    fn queue_reorder_and_remove_keep_current() {
+        let mut e = Engine::new(PathBuf::from(":memory:"), Arc::new(Shared::new()));
+        let mk = |id: i64| QueueItem {
+            track_id: id,
+            path: format!("t{id}.flac"),
+            title: Some(format!("T{id}")),
+            artist: Some("a".into()),
+            duration_ms: Some(1000),
+        };
+        e.queue = vec![mk(1), mk(2), mk(3)];
+        e.index = 0; // 正在听 track 1
+
+        // 末项移到最前：顺序变 [3,1,2]，但「正在听」仍是 track 1 → index 1
+        e.reorder(2, 0);
+        assert_eq!(
+            e.queue.iter().map(|x| x.track_id).collect::<Vec<_>>(),
+            vec![3, 1, 2]
+        );
+        assert_eq!(e.index, 1, "正在听 track1 保持为当前项");
+
+        // 移除前面的项（track3，index0）：当前项 track1 左移 → index 0，顺序 [1,2]
+        e.remove_from_queue(0);
+        assert_eq!(
+            e.queue.iter().map(|x| x.track_id).collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        assert_eq!(e.index, 0);
+
+        // 移除当前项（track1）：队列剩 [2]，index 落到新位置 0
+        e.remove_from_queue(0);
+        assert_eq!(
+            e.queue.iter().map(|x| x.track_id).collect::<Vec<_>>(),
+            vec![2]
+        );
+        assert_eq!(e.index, 0);
+        assert_eq!(e.queue.len(), 1);
     }
 
     /// 真机冒烟（需要 ffmpeg；找不到则**跳过不红**——CI 保持离线可过）。

@@ -347,6 +347,10 @@ export const en: typeof zh = {
     sleepMin: (n: number) => `Pause in ${n} min`,
     sleepLeft: (n: number) => `Sleep timer: ~${n} min left (click to change)`,
     sessionResume: "Last session · press play to resume",
+    jumpTo: "Jump to this track",
+    queueUp: "Move up",
+    queueDown: "Move down",
+    queueRemove: "Remove",
   },
   serverInfo: {
     head: "Server info (fnOS / self-hosted)",

@@ -41,6 +41,8 @@ function api(positionMs = 1000): PlayerApi {
     next: vi.fn(async () => {}),
     prev: vi.fn(async () => {}),
     jump: vi.fn(async () => {}),
+    queueMove: vi.fn(async () => {}),
+    queueRemove: vi.fn(async () => {}),
     seek: vi.fn(async () => {}),
     setVolume: vi.fn(),
     stop: vi.fn(async () => {}),

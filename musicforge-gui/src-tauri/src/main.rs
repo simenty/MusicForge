@@ -237,6 +237,8 @@ fn main() {
             player_jump,
             player_seek,
             player_set_volume,
+            player_queue_move,
+            player_queue_remove,
             player_status
         ])
         .on_window_event(|window, event| {

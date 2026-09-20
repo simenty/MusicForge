@@ -85,6 +85,18 @@ pub fn player_set_volume(state: State<'_, PlayerHandle>, volume: f32) -> Result<
     state.set_volume(volume)
 }
 
+/// 队列内重排（P6.15）：`from` 移到 `to` 前（越界/相等由引擎忽略）。
+#[tauri::command]
+pub fn player_queue_move(state: State<'_, PlayerHandle>, from: usize, to: usize) -> Result<(), String> {
+    state.queue_move(from, to)
+}
+
+/// 从队列移除指定位置（P6.15）。
+#[tauri::command]
+pub fn player_queue_remove(state: State<'_, PlayerHandle>, index: usize) -> Result<(), String> {
+    state.queue_remove(index)
+}
+
 /// 播放状态快照（前端轮询：含动态位置/欠载计数）。
 #[tauri::command]
 pub fn player_status(state: State<'_, PlayerHandle>) -> PlayerSnapshot {
