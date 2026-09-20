@@ -211,9 +211,127 @@ jobs:
             dist/*.tar.gz
             dist/*.tar.gz.sha256
 
+  # ---- P6.9：Linux GUI（deb + AppImage；未签名 beta）----
+  # 与 gui-portability.yml 的 push 验证同构；这里是**正式资产**（进 Release）。
+  # updater 产物关闭（--config）——跨平台自动更新后置，免签名密钥。
+  linux-gui:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install system deps（webkit2gtk-4.1 / appindicator / rsvg / alsa / patchelf）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+
+      - name: Install Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build frontend
+        run: |
+          npm --prefix musicforge-gui/ui ci
+          npm --prefix musicforge-gui/ui run build
+
+      - name: Build GUI（deb + AppImage）
+        working-directory: musicforge-gui
+        run: |
+          node ui/node_modules/@tauri-apps/cli/tauri.js build --features plugin-host \
+            --bundles deb,appimage \
+            --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: Package（统一命名）
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          mkdir -p dist
+          cp target/release/bundle/deb/*.deb "dist/musicforge-v${VERSION}-linux-x86_64.deb"
+          APPIMG=$(ls target/release/bundle/appimage/*.AppImage | head -1)
+          cp "$APPIMG" "dist/musicforge-v${VERSION}-linux-x86_64.AppImage"
+          chmod +x "dist/musicforge-v${VERSION}-linux-x86_64.AppImage"
+          ls -lh dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: musicforge-linux-gui-${{ steps.ver.outputs.version }}
+          path: dist/*
+
+  # ---- P6.9：macOS GUI（dmg；未签名 beta——用户需手动放行）----
+  macos-gui:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+
+      - name: Install Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build frontend
+        run: |
+          npm --prefix musicforge-gui/ui ci
+          npm --prefix musicforge-gui/ui run build
+
+      - name: Build GUI（dmg）
+        working-directory: musicforge-gui
+        run: |
+          node ui/node_modules/@tauri-apps/cli/tauri.js build --features plugin-host \
+            --bundles dmg \
+            --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: Package（统一命名）
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          mkdir -p dist
+          DMG=$(ls target/release/bundle/dmg/*.dmg | head -1)
+          cp "$DMG" "dist/musicforge-v${VERSION}-macos-aarch64.dmg"
+          ls -lh dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: musicforge-macos-gui-${{ steps.ver.outputs.version }}
+          path: dist/*
+
   # ---- P7 / D26：统一发布（全资产 + 唯一 SHA256SUMS.txt）----
   release:
-    needs: [nsis, unix-assets]
+    needs: [nsis, unix-assets, linux-gui, macos-gui]
     runs-on: ubuntu-latest
     steps:
       - name: Resolve version
@@ -254,14 +372,28 @@ jobs:
           name: musicforge-unix-aarch64-apple-darwin-${{ steps.ver.outputs.version }}
           path: assets/macos
 
+      - name: Download linux GUI assets
+        uses: actions/download-artifact@v4
+        with:
+          name: musicforge-linux-gui-${{ steps.ver.outputs.version }}
+          path: assets/linuxgui
+
+      - name: Download macos GUI assets
+        uses: actions/download-artifact@v4
+        with:
+          name: musicforge-macos-gui-${{ steps.ver.outputs.version }}
+          path: assets/macosgui
+
       # v0.8.0 首跑教训：download-artifact 保留 artifact 内部子路径（installer/、
       # dist/）——直连 glob 匹配不到。先按来源分目录下载，再展平到 assets 根。
       - name: 展平资产 + 统一 SHA256SUMS（D26：GH Release 唯一事实源）
         shell: bash
         working-directory: assets
         run: |
-          find win linux macos -type f \( -name "*.exe" -o -name "*.zip" -o -name "*.tar.gz" \) -exec mv {} . \;
-          sha256sum MusicForge-*.exe *.zip *.tar.gz SBOM.cdx.json > SHA256SUMS.txt
+          find win linux macos linuxgui macosgui -type f \
+            \( -name "*.exe" -o -name "*.zip" -o -name "*.tar.gz" -o -name "*.deb" -o -name "*.AppImage" -o -name "*.dmg" \) \
+            -exec mv {} . \;
+          sha256sum MusicForge-*.exe *.zip *.tar.gz *.deb *.AppImage *.dmg SBOM.cdx.json > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Create/Update GitHub Release
@@ -277,6 +409,9 @@ jobs:
             assets/musicforge-v${{ steps.ver.outputs.version }}-windows-x64.zip
             assets/musicforge-v${{ steps.ver.outputs.version }}-x86_64-unknown-linux-musl.tar.gz
             assets/musicforge-v${{ steps.ver.outputs.version }}-aarch64-apple-darwin.tar.gz
+            assets/musicforge-v${{ steps.ver.outputs.version }}-linux-x86_64.deb
+            assets/musicforge-v${{ steps.ver.outputs.version }}-linux-x86_64.AppImage
+            assets/musicforge-v${{ steps.ver.outputs.version }}-macos-aarch64.dmg
             assets/SHA256SUMS.txt
             assets/SBOM.cdx.json
 
