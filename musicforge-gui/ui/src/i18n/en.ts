@@ -289,6 +289,22 @@ export const en: typeof zh = {
     failed: (msg: string) => `Check failed: ${msg}`,
     offlineHint: "Everything else keeps working when you're offline.",
   },
+  /** P6.14 global search (Ctrl+K) */
+  search: {
+    title: "Search",
+    placeholder: "Search tracks / albums / artists / playlists",
+    hint: "↑↓ select · Enter open (tracks play) · Esc close",
+    empty: "Type to search",
+    none: "No matches",
+    searching: "Searching…",
+    groupTracks: "Tracks",
+    groupAlbums: "Albums",
+    groupArtists: "Artists",
+    groupPlaylists: "Playlists",
+    openArtist: "View tracks",
+    openPlaylist: "Open playlist",
+    shortcut: "Global search (Ctrl+K)",
+  },
   /** P5 first-run guide */
   welcome: {
     title: "Welcome to MusicForge",

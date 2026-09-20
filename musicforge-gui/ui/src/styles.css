@@ -1865,3 +1865,22 @@ button.lyric-line:hover { color: var(--text-2); }
 .cover2.pl-mosaic.c1 img { grid-column: span 2; grid-row: span 2; }
 .cover2.pl-mosaic.c2 img { grid-row: span 2; }
 .cover2.pl-mosaic.c3 img:first-child { grid-row: span 2; }
+/* ========================================================================
+ * P6.14：全局搜索面板（Ctrl+K）
+ * ====================================================================== */
+.search-modal { max-width: min(560px, 92vw); }
+.sp-input { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border); color: var(--text-dim); }
+.sp-input input { flex: 1; border: 0; background: none; color: var(--text); font: inherit; font-size: var(--fs-md); outline: none; }
+.sp-body { max-height: 46vh; overflow-y: auto; padding: var(--sp-2); }
+.sp-hint { margin: var(--sp-4) var(--sp-3); font-size: var(--fs-sm); color: var(--text-faint); }
+.sp-group + .sp-group { margin-top: var(--sp-2); }
+.sp-ghead { display: block; padding: 4px var(--sp-3); font-size: var(--fs-xs); color: var(--text-faint); }
+.sp-row { display: flex; align-items: center; gap: var(--sp-3); width: 100%; padding: 7px var(--sp-3); border: 0; background: none; border-radius: var(--r-sm); text-align: left; color: var(--text); font: inherit; cursor: pointer; }
+.sp-row:hover { background: var(--surface-2); }
+.sp-row.on { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent); }
+.sp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sp-main b { font-weight: 600; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-main span { font-size: var(--fs-xs); color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-meta { font-size: var(--fs-xs); color: var(--text-faint); font-variant-numeric: tabular-nums; flex: none; }
+.sp-foot { padding: var(--sp-2) var(--sp-4); border-top: 1px solid var(--border); font-size: var(--fs-xs); color: var(--text-faint); }
+.search-btn { display: inline-flex; align-items: center; gap: 6px; }

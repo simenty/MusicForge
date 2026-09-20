@@ -285,6 +285,19 @@ export interface Album {
   coverPath?: string | null;
 }
 
+/**
+ * 歌单（含曲目数）。
+ *
+ * 定义在 types.ts（而非 api.ts）：全局搜索结果等复合类型需要引用它，
+ * 而 api.ts 反过来依赖 types.ts——放这里避免循环。api.ts 仍再导出，
+ * 既有 `import type { Playlist } from "./api"` 不受影响。
+ */
+export interface Playlist {
+  id: number;
+  name: string;
+  trackCount: number;
+}
+
 /** 曲库总览统计 */
 export interface LibraryStats {
   tracks: number;
@@ -353,6 +366,16 @@ export interface HistoryEntry extends Track {
 }
 
 // ===================================================== 收藏与统计（P3）
+
+// ================================================ 全局搜索（P6.14）
+
+/** 全局搜索结果（search_all：四组各 limit 条；形状与各自 list 一致） */
+export interface SearchResults {
+  tracks: Track[];
+  albums: Album[];
+  artists: Artist[];
+  playlists: Playlist[];
+}
 
 // ================================================ 工具箱：CUE 分轨（P4）
 

@@ -1,6 +1,6 @@
 // 专辑（P1 网格 / P6 在线封面 / P6.10 详情页）：
 // 点卡片进入详情（大封面 + 播放全部 + 按碟/轨号排序的曲目表）。
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   IS_DESKTOP,
   albumTracks,
@@ -19,8 +19,11 @@ import { IconDisc, IconDownload } from "./icons";
 
 export default function AlbumsPage({
   onPlay,
+  focusId = null,
 }: {
   onPlay?: (tracks: Track[], index: number) => Promise<void>;
+  /** P6.14 搜索跳转：命中的专辑 id（消费一次即展开详情） */
+  focusId?: number | null;
 }) {
   const { t } = useLang();
   const { settings } = useSettings();
@@ -49,6 +52,20 @@ export default function AlbumsPage({
       .then(setTracks)
       .catch(() => setTracks([]));
   };
+
+  // P6.14 搜索跳转：列表就绪后展开命中专辑（ref 标记已消费，避免反复重拉）
+  const consumedFocus = useRef<number | null>(null);
+  useEffect(() => {
+    if (focusId === null || !rows || consumedFocus.current === focusId) return;
+    const hit = rows.find((a) => a.id === focusId);
+    if (!hit) return;
+    consumedFocus.current = focusId;
+    setSel(hit);
+    setTracks(null);
+    void albumTracks(hit.id)
+      .then(setTracks)
+      .catch(() => setTracks([]));
+  }, [focusId, rows]);
 
   if (!IS_DESKTOP) {
     return (

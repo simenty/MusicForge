@@ -116,6 +116,55 @@ pub fn search_tracks(query: String, limit: Option<i64>) -> Result<Vec<serde_json
     Ok(rows.iter().map(track_json).collect())
 }
 
+/// 全局搜索（P6.14）：一次返回 曲目 / 专辑 / 艺术家 / 歌单 四组命中
+/// （搜索面板开一次只发一次 IPC）。JSON 形状与各自的 list 命令一致。
+#[tauri::command]
+pub fn search_all(query: String, limit: Option<i64>) -> Result<serde_json::Value, String> {
+    let db = open_db()?;
+    let hits = db
+        .search_all(&query, limit.unwrap_or(8))
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "tracks": hits.tracks.iter().map(track_json).collect::<Vec<_>>(),
+        "albums": hits
+            .albums
+            .iter()
+            .map(|a| {
+                serde_json::json!({
+                    "id": a.id,
+                    "title": a.title,
+                    "artist": a.artist,
+                    "year": a.year,
+                    "trackCount": a.track_count,
+                    "coverPath": a.cover_path,
+                })
+            })
+            .collect::<Vec<_>>(),
+        "artists": hits
+            .artists
+            .iter()
+            .map(|a| {
+                serde_json::json!({
+                    "id": a.id,
+                    "name": a.name,
+                    "trackCount": a.track_count,
+                })
+            })
+            .collect::<Vec<_>>(),
+        "playlists": hits
+            .playlists
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "id": p.id,
+                    "name": p.name,
+                    "trackCount": p.track_count,
+                })
+            })
+            .collect::<Vec<_>>(),
+    }))
+}
+
 /// 某艺术家的全部曲目（艺术家详情页；按专辑/轨号排序）。
 #[tauri::command]
 pub fn artist_tracks(artist_id: i64) -> Result<Vec<serde_json::Value>, String> {

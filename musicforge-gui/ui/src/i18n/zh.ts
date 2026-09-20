@@ -290,6 +290,22 @@ export const zh = {
     failed: (msg: string) => `检查失败：${msg}`,
     offlineHint: "网络不可用时不影响任何其他功能。",
   },
+  /** P6.14 全局搜索（Ctrl+K） */
+  search: {
+    title: "搜索",
+    placeholder: "搜索曲目 / 专辑 / 艺术家 / 歌单",
+    hint: "↑↓ 选择 · Enter 打开（曲目即播放）· Esc 关闭",
+    empty: "输入关键词开始搜索",
+    none: "没有匹配的结果",
+    searching: "搜索中…",
+    groupTracks: "曲目",
+    groupAlbums: "专辑",
+    groupArtists: "艺术家",
+    groupPlaylists: "歌单",
+    openArtist: "查看曲目",
+    openPlaylist: "打开歌单",
+    shortcut: "全局搜索（Ctrl+K）",
+  },
   /** P5 首启引导 */
   welcome: {
     title: "欢迎使用 MusicForge",

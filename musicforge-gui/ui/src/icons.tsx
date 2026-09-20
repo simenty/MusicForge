@@ -238,6 +238,18 @@ export function IconClock({ size = 16, className }: IconProps) {
   );
 }
 
+/** 搜索（放大镜） */
+export function IconSearch({ size = 16, className }: IconProps) {
+  return svg(
+    <>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="M16 16l4.5 4.5" />
+    </>,
+    size,
+    className
+  );
+}
+
 /** 收藏（爱心） */
 export function IconHeart({ size = 16, className }: IconProps) {
   return svg(

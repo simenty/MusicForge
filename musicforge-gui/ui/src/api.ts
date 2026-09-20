@@ -37,12 +37,14 @@ import type {
   OrganizePlan,
   PlannedItem,
   PlayerSnapshot,
+  Playlist,
   PluginsStatus,
   QueueItem,
   CueInspect,
   CueSplitReport,
   ScanItem,
   ScanReport,
+  SearchResults,
   ServerVersion,
   Source,
   StatsOverview,
@@ -443,6 +445,12 @@ export async function searchTracks(query: string, limit = 200): Promise<Track[]>
   return invoke<Track[]>("search_tracks", { query, limit });
 }
 
+/** 全局搜索（一次返回 曲目/专辑/艺术家/歌单 四组；P6.14） */
+export async function searchAll(query: string, limit = 8): Promise<SearchResults> {
+  if (!IS_DESKTOP) return { tracks: [], albums: [], artists: [], playlists: [] };
+  return invoke<SearchResults>("search_all", { query, limit });
+}
+
 /** 媒体源列表 */
 export async function sourcesList(): Promise<Source[]> {
   return invoke<Source[]>("sources_list");
@@ -681,12 +689,7 @@ export async function lyricsFetch(trackId: number): Promise<string | null> {
 // P6.4 歌单（库内歌单；与 `playlist.rs` 的 M3U 导入导出是两回事）
 // ---------------------------------------------------------------------------
 
-/** 歌单（含曲目数） */
-export interface Playlist {
-  id: number;
-  name: string;
-  trackCount: number;
-}
+/** 歌单类型已归位到 lib/types.ts（复合类型需要引用它）——统一由文件末尾的 re-export 导出 */
 
 /** 创建歌单（返回新 id；空名会被后端拒绝） */
 export async function playlistCreate(name: string): Promise<number> {
@@ -808,12 +811,14 @@ export type {
   OrganizePlan,
   PlannedItem,
   PlayerSnapshot,
+  Playlist,
   PluginsStatus,
   QueueItem,
   SameNameGroup,
   ScanItem,
   ScanReport,
   ScanRuleHit,
+  SearchResults,
   ServerVersion,
   Source,
   StatsOverview,

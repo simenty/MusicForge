@@ -266,6 +266,15 @@ pub struct TopTrackRow {
     pub play_count: i64,
 }
 
+/// 全局搜索命中（P6.14）：一次查询返回四组结果（每组各 limit 条）。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SearchHits {
+    pub tracks: Vec<TrackRow>,
+    pub albums: Vec<AlbumRow>,
+    pub artists: Vec<ArtistRow>,
+    pub playlists: Vec<PlaylistRow>,
+}
+
 /// 歌单行（v3）：id + 名称 + 曲目数。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlaylistRow {
@@ -1008,6 +1017,105 @@ impl Db {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| NcmError::Db(e.to_string()))?;
         Ok(rows)
+    }
+
+    /// 全局搜索（P6.14）：曲目 + 专辑 + 艺术家 + 歌单，每组各 `limit` 条。
+    ///
+    /// 曲目谓词与 `search_tracks` 完全一致（标题/艺术家/专辑/路径；通配符按字面
+    /// 转义）；空查询 → 四组全空。一次查询四组——搜索面板开一次只发一次 IPC。
+    pub fn search_all(&self, query: &str, limit: i64) -> Result<SearchHits, NcmError> {
+        let q = query.trim();
+        if q.is_empty() {
+            return Ok(SearchHits::default());
+        }
+        let pattern = format!("%{}%", escape_like(q));
+        let lim = limit.clamp(1, 50);
+
+        let tracks = self.search_tracks(q, lim)?;
+
+        // 专辑：标题或专辑艺人名命中（只含 ≥1 首曲目的专辑）
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT al.id, al.title, ar.name, al.year, COUNT(t.id) AS n, al.cover_cache
+                 FROM albums al
+                 JOIN tracks t ON t.album_id = al.id
+                 LEFT JOIN artists ar ON ar.id = al.album_artist_id
+                 WHERE al.title LIKE ?1 ESCAPE '\\' OR ar.name LIKE ?1 ESCAPE '\\'
+                 GROUP BY al.id
+                 ORDER BY n DESC, al.title
+                 LIMIT ?2",
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let albums = stmt
+            .query_map(params![pattern, lim], |r| {
+                Ok(AlbumRow {
+                    id: r.get(0)?,
+                    title: r.get(1)?,
+                    artist: r.get(2)?,
+                    year: r.get(3)?,
+                    track_count: r.get(4)?,
+                    cover_path: r.get(5)?,
+                })
+            })
+            .map_err(|e| NcmError::Db(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+
+        // 艺术家（只含有曲目的）
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT ar.id, ar.name, COUNT(t.id) AS n
+                 FROM artists ar JOIN tracks t ON t.artist_id = ar.id
+                 WHERE ar.name LIKE ?1 ESCAPE '\\'
+                 GROUP BY ar.id, ar.name
+                 ORDER BY n DESC, ar.name
+                 LIMIT ?2",
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let artists = stmt
+            .query_map(params![pattern, lim], |r| {
+                Ok(ArtistRow {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    track_count: r.get(2)?,
+                })
+            })
+            .map_err(|e| NcmError::Db(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+
+        // 歌单（按名；空歌单也可见——它是用户资产）
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT p.id, p.name, COUNT(pi.track_id) AS n
+                 FROM playlists p LEFT JOIN playlist_items pi ON pi.playlist_id = p.id
+                 WHERE p.name LIKE ?1 ESCAPE '\\'
+                 GROUP BY p.id, p.name
+                 ORDER BY p.created_at DESC
+                 LIMIT ?2",
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let playlists = stmt
+            .query_map(params![pattern, lim], |r| {
+                Ok(PlaylistRow {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    track_count: r.get(2)?,
+                })
+            })
+            .map_err(|e| NcmError::Db(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+
+        Ok(SearchHits {
+            tracks,
+            albums,
+            artists,
+            playlists,
+        })
     }
 
     // ------------------------------------------------------------ v3 行为 --

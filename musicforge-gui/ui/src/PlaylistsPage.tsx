@@ -1,6 +1,6 @@
 // 歌单（P6.4）：列表态（新建/打开）与详情态（播放全部/移除曲目/重命名/删除）。
 // 曲目来源：音乐库行尾的 ＋（AddToPlaylistDialog）。
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   IS_DESKTOP,
   playlistCreate,
@@ -22,8 +22,11 @@ import { IconList, IconPlus } from "./icons";
 
 export default function PlaylistsPage({
   onPlay,
+  focusId = null,
 }: {
   onPlay?: (tracks: Track[], index: number) => Promise<void>;
+  /** P6.14 搜索跳转：命中的歌单 id（消费一次即进入详情） */
+  focusId?: number | null;
 }) {
   const { t } = useLang();
   const [lists, setLists] = useState<Playlist[] | null>(null);
@@ -60,6 +63,20 @@ export default function PlaylistsPage({
       .then(setItems)
       .catch(() => setItems([]));
   }, []);
+
+  // P6.14 搜索跳转：列表就绪后进入命中歌单（ref 标记已消费，避免反复重拉）
+  const consumedFocus = useRef<number | null>(null);
+  useEffect(() => {
+    if (focusId === null || !lists || consumedFocus.current === focusId) return;
+    const hit = lists.find((p) => p.id === focusId);
+    if (!hit) return;
+    consumedFocus.current = focusId;
+    setOpen(hit);
+    setItems(null);
+    void playlistTracks(hit.id)
+      .then(setItems)
+      .catch(() => setItems([]));
+  }, [focusId, lists]);
 
   if (!IS_DESKTOP) {
     return (

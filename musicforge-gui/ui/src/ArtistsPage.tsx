@@ -1,7 +1,7 @@
 // 艺术家（P1 网格 / P6.2 代表图 / P6.10 详情页）：
 // 有封面则显示（其最热专辑的封面），否则圆形首字；点卡片进入详情（播放全部 + 曲目表）。
 // 「补全头像」需在设置中开启「在线元数据」——网络请求只由该按钮触发。
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   IS_DESKTOP,
   artistCover,
@@ -19,8 +19,11 @@ import { IconDownload } from "./icons";
 
 export default function ArtistsPage({
   onPlay,
+  focusId = null,
 }: {
   onPlay?: (tracks: Track[], index: number) => Promise<void>;
+  /** P6.14 搜索跳转：命中的艺术家 id（消费一次即展开详情） */
+  focusId?: number | null;
 }) {
   const { t } = useLang();
   const { settings } = useSettings();
@@ -65,6 +68,21 @@ export default function ArtistsPage({
       .then(setTracks)
       .catch(() => setTracks([]));
   };
+
+  // P6.14 搜索跳转：列表就绪后展开命中艺术家。
+  // 用 ref 标记「已消费」而非把 openArtist 列进依赖——后者每次渲染都变，会反复重拉。
+  const consumedFocus = useRef<number | null>(null);
+  useEffect(() => {
+    if (focusId === null || !rows || consumedFocus.current === focusId) return;
+    const hit = rows.find((a) => a.id === focusId);
+    if (!hit) return;
+    consumedFocus.current = focusId;
+    setSel(hit);
+    setTracks(null);
+    void artistTracks(hit.id)
+      .then(setTracks)
+      .catch(() => setTracks([]));
+  }, [focusId, rows]);
 
   if (!IS_DESKTOP) {
     return (

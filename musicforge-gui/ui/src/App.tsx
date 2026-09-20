@@ -40,6 +40,9 @@ const CleanPanel = lazy(() => import("./CleanPanel"));
 const TrashPanel = lazy(() => import("./TrashPanel"));
 const PluginPanel = lazy(() => import("./PluginPanel"));
 const UpdateSection = lazy(() => import("./UpdateSection"));
+const SearchPalette = lazy(() => import("./SearchPalette"));
+// 类型只用于接线，不进运行时（避免把面板拉进首屏包）
+import type { SearchTarget } from "./SearchPalette";
 import { usePlayer } from "./hooks/usePlayer";
 import {
   IconClock,
@@ -53,6 +56,7 @@ import {
   IconLibrary,
   IconList,
   IconMenu,
+  IconSearch,
   IconPlan,
   IconPlay,
   IconPlugin,
@@ -97,6 +101,14 @@ export default function App() {
   const { authEnabled } = useServerAuth();
   /** 窄屏抽屉（≤860px 时侧栏转为抽屉，由顶栏汉堡开关） */
   const [navOpen, setNavOpen] = useState(false);
+  /** P6.14 全局搜索面板 */
+  const [searchOpen, setSearchOpen] = useState(false);
+  /** P6.14 搜索跳转目标：命中专辑/艺术家/歌单时展开其详情 */
+  const [focusId, setFocusId] = useState<{
+    kind: "album" | "artist" | "playlist";
+    id: number;
+  } | null>(null);
+
   /** 工具箱分区的二级菜单（P4 能力归位）：转换 / 扫描 / 去重 / 整理 / 清理 / 回收站 / CUE / 插件 */
   const [toolboxTab, setToolboxTab] = useState<
     "convert" | "scan" | "dedupe" | "organize" | "clean" | "trash" | "cue" | "plugins"
@@ -183,6 +195,28 @@ export default function App() {
     });
     return () => stop?.();
   }, []);
+
+  // P6.14 全局搜索：Ctrl/Cmd+K 唤起（输入框内也生效——浏览器默认是聚焦搜索栏）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  /** P6.14 搜索跳转：切到对应分区，并让该页展开命中的专辑/艺术家/歌单 */
+  const openSearchTarget = (target: SearchTarget) => {
+    if (target.kind === "track") return;
+    setView("media");
+    setMediaTab(
+      target.kind === "album" ? "albums" : target.kind === "artist" ? "artists" : "playlists"
+    );
+    setFocusId({ kind: target.kind, id: target.id });
+  };
   const {
     rows,
     summary,
@@ -586,6 +620,16 @@ export default function App() {
                   title={t.auth.where}
                 />
               ))}
+            {/* P6.14 全局搜索入口（Ctrl/Cmd+K 亦可唤起） */}
+            <button
+              className="btn sm search-btn"
+              onClick={() => setSearchOpen(true)}
+              title={t.search.shortcut}
+              aria-label={t.search.title}
+            >
+              <IconSearch size={14} />
+              <span>{t.search.title}</span>
+            </button>
             <select
               className="lang-select"
               value={lang}
@@ -802,9 +846,24 @@ export default function App() {
             />
           )}
           {mediaTab === "library" && <LibraryPage onPlay={player.playTracks} />}
-          {mediaTab === "artists" && <ArtistsPage onPlay={player.playTracks} />}
-          {mediaTab === "albums" && <AlbumsPage onPlay={player.playTracks} />}
-          {mediaTab === "playlists" && <PlaylistsPage onPlay={player.playTracks} />}
+          {mediaTab === "artists" && (
+            <ArtistsPage
+              onPlay={player.playTracks}
+              focusId={focusId?.kind === "artist" ? focusId.id : null}
+            />
+          )}
+          {mediaTab === "albums" && (
+            <AlbumsPage
+              onPlay={player.playTracks}
+              focusId={focusId?.kind === "album" ? focusId.id : null}
+            />
+          )}
+          {mediaTab === "playlists" && (
+            <PlaylistsPage
+              onPlay={player.playTracks}
+              focusId={focusId?.kind === "playlist" ? focusId.id : null}
+            />
+          )}
           {mediaTab === "favorites" && <FavoritesPage onPlay={player.playTracks} />}
           {mediaTab === "history" && <HistoryPage onPlay={player.playTracks} />}
           {mediaTab === "stats" && <StatsPage onPlay={player.playTracks} />}
@@ -995,6 +1054,15 @@ export default function App() {
       <div className="legal">{t.app.legal}</div>
       </div>
       {/* /main-wrap */}
+
+      {/* P6.14 全局搜索面板（顶栏按钮 / Ctrl+K 唤起） */}
+      {searchOpen && (
+        <SearchPalette
+          onClose={() => setSearchOpen(false)}
+          onPlay={player.playTracks}
+          onOpen={openSearchTarget}
+        />
+      )}
 
       {/* P5 首启引导：首次运行显示三步说明（localStorage 标记） */}
       <WelcomeGuide
