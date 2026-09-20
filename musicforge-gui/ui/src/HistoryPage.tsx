@@ -26,10 +26,13 @@ function timeOf(sec: number): string {
 export default function HistoryPage({
   onPlay,
   onQueue,
+  onPlayNext,
 }: {
   onPlay?: (tracks: Track[], index: number) => Promise<void>;
   /** P6.16 加入队列 */
   onQueue?: (tracks: Track[]) => Promise<void>;
+  /** P6.17 下一首播放 */
+  onPlayNext?: (tracks: Track[]) => Promise<void>;
 }) {
   const { t } = useLang();
   const [rows, setRows] = useState<HistoryEntry[] | null>(null);
@@ -141,7 +144,8 @@ export default function HistoryPage({
                   liked={liked.isLiked(r.id)}
                   onLike={() => void liked.toggle(r.id)}
                   onQueue={onQueue ? () => void onQueue([r]) : undefined}
-                />
+                  onPlayNext={onPlayNext ? () => void onPlayNext([r]) : undefined}
+              />
               ))}
             </div>
           </section>

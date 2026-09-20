@@ -551,6 +551,11 @@ export async function playerQueueClear(): Promise<void> {
   return invoke<void>("player_queue_clear");
 }
 
+/** 插入到当前曲目之后（P6.17）：「下一首播放」 */
+export async function playerQueueInsertNext(items: QueueItem[]): Promise<void> {
+  return invoke<void>("player_queue_insert_next", { items });
+}
+
 /** 播放状态快照（含动态位置/欠载计数；前端轮询） */
 export async function playerStatus(): Promise<PlayerSnapshot> {
   return invoke<PlayerSnapshot>("player_status");

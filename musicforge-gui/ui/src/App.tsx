@@ -843,41 +843,41 @@ export default function App() {
               goSources={() => setMediaTab("sources")}
               onNavigate={(tab) => setMediaTab(tab)}
               onPlay={player.playTracks}
-              onQueue={player.queueAppend}
+              onQueue={player.queueAppend} onPlayNext={player.playNext}
             />
           )}
           {mediaTab === "library" && (
-            <LibraryPage onPlay={player.playTracks} onQueue={player.queueAppend} />
+            <LibraryPage onPlay={player.playTracks} onQueue={player.queueAppend} onPlayNext={player.playNext} />
           )}
           {mediaTab === "artists" && (
             <ArtistsPage
               onPlay={player.playTracks}
               focusId={focusId?.kind === "artist" ? focusId.id : null}
-              onQueue={player.queueAppend}
+              onQueue={player.queueAppend} onPlayNext={player.playNext}
             />
           )}
           {mediaTab === "albums" && (
             <AlbumsPage
               onPlay={player.playTracks}
               focusId={focusId?.kind === "album" ? focusId.id : null}
-              onQueue={player.queueAppend}
+              onQueue={player.queueAppend} onPlayNext={player.playNext}
             />
           )}
           {mediaTab === "playlists" && (
             <PlaylistsPage
               onPlay={player.playTracks}
               focusId={focusId?.kind === "playlist" ? focusId.id : null}
-              onQueue={player.queueAppend}
+              onQueue={player.queueAppend} onPlayNext={player.playNext}
             />
           )}
           {mediaTab === "favorites" && (
-            <FavoritesPage onPlay={player.playTracks} onQueue={player.queueAppend} />
+            <FavoritesPage onPlay={player.playTracks} onQueue={player.queueAppend} onPlayNext={player.playNext} />
           )}
           {mediaTab === "history" && (
-            <HistoryPage onPlay={player.playTracks} onQueue={player.queueAppend} />
+            <HistoryPage onPlay={player.playTracks} onQueue={player.queueAppend} onPlayNext={player.playNext} />
           )}
           {mediaTab === "stats" && (
-            <StatsPage onPlay={player.playTracks} onQueue={player.queueAppend} />
+            <StatsPage onPlay={player.playTracks} onQueue={player.queueAppend} onPlayNext={player.playNext} />
           )}
           {mediaTab === "sources" && <SourcesPage />}
         </div>

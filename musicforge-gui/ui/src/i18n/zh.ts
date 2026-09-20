@@ -355,6 +355,7 @@ export const zh = {
     queueCount: (n: number) => `队列 ${n} 首`,
     queueClear: "清空队列",
     queueAdd: "加入队列",
+    playNext: "下一首播放",
   },
   serverInfo: {
     head: "服务端信息（fnOS / 自建 server）",

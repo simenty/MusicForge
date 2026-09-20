@@ -24,12 +24,15 @@ export default function PlaylistsPage({
   onPlay,
   focusId = null,
   onQueue,
+  onPlayNext,
 }: {
   onPlay?: (tracks: Track[], index: number) => Promise<void>;
   /** P6.14 搜索跳转：命中的歌单 id（消费一次即进入详情） */
   focusId?: number | null;
   /** P6.16 加入队列 */
   onQueue?: (tracks: Track[]) => Promise<void>;
+  /** P6.17 下一首播放 */
+  onPlayNext?: (tracks: Track[]) => Promise<void>;
 }) {
   const { t } = useLang();
   const [lists, setLists] = useState<Playlist[] | null>(null);
@@ -293,6 +296,7 @@ export default function PlaylistsPage({
                     : undefined
                 }
                 onQueue={onQueue ? () => void onQueue([r]) : undefined}
+                onPlayNext={onPlayNext ? () => void onPlayNext([r]) : undefined}
                 trailing={
                   <button
                     className="row-mini"

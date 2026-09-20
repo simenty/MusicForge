@@ -53,6 +53,7 @@ function api(over: Partial<PlayerApi> = {}, status: Partial<PlayerSnapshot> | nu
     queueRemove: vi.fn(async () => {}),
     queueAppend: vi.fn(async () => {}),
     clearQueue: vi.fn(async () => {}),
+    playNext: vi.fn(async () => {}),
     seek: vi.fn(async () => {}),
     setVolume: vi.fn(),
     stop: vi.fn(async () => {}),

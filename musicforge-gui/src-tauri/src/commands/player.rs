@@ -109,6 +109,12 @@ pub fn player_queue_clear(state: State<'_, PlayerHandle>) -> Result<(), String> 
     state.queue_clear()
 }
 
+/// 插入到当前曲目之后（P6.17）：「下一首播放」。
+#[tauri::command]
+pub fn player_queue_insert_next(state: State<'_, PlayerHandle>, items: Vec<QueueItemDto>) -> Result<(), String> {
+    state.queue_insert_next(items.into_iter().map(Into::into).collect())
+}
+
 /// 播放状态快照（前端轮询：含动态位置/欠载计数）。
 #[tauri::command]
 pub fn player_status(state: State<'_, PlayerHandle>) -> PlayerSnapshot {

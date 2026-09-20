@@ -21,6 +21,8 @@ export interface TrackRowProps {
   onAdd?: () => void;
   /** 「加入队列」入口（提供时尾列渲染 ▶ 按钮；P6.16） */
   onQueue?: () => void;
+  /** 「下一首播放」入口（提供时尾列渲染 ⏭ 按钮；P6.17） */
+  onPlayNext?: () => void;
   /** 会话自定义的第 6 列（优先于 ＋/爱心；如统计页的播放次数） */
   trailing?: ReactNode;
   /** 透传到根 div 的属性（歌单页拖拽排序用：draggable/onDragStart/onDrop…） */
@@ -35,6 +37,7 @@ export default function TrackRow({
   onLike,
   onAdd,
   onQueue,
+  onPlayNext,
   trailing,
   dragProps,
 }: TrackRowProps) {
@@ -56,8 +59,34 @@ export default function TrackRow({
       </span>
       <span className="vt-heart">
         {trailing ??
-          ((onAdd || onQueue || onLike) && (
+          ((onAdd || onQueue || onPlayNext || onLike) && (
             <>
+              {onPlayNext && (
+                <button
+                  className="heart-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPlayNext();
+                  }}
+                  aria-label={t.player.playNext}
+                  title={t.player.playNext}
+                >
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M5 12h11" />
+                    <path d="M13 8l4 4-4 4" />
+                    <path d="M20 5v14" />
+                  </svg>
+                </button>
+              )}
               {onQueue && (
                 <button
                   className="heart-btn"

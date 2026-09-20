@@ -16,12 +16,15 @@ export default function MediaHome({
   onNavigate,
   onPlay,
   onQueue,
+  onPlayNext,
 }: {
   goSources: () => void;
   onNavigate?: (tab: "favorites" | "history" | "sources") => void;
   onPlay?: (tracks: Track[], index: number) => Promise<void>;
   /** P6.16 加入队列 */
   onQueue?: (tracks: Track[]) => Promise<void>;
+  /** P6.17 下一首播放 */
+  onPlayNext?: (tracks: Track[]) => Promise<void>;
 }) {
   const { t } = useLang();
   const [stats, setStats] = useState<StatsOverview | null>(null);
@@ -196,6 +199,7 @@ export default function MediaHome({
               track={tr}
               onPlay={onPlay ? () => playFrom(tr) : undefined}
               onQueue={onQueue ? () => void onQueue([tr]) : undefined}
+              onPlayNext={onPlayNext ? () => void onPlayNext([tr]) : undefined}
             />
           ))}
         </div>

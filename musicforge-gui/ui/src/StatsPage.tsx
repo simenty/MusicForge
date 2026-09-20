@@ -23,10 +23,13 @@ function last7Days(): string[] {
 export default function StatsPage({
   onPlay,
   onQueue,
+  onPlayNext,
 }: {
   onPlay?: (tracks: Track[], index: number) => Promise<void>;
   /** P6.16 加入队列 */
   onQueue?: (tracks: Track[]) => Promise<void>;
+  /** P6.17 下一首播放 */
+  onPlayNext?: (tracks: Track[]) => Promise<void>;
 }) {
   const { t } = useLang();
   const [data, setData] = useState<StatsOverview | null>(null);
@@ -173,6 +176,7 @@ export default function StatsPage({
                 trailing={<span className="vt-num">{t.media.playsN(tr.playCount)}</span>}
                 onPlay={onPlay ? () => playTop(tr) : undefined}
                 onQueue={onQueue ? () => void onQueue([tr]) : undefined}
+                onPlayNext={onPlayNext ? () => void onPlayNext([tr]) : undefined}
               />
             ))
           )}

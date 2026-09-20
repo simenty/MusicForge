@@ -11,6 +11,7 @@ import {
   playerPrev,
   playerQueueAppend,
   playerQueueClear,
+  playerQueueInsertNext,
   playerQueueMove,
   playerQueueRemove,
   playerSeek,
@@ -52,6 +53,8 @@ export interface PlayerApi {
   queueAppend: (tracks: Track[]) => Promise<void>;
   /** 清空队列（P6.16）：停止并清空 */
   clearQueue: () => Promise<void>;
+  /** 插入到当前曲目之后（P6.17）：「下一首播放」 */
+  playNext: (tracks: Track[]) => Promise<void>;
   seek: (ms: number) => Promise<void>;
   /** 音量：本地立即生效 + 120ms 节流下发（拖动不刷后端） */
   setVolume: (v: number) => void;
@@ -216,6 +219,30 @@ export function usePlayer(): PlayerApi {
     await playerQueueClear();
   }, []);
 
+  // P6.17 下一首播放：插到当前曲目之后（index+1），前端副本与引擎同步 splice，保持同步。
+  // 当前项位置不变 → 播放不中断；若队列为空则等价于追加到头。
+  const playNext = useCallback(
+    async (tracks: Track[]) => {
+      if (tracks.length === 0) return;
+      const items: QueueItem[] = tracks.map((t) => ({
+        trackId: t.id,
+        path: t.path,
+        title: t.title,
+        artist: t.artist,
+        durationMs: t.durationMs,
+      }));
+      setQueue((q) => {
+        if (q.length === 0) return [...items];
+        const at = (status?.queueIndex ?? 0) + 1;
+        const next = [...q];
+        next.splice(at, 0, ...items);
+        return next;
+      });
+      await playerQueueInsertNext(items);
+    },
+    [status],
+  );
+
   const seek = useCallback(async (ms: number) => {
     await playerSeek(ms);
   }, []);
@@ -260,6 +287,7 @@ export function usePlayer(): PlayerApi {
     queueRemove,
     queueAppend,
     clearQueue,
+    playNext,
     seek,
     setVolume,
     stop,
