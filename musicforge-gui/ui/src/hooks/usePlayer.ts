@@ -29,6 +29,8 @@ export interface PlayerApi {
   /** 以 `tracks` 为队列、从 `startIndex` 开始播放 */
   playTracks: (tracks: Track[], startIndex: number) => Promise<void>;
   toggle: () => Promise<void>;
+  /** 暂停（仅在播放中生效——睡眠定时等场景专用，绝不反向唤醒） */
+  pause: () => Promise<void>;
   next: () => Promise<void>;
   prev: () => Promise<void>;
   /** 跳到队列中的指定位置（队列抽屉点选） */
@@ -82,6 +84,14 @@ export function usePlayer(): PlayerApi {
     await playerToggle();
   }, []);
 
+  // playing 的 ref 镜像：pause 需要读「当前」播放态但不应因 status 重建回调
+  const playingRef = useRef(false);
+  playingRef.current = status?.state === "playing";
+
+  const pause = useCallback(async () => {
+    if (playingRef.current) await playerToggle();
+  }, []);
+
   const next = useCallback(async () => {
     await playerNext();
   }, []);
@@ -118,6 +128,7 @@ export function usePlayer(): PlayerApi {
     queue,
     playTracks,
     toggle,
+    pause,
     next,
     prev,
     jump,

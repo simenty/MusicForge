@@ -26,6 +26,12 @@ if (typeof globalThis.localStorage?.setItem !== "function") {
   });
 }
 
+// jsdom 未实现 Element.scrollIntoView（歌词面板的自动滚动会调用）——
+// 补 noop 桩，否则 effect 中调用会抛 "scrollIntoView is not a function"。
+if (typeof Element.prototype.scrollIntoView !== "function") {
+  Element.prototype.scrollIntoView = () => {};
+}
+
 afterEach(() => {
   cleanup();
 });

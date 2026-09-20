@@ -1,6 +1,6 @@
 // 播放底栏（P2）：常驻内容区底部——曲目信息 / 上一首·播放暂停·下一首 / 进度 + 音量。
 // 进度拖动：拖动中本地显示（不刷后端），松手才 seek（后端重建解码有成本）。
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { IS_DESKTOP, trackCover } from "./api";
 import { useLang } from "./i18n";
 import { fmtClock } from "./lib/format";
@@ -16,6 +16,10 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
   const [lyrOpen, setLyrOpen] = useState(false);
   /** 当前曲目封面（本地缓存路径 → asset URL；无 → null 显示图标占位） */
   const [cover, setCover] = useState<string | null>(null);
+  /** P6.11 睡眠定时：菜单开合 / 到期时刻（epoch ms，null = 未启用） / 剩余毫秒 */
+  const [sleepOpen, setSleepOpen] = useState(false);
+  const [sleepUntil, setSleepUntil] = useState<number | null>(null);
+  const [sleepLeftMs, setSleepLeftMs] = useState(0);
 
   // 曲目切换时拉一次封面（纯本地 db 查询，不发网络）
   const trackId = status?.trackId ?? null;
@@ -36,6 +40,35 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
       alive = false;
     };
   }, [trackId]);
+
+  // P6.11 睡眠定时：每秒刷新剩余时间，到期暂停。
+  // playerRef 镜像：avoid 把 500ms 轮询产生的新对象拖进依赖（否则 interval 每次轮询重建）。
+  const playerRef = useRef(player);
+  playerRef.current = player;
+  useEffect(() => {
+    if (sleepUntil === null) {
+      setSleepLeftMs(0);
+      return;
+    }
+    const tick = () => {
+      const left = sleepUntil - Date.now();
+      setSleepLeftMs(Math.max(0, left));
+      if (left <= 0) {
+        setSleepUntil(null);
+        void playerRef.current.pause(); // pause 自带 playing 守卫：到期只暂停、绝不反向唤醒
+      }
+    };
+    tick();
+    // 10s 粒度：显示到分钟级，无需秒级唤醒（省电 + 测试快进成本低）
+    const timer = window.setInterval(tick, 10_000);
+    return () => window.clearInterval(timer);
+  }, [sleepUntil]);
+
+  /** 设定睡眠定时（分钟；≤0 = 关闭）。 */
+  const setSleep = (minutes: number) => {
+    setSleepOpen(false);
+    setSleepUntil(minutes <= 0 ? null : Date.now() + minutes * 60_000);
+  };
 
   const dur = status?.durationMs ?? 0;
   const pos = drag ?? status?.positionMs ?? 0;
@@ -192,6 +225,31 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
             title={t.player.volume}
           />
         </div>
+        {/* P6.11 睡眠定时（图标激活态显示剩余分钟于 title） */}
+        <button
+          className={"pb-btn" + (sleepUntil !== null ? " on" : "")}
+          onClick={() => setSleepOpen((v) => !v)}
+          aria-label={t.player.sleep}
+          title={
+            sleepUntil !== null
+              ? t.player.sleepLeft(Math.max(1, Math.ceil(sleepLeftMs / 60_000)))
+              : t.player.sleep
+          }
+          aria-expanded={sleepOpen}
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M20 14.5A8.5 8.5 0 019.5 4a7.5 7.5 0 1010.5 10.5z" />
+          </svg>
+        </button>
         <button
           className="pb-btn"
           onClick={() => setQOpen((v) => !v)}
@@ -232,6 +290,19 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
                 <b title={it.title ?? undefined}>{it.title ?? "—"}</b>
                 <span>{it.artist ?? "—"}</span>
               </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {sleepOpen && (
+        <div className="pb-sleep" role="menu" aria-label={t.player.sleep}>
+          <button type="button" role="menuitem" onClick={() => setSleep(0)}>
+            {t.player.sleepOff}
+          </button>
+          {[15, 30, 60].map((m) => (
+            <button key={m} type="button" role="menuitem" onClick={() => setSleep(m)}>
+              {t.player.sleepMin(m)}
             </button>
           ))}
         </div>

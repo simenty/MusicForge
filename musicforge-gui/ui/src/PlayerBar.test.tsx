@@ -1,5 +1,5 @@
 // PlayerBar 组件测试（P2）：空态禁用 / 播放中暂停切换 / 错误态展示。
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -43,6 +43,7 @@ function api(over: Partial<PlayerApi> = {}, status: Partial<PlayerSnapshot> | nu
     queue: [],
     playTracks: vi.fn(async () => {}),
     toggle: vi.fn(async () => {}),
+    pause: vi.fn(async () => {}),
     next: vi.fn(async () => {}),
     prev: vi.fn(async () => {}),
     jump: vi.fn(async () => {}),
@@ -106,4 +107,34 @@ describe("PlayerBar（播放底栏）", () => {
     await user.click(btn);
     expect(p.toggle).toHaveBeenCalledOnce();
   });
+
+  it("睡眠定时：15 分钟到期自动暂停（pause 一次性，不调 toggle）", () => {
+    vi.useFakeTimers();
+    try {
+      const p = api(
+        { playing: true },
+        { state: "playing", trackId: 7, title: "T", positionMs: 1000 }
+      );
+      renderBar(p);
+      // 假时钟下用 fireEvent（同步）——userEvent 的等待链依赖真实计时器
+      fireEvent.click(screen.getByRole("button", { name: zh.player.sleep }));
+      fireEvent.click(screen.getByRole("menuitem", { name: zh.player.sleepMin(15) }));
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+
+      // 未到期：不暂停
+      act(() => {
+        vi.advanceTimersByTime(14 * 60_000);
+      });
+      expect(p.pause).not.toHaveBeenCalled();
+
+      // 到期：暂停一次（守卫语义由 hook 保证，此处断言调用与不误触 toggle）
+      act(() => {
+        vi.advanceTimersByTime(61_000);
+      });
+      expect(p.pause).toHaveBeenCalledOnce();
+      expect(p.toggle).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 20_000);
 });

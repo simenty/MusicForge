@@ -323,6 +323,14 @@ export const zh = {
     lyricsTitle: (name: string) => `歌词 · ${name}`,
     lyricsNone: "未找到歌词（LRCLIB 暂未收录或尚在整理）",
     close: "关闭",
+    // —— P6.11 歌词互动 + 睡眠定时 ——
+    lrcSeek: "点击跳转到此处",
+    lrcOffset: (v: string) => `偏移 ${v}`,
+    lrcOffsetReset: "点击重置偏移",
+    sleep: "睡眠定时",
+    sleepOff: "关闭定时",
+    sleepMin: (n: number) => `${n} 分钟后暂停`,
+    sleepLeft: (n: number) => `睡眠定时：剩余约 ${n} 分钟（点击修改）`,
   },
   serverInfo: {
     head: "服务端信息（fnOS / 自建 server）",

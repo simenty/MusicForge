@@ -322,6 +322,14 @@ export const en: typeof zh = {
     lyricsTitle: (name: string) => `Lyrics · ${name}`,
     lyricsNone: "No lyrics found (not in LRCLIB yet)",
     close: "Close",
+    // —— P6.11 lyric interactions + sleep timer ——
+    lrcSeek: "Click to jump here",
+    lrcOffset: (v: string) => `Offset ${v}`,
+    lrcOffsetReset: "Click to reset offset",
+    sleep: "Sleep timer",
+    sleepOff: "Turn off timer",
+    sleepMin: (n: number) => `Pause in ${n} min`,
+    sleepLeft: (n: number) => `Sleep timer: ~${n} min left (click to change)`,
   },
   serverInfo: {
     head: "Server info (fnOS / self-hosted)",
