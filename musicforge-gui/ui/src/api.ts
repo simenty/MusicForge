@@ -541,6 +541,16 @@ export async function playerQueueRemove(index: number): Promise<void> {
   return invoke<void>("player_queue_remove", { index });
 }
 
+/** 追加到队尾（P6.16）：不中断当前播放 */
+export async function playerQueueAppend(items: QueueItem[]): Promise<void> {
+  return invoke<void>("player_queue_append", { items });
+}
+
+/** 清空队列（P6.16） */
+export async function playerQueueClear(): Promise<void> {
+  return invoke<void>("player_queue_clear");
+}
+
 /** 播放状态快照（含动态位置/欠载计数；前端轮询） */
 export async function playerStatus(): Promise<PlayerSnapshot> {
   return invoke<PlayerSnapshot>("player_status");

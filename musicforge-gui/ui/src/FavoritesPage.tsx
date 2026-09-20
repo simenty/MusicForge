@@ -11,8 +11,11 @@ import TrackRow from "./TrackRow";
 
 export default function FavoritesPage({
   onPlay,
+  onQueue,
 }: {
   onPlay?: (tracks: Track[], index: number) => Promise<void>;
+  /** P6.16 加入队列 */
+  onQueue?: (tracks: Track[]) => Promise<void>;
 }) {
   const { t } = useLang();
   const [rows, setRows] = useState<Track[] | null>(null);
@@ -88,6 +91,7 @@ export default function FavoritesPage({
               onPlay={onPlay ? () => playFrom(r) : undefined}
               liked={liked.isLiked(r.id)}
               onLike={() => void liked.toggle(r.id)}
+              onQueue={onQueue ? () => void onQueue([r]) : undefined}
             />
           ))}
         </div>

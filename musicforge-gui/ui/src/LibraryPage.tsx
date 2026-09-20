@@ -13,9 +13,12 @@ import AddToPlaylistDialog from "./AddToPlaylistDialog";
 
 export default function LibraryPage({
   onPlay,
+  onQueue,
 }: {
   /** 双击行 → 以当前已缓存曲目为队列播放（App 层注入 player.playTracks） */
   onPlay?: (tracks: Track[], index: number) => Promise<void>;
+  /** P6.16 加入队列 */
+  onQueue?: (tracks: Track[]) => Promise<void>;
 }) {
   const { t } = useLang();
   const w = useWindowedTracks();
@@ -142,6 +145,7 @@ export default function LibraryPage({
                   liked={liked.isLiked(r.id)}
                   onLike={() => void liked.toggle(r.id)}
                   onAdd={() => setAddTarget(r)}
+                  onQueue={onQueue ? () => void onQueue([r]) : undefined}
                 />
               ))}
             </>
@@ -161,6 +165,7 @@ export default function LibraryPage({
                       liked={liked.isLiked(tr.id)}
                       onLike={() => void liked.toggle(tr.id)}
                       onAdd={() => setAddTarget(tr)}
+                      onQueue={onQueue ? () => void onQueue([tr]) : undefined}
                     />
                   ) : (
                     <div className="vt-row" key={`ph-${i}`}>

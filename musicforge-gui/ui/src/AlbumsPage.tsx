@@ -20,10 +20,13 @@ import { IconDisc, IconDownload } from "./icons";
 export default function AlbumsPage({
   onPlay,
   focusId = null,
+  onQueue,
 }: {
   onPlay?: (tracks: Track[], index: number) => Promise<void>;
   /** P6.14 搜索跳转：命中的专辑 id（消费一次即展开详情） */
   focusId?: number | null;
+  /** P6.16 加入队列 */
+  onQueue?: (tracks: Track[]) => Promise<void>;
 }) {
   const { t } = useLang();
   const { settings } = useSettings();
@@ -196,6 +199,7 @@ export default function AlbumsPage({
                 track={r}
                 onPlay={onPlay ? () => void onPlay(tracks, i) : undefined}
                 onAdd={() => setAddTarget(r)}
+                onQueue={onQueue ? () => void onQueue([r]) : undefined}
               />
             ))}
           </div>

@@ -145,7 +145,7 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
         <button
           className="pb-btn main"
           onClick={() => void (hasTrack ? player.toggle() : player.resume())}
-          disabled={!hasTrack && !restored}
+          disabled={!hasTrack && !restored && player.queue.length === 0}
           aria-label={playing ? t.player.pause : t.player.play}
           title={playing ? t.player.pause : t.player.play}
         >
@@ -289,6 +289,17 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
 
       {qOpen && player.queue.length > 0 && (
         <div className="pb-queue" role="list" aria-label={t.player.queue}>
+          <div className="qd-head">
+            <span>{t.player.queueCount(player.queue.length)}</span>
+            <button
+              type="button"
+              onClick={() => void player.clearQueue()}
+              aria-label={t.player.queueClear}
+              title={t.player.queueClear}
+            >
+              {t.player.queueClear}
+            </button>
+          </div>
           {player.queue.map((it, i) => (
             <div
               key={`${it.trackId}-${i}`}

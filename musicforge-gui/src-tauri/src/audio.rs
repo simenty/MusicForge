@@ -100,6 +100,10 @@ enum Cmd {
     QueueMove { from: usize, to: usize },
     /// 从队列移除指定位置（移除当前曲目则从其开头重新加载；否则保持播放）。
     QueueRemove { index: usize },
+    /// 追加到队尾（P6.16）：不改动当前播放项，播放进度不受影响。
+    QueueAppend { items: Vec<QueueItem> },
+    /// 清空队列（P6.16）：停止播放并清空。
+    QueueClear,
 }
 
 /// 解码产出的样本块（带代际——seek 后旧块被回调丢弃）。
@@ -224,6 +228,16 @@ impl PlayerHandle {
         self.send(Cmd::QueueRemove { index })
     }
 
+    /// 追加到队尾（前端「加入队列」）。
+    pub fn queue_append(&self, items: Vec<QueueItem>) -> Result<(), String> {
+        self.send(Cmd::QueueAppend { items })
+    }
+
+    /// 清空队列（前端队列抽屉的清空）。
+    pub fn queue_clear(&self) -> Result<(), String> {
+        self.send(Cmd::QueueClear)
+    }
+
     /// 状态快照（含动态位置；前端轮询此命令）。
     pub fn status(&self) -> PlayerSnapshot {
         let mut s = self.shared.lock_snapshot().clone();
@@ -335,6 +349,8 @@ impl Engine {
             }
             Cmd::QueueMove { from, to } => self.reorder(from, to),
             Cmd::QueueRemove { index } => self.remove_from_queue(index),
+            Cmd::QueueAppend { items } => self.append(items),
+            Cmd::QueueClear => self.clear_queue(),
         }
     }
 
@@ -564,6 +580,29 @@ impl Engine {
         let mut s = self.shared.lock_snapshot();
         s.queue_len = self.queue.len();
         s.queue_index = Some(self.index);
+    }
+
+    /// 追加到队尾（P6.16）：不改动当前播放项，播放进度不受影响。
+    fn append(&mut self, items: Vec<QueueItem>) {
+        if items.is_empty() {
+            return;
+        }
+        let was_empty = self.queue.is_empty();
+        self.queue.extend(items);
+        if was_empty {
+            self.index = 0;
+        }
+        self.sync_queue_meta();
+    }
+
+    /// 清空队列（P6.16）：停止播放并清空。
+    fn clear_queue(&mut self) {
+        self.queue.clear();
+        self.index = 0;
+        self.playing = false;
+        self.decoder = None;
+        self.flush_channel();
+        self.set_idle();
     }
 
     fn set_idle(&mut self) {        let mut s = self.shared.lock_snapshot();
@@ -1149,6 +1188,32 @@ mod ffmpeg_tests {
         );
         assert_eq!(e.index, 0);
         assert_eq!(e.queue.len(), 1);
+    }
+
+    /// 追加到队尾 / 清空（P6.16）：追加不动当前项；清空后队列空且回到 idle。
+    #[test]
+    fn queue_append_and_clear() {
+        let mut e = Engine::new(PathBuf::from(":memory:"), Arc::new(Shared::new()));
+        let mk = |id: i64| QueueItem {
+            track_id: id,
+            path: format!("t{id}.flac"),
+            title: Some(format!("T{id}")),
+            artist: Some("a".into()),
+            duration_ms: Some(1000),
+        };
+        e.queue = vec![mk(1)];
+        e.index = 0;
+        // 追加两首：顺序 [1,2,3]，当前项仍是正在听的 track1
+        e.append(vec![mk(2), mk(3)]);
+        assert_eq!(
+            e.queue.iter().map(|x| x.track_id).collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
+        assert_eq!(e.index, 0, "追加不改当前播放项");
+        // 清空：队列空、index 归零
+        e.clear_queue();
+        assert!(e.queue.is_empty());
+        assert_eq!(e.index, 0);
     }
 
     /// 真机冒烟（需要 ffmpeg；找不到则**跳过不红**——CI 保持离线可过）。

@@ -97,6 +97,18 @@ pub fn player_queue_remove(state: State<'_, PlayerHandle>, index: usize) -> Resu
     state.queue_remove(index)
 }
 
+/// 追加到队尾（P6.16）。
+#[tauri::command]
+pub fn player_queue_append(state: State<'_, PlayerHandle>, items: Vec<QueueItemDto>) -> Result<(), String> {
+    state.queue_append(items.into_iter().map(Into::into).collect())
+}
+
+/// 清空队列（P6.16）。
+#[tauri::command]
+pub fn player_queue_clear(state: State<'_, PlayerHandle>) -> Result<(), String> {
+    state.queue_clear()
+}
+
 /// 播放状态快照（前端轮询：含动态位置/欠载计数）。
 #[tauri::command]
 pub fn player_status(state: State<'_, PlayerHandle>) -> PlayerSnapshot {

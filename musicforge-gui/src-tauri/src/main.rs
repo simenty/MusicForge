@@ -239,6 +239,8 @@ fn main() {
             player_set_volume,
             player_queue_move,
             player_queue_remove,
+            player_queue_append,
+            player_queue_clear,
             player_status
         ])
         .on_window_event(|window, event| {

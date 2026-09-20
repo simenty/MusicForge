@@ -51,6 +51,8 @@ function api(over: Partial<PlayerApi> = {}, status: Partial<PlayerSnapshot> | nu
     jump: vi.fn(async () => {}),
     queueMove: vi.fn(async () => {}),
     queueRemove: vi.fn(async () => {}),
+    queueAppend: vi.fn(async () => {}),
+    clearQueue: vi.fn(async () => {}),
     seek: vi.fn(async () => {}),
     setVolume: vi.fn(),
     stop: vi.fn(async () => {}),
@@ -196,5 +198,21 @@ describe("PlayerBar（播放底栏）", () => {
     const jumps = screen.getAllByRole("button", { name: zh.player.jumpTo });
     await user.click(jumps[0]);
     expect(p.jump).toHaveBeenCalledWith(0);
+  });
+
+  it("队列清空：点击清空按钮调用 clearQueue（P6.16）", async () => {
+    const user = userEvent.setup();
+    const queue = [
+      { trackId: 1, path: "a", title: "A", artist: "x", durationMs: 1 },
+      { trackId: 2, path: "b", title: "B", artist: "y", durationMs: 1 },
+    ];
+    const p = api(
+      { queue },
+      { state: "playing", queueLen: 2, queueIndex: 0, trackId: 1, title: "A" }
+    );
+    renderBar(p);
+    await user.click(screen.getByRole("button", { name: zh.player.queue })); // 打开队列抽屉
+    await user.click(screen.getByRole("button", { name: zh.player.queueClear }));
+    expect(p.clearQueue).toHaveBeenCalledOnce();
   });
 });

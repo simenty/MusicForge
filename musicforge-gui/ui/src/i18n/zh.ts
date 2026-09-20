@@ -352,6 +352,9 @@ export const zh = {
     queueUp: "上移",
     queueDown: "下移",
     queueRemove: "移除",
+    queueCount: (n: number) => `队列 ${n} 首`,
+    queueClear: "清空队列",
+    queueAdd: "加入队列",
   },
   serverInfo: {
     head: "服务端信息（fnOS / 自建 server）",

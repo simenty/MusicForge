@@ -351,6 +351,9 @@ export const en: typeof zh = {
     queueUp: "Move up",
     queueDown: "Move down",
     queueRemove: "Remove",
+    queueCount: (n: number) => `Queue · ${n}`,
+    queueClear: "Clear queue",
+    queueAdd: "Add to queue",
   },
   serverInfo: {
     head: "Server info (fnOS / self-hosted)",
