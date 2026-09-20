@@ -824,6 +824,42 @@ impl Db {
         Ok(())
     }
 
+    /// 某艺术家的全部曲目（按专辑名 / 碟号 / 轨号排序——详情页播放序）。
+    pub fn tracks_by_artist(&self, artist_id: i64) -> Result<Vec<TrackRow>, NcmError> {
+        let mut stmt = self
+            .conn
+            .prepare(&format!(
+                "{TRACK_SELECT}
+                 WHERE t.artist_id = ?1
+                 ORDER BY al.title, t.disc_no, t.track_no, t.title"
+            ))
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let rows = stmt
+            .query_map([artist_id], map_track_row)
+            .map_err(|e| NcmError::Db(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(rows)
+    }
+
+    /// 某专辑的曲目（按碟号 / 轨号排序——详情页播放序）。
+    pub fn tracks_by_album(&self, album_id: i64) -> Result<Vec<TrackRow>, NcmError> {
+        let mut stmt = self
+            .conn
+            .prepare(&format!(
+                "{TRACK_SELECT}
+                 WHERE t.album_id = ?1
+                 ORDER BY t.disc_no, t.track_no, t.title"
+            ))
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let rows = stmt
+            .query_map([album_id], map_track_row)
+            .map_err(|e| NcmError::Db(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(rows)
+    }
+
     /// 按 id 取单曲（显示名已解析；不存在 → None）。
     pub fn get_track(&self, track_id: i64) -> Result<Option<TrackRow>, NcmError> {
         let mut stmt = self

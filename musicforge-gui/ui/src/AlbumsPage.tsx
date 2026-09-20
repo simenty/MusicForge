@@ -1,21 +1,38 @@
-// 专辑（P1 聚合网格 / P6 在线封面）：coverPath 有值时显示本地缓存封面，
-// 否则渐变占位。「补全封面」按需抓取（MusicBrainz → Cover Art Archive），
-// 需要先在设置里开启「在线元数据」——网络请求只由这个按钮触发。
+// 专辑（P1 网格 / P6 在线封面 / P6.10 详情页）：
+// 点卡片进入详情（大封面 + 播放全部 + 按碟/轨号排序的曲目表）。
 import { useEffect, useState } from "react";
-import { IS_DESKTOP, coverFetch, coverPickImage, coverSetLocal, listAlbums } from "./api";
-import type { Album } from "./api";
+import {
+  IS_DESKTOP,
+  albumTracks,
+  coverFetch,
+  coverPickImage,
+  coverSetLocal,
+  listAlbums,
+} from "./api";
+import type { Album, Track } from "./api";
 import { useLang } from "./i18n";
 import { useSettings } from "./hooks/useSettings";
 import { assetUrl } from "./lib/asset";
+import TrackRow from "./TrackRow";
+import AddToPlaylistDialog from "./AddToPlaylistDialog";
 import { IconDisc, IconDownload } from "./icons";
 
-export default function AlbumsPage() {
+export default function AlbumsPage({
+  onPlay,
+}: {
+  onPlay?: (tracks: Track[], index: number) => Promise<void>;
+}) {
   const { t } = useLang();
   const { settings } = useSettings();
   const [rows, setRows] = useState<Album[] | null>(null);
   const [fetching, setFetching] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  /** 详情态：选中的专辑（null = 列表态） */
+  const [sel, setSel] = useState<Album | null>(null);
+  const [tracks, setTracks] = useState<Track[] | null>(null);
+  /** 加入歌单弹层 */
+  const [addTarget, setAddTarget] = useState<Track | null>(null);
 
   useEffect(() => {
     if (!IS_DESKTOP) return;
@@ -23,6 +40,15 @@ export default function AlbumsPage() {
       .then(setRows)
       .catch(() => setRows([]));
   }, []);
+
+  const openAlbum = (a: Album) => {
+    setSel(a);
+    setTracks(null);
+    setErr(null);
+    albumTracks(a.id)
+      .then(setTracks)
+      .catch(() => setTracks([]));
+  };
 
   if (!IS_DESKTOP) {
     return (
@@ -38,16 +64,6 @@ export default function AlbumsPage() {
       </div>
     );
   }
-  if (rows.length === 0) {
-    return (
-      <div className="media-empty">
-        <p>{t.media.searchEmpty}</p>
-      </div>
-    );
-  }
-
-  const missing = rows.filter((a) => !a.coverPath);
-  const online = settings.onlineMeta;
 
   /** 设置本地封面（**离线能力**：选一张图片，不走网络）。 */
   const pickCover = async (a: Album) => {
@@ -58,6 +74,7 @@ export default function AlbumsPage() {
       setRows(
         (prev) => prev?.map((x) => (x.id === a.id ? { ...x, coverPath: stored } : x)) ?? prev
       );
+      setSel((prev) => (prev && prev.id === a.id ? { ...prev, coverPath: stored } : prev));
     } catch (e) {
       setErr(String(e));
     }
@@ -65,7 +82,8 @@ export default function AlbumsPage() {
 
   /** 逐个补全缺失封面。网络失败即停（限速下没有重试余量，由用户稍后再来）。 */
   const fetchAll = async () => {
-    if (!online || fetching || missing.length === 0) return;
+    const missing = rows.filter((a) => !a.coverPath);
+    if (!settings.onlineMeta || fetching || missing.length === 0) return;
     setFetching(true);
     setErr(null);
     let done = 0;
@@ -89,6 +107,100 @@ export default function AlbumsPage() {
     setFetching(false);
     setProgress(null);
   };
+
+  // ---------------------------------------------------------------- 详情态 --
+  if (sel) {
+    const src = assetUrl(sel.coverPath);
+    return (
+      <>
+        <div className="media-head">
+          <div className="detail-top">
+            {src ? (
+              <img className="detail-cover" src={src} alt="" />
+            ) : (
+              <span className="detail-cover g3" aria-hidden="true">
+                <IconDisc size={44} />
+              </span>
+            )}
+            <div>
+              <button
+                className="btn sm"
+                onClick={() => {
+                  setSel(null);
+                  setTracks(null);
+                }}
+              >
+                ← {t.media.back}
+              </button>
+              <h2 style={{ marginTop: 8 }}>{sel.title}</h2>
+              <p className="sub">
+                {sel.artist ?? t.media.unknownArtist}
+                {sel.year ? ` · ${sel.year}` : ""} ·{" "}
+                {t.media.tracksN(tracks?.length ?? sel.trackCount)}
+              </p>
+            </div>
+          </div>
+          <div className="act">
+            <button
+              className="btn sm primary"
+              disabled={!tracks || tracks.length === 0}
+              onClick={() => {
+                if (onPlay && tracks && tracks.length > 0) void onPlay(tracks, 0);
+              }}
+            >
+              {t.media.playAll}
+            </button>
+            <button className="btn sm" onClick={() => void pickCover(sel)}>
+              {t.media.coverLocal}
+            </button>
+          </div>
+        </div>
+        {err && <p className="scan-error">{err}</p>}
+        {tracks === null ? (
+          <p className="scan-note">{t.media.loading}</p>
+        ) : tracks.length === 0 ? (
+          <div className="media-empty">
+            <p>{t.media.searchEmpty}</p>
+          </div>
+        ) : (
+          <div className="panel" style={{ padding: 0, overflow: "hidden" }}>
+            <div className="vt-head">
+              <span>{t.media.colIndex}</span>
+              <span>{t.media.colTitle}</span>
+              <span>{t.media.colAlbum}</span>
+              <span style={{ textAlign: "right" }}>{t.media.colTime}</span>
+              <span style={{ textAlign: "right" }}>{t.media.colFormat}</span>
+              <span />
+            </div>
+            {tracks.map((r, i) => (
+              <TrackRow
+                key={r.id}
+                lead={i + 1}
+                track={r}
+                onPlay={onPlay ? () => void onPlay(tracks, i) : undefined}
+                onAdd={() => setAddTarget(r)}
+              />
+            ))}
+          </div>
+        )}
+        <AddToPlaylistDialog
+          tracks={addTarget ? [addTarget] : null}
+          onClose={() => setAddTarget(null)}
+        />
+      </>
+    );
+  }
+
+  // ---------------------------------------------------------------- 列表态 --
+  if (rows.length === 0) {
+    return (
+      <div className="media-empty">
+        <p>{t.media.searchEmpty}</p>
+      </div>
+    );
+  }
+  const missing = rows.filter((a) => !a.coverPath);
+  const online = settings.onlineMeta;
 
   return (
     <>
@@ -116,11 +228,14 @@ export default function AlbumsPage() {
       </div>
       {!online && <p className="scan-note">{t.media.coversNeedOnline}</p>}
       {err && <p className="scan-error">{err}</p>}
-      <div className="mgrid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
+      <div
+        className="mgrid"
+        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}
+      >
         {rows.map((a, i) => {
           const src = assetUrl(a.coverPath);
           return (
-            <div className="mcard" key={a.id}>
+            <div className="mcard pl-card" key={a.id} onClick={() => openAlbum(a)}>
               {src ? (
                 <img className="cover2" src={src} alt="" loading="lazy" />
               ) : (
@@ -128,10 +243,12 @@ export default function AlbumsPage() {
                   <IconDisc size={38} />
                 </span>
               )}
-              {/* P6：本地封面（离线；hover 显现） */}
               <button
                 className="cover-edit"
-                onClick={() => void pickCover(a)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void pickCover(a);
+                }}
                 title={t.media.coverLocal}
                 aria-label={t.media.coverLocal}
               >

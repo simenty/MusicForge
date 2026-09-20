@@ -1840,3 +1840,9 @@ button.pl-card { text-align: center; cursor: pointer; border: none; background: 
 .row-mini { width: 22px; height: 22px; border-radius: 6px; border: none; background: transparent; color: var(--text-faint); cursor: pointer; font-size: 13px; line-height: 1; }
 .row-mini:hover { color: var(--accent); background: var(--surface-2); }
 .vt-heart { display: flex; gap: 2px; align-items: center; justify-content: flex-end; }
+/* ========================================================================
+ * P6.10：详情页头部（大封面 + 返回）
+ * ====================================================================== */
+.detail-top { display: flex; gap: var(--sp-4); align-items: center; }
+.detail-cover { width: 96px; height: 96px; border-radius: var(--r-md); display: grid; place-items: center; overflow: hidden; flex: none; }
+img.detail-cover { object-fit: cover; display: block; }

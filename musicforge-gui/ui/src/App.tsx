@@ -795,8 +795,8 @@ export default function App() {
             />
           )}
           {mediaTab === "library" && <LibraryPage onPlay={player.playTracks} />}
-          {mediaTab === "artists" && <ArtistsPage />}
-          {mediaTab === "albums" && <AlbumsPage />}
+          {mediaTab === "artists" && <ArtistsPage onPlay={player.playTracks} />}
+          {mediaTab === "albums" && <AlbumsPage onPlay={player.playTracks} />}
           {mediaTab === "playlists" && <PlaylistsPage onPlay={player.playTracks} />}
           {mediaTab === "favorites" && <FavoritesPage onPlay={player.playTracks} />}
           {mediaTab === "history" && <HistoryPage onPlay={player.playTracks} />}

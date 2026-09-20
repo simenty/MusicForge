@@ -219,6 +219,7 @@ export const en: typeof zh = {
     artistsFetchAll: "Fetch artist images",
     artistsProgress: (d: number, n: number) => `Fetching ${d}/${n}…`,
     tabPlaylists: "Playlists",
+    back: "Back",
   },
   /** P6.4 in-library playlists */
   pl: {

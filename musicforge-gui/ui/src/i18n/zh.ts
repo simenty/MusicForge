@@ -220,6 +220,7 @@ export const zh = {
     artistsFetchAll: "补全头像",
     artistsProgress: (d: number, n: number) => `抓取中 ${d}/${n}…`,
     tabPlaylists: "歌单",
+    back: "返回",
   },
   /** P6.4 库内歌单 */
   pl: {

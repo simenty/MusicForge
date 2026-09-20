@@ -222,6 +222,9 @@ fn main() {
             playlist_delete,
             playlist_move,
             playlist_export,
+            // P6.10 详情页
+            artist_tracks,
+            album_tracks,
             // P2 播放：队列/播放控制/状态
             player_play_queue,
             player_toggle,

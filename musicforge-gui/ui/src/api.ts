@@ -705,6 +705,22 @@ export async function playlistTracks(playlistId: number): Promise<Track[]> {
   return invoke<Track[]>("playlist_tracks", { playlistId });
 }
 
+// ---------------------------------------------------------------------------
+// P6.10 详情页（艺术家 / 专辑）
+// ---------------------------------------------------------------------------
+
+/** 某艺术家的全部曲目（按专辑/轨号排序） */
+export async function artistTracks(artistId: number): Promise<Track[]> {
+  if (!IS_DESKTOP) return [];
+  return invoke<Track[]>("artist_tracks", { artistId });
+}
+
+/** 某专辑的曲目（按碟/轨号排序） */
+export async function albumTracks(albumId: number): Promise<Track[]> {
+  if (!IS_DESKTOP) return [];
+  return invoke<Track[]>("album_tracks", { albumId });
+}
+
 /** 追加曲目（重复与不存在跳过；返回实际追加数） */
 export async function playlistAdd(playlistId: number, trackIds: number[]): Promise<number> {
   return invoke<number>("playlist_add", { playlistId, trackIds });

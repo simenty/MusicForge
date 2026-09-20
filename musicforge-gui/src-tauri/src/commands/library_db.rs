@@ -116,6 +116,22 @@ pub fn search_tracks(query: String, limit: Option<i64>) -> Result<Vec<serde_json
     Ok(rows.iter().map(track_json).collect())
 }
 
+/// 某艺术家的全部曲目（艺术家详情页；按专辑/轨号排序）。
+#[tauri::command]
+pub fn artist_tracks(artist_id: i64) -> Result<Vec<serde_json::Value>, String> {
+    let db = open_db()?;
+    let rows = db.tracks_by_artist(artist_id).map_err(|e| e.to_string())?;
+    Ok(rows.iter().map(track_json).collect())
+}
+
+/// 某专辑的曲目（专辑详情页；按碟/轨号排序）。
+#[tauri::command]
+pub fn album_tracks(album_id: i64) -> Result<Vec<serde_json::Value>, String> {
+    let db = open_db()?;
+    let rows = db.tracks_by_album(album_id).map_err(|e| e.to_string())?;
+    Ok(rows.iter().map(track_json).collect())
+}
+
 /// 媒体源列表（含每源已索引曲目数——源卡展示）。
 #[tauri::command]
 pub fn sources_list() -> Result<Vec<serde_json::Value>, String> {

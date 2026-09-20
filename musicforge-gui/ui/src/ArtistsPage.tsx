@@ -1,15 +1,27 @@
-// 艺术家（P1 聚合网格 / P6 代表图）：有封面则显示（其最热专辑的封面），否则圆形首字。
-// 「补全头像」需在设置中开启「在线元数据」——网络请求只由该按钮触发
-// （1 req/s 限速由后端强制，mount 时的本地回填不发网络）。
+// 艺术家（P1 网格 / P6.2 代表图 / P6.10 详情页）：
+// 有封面则显示（其最热专辑的封面），否则圆形首字；点卡片进入详情（播放全部 + 曲目表）。
+// 「补全头像」需在设置中开启「在线元数据」——网络请求只由该按钮触发。
 import { useEffect, useState } from "react";
-import { IS_DESKTOP, artistCover, artistCoversLocal, listArtists } from "./api";
-import type { Artist } from "./api";
+import {
+  IS_DESKTOP,
+  artistCover,
+  artistCoversLocal,
+  artistTracks,
+  listArtists,
+} from "./api";
+import type { Artist, Track } from "./api";
 import { useLang } from "./i18n";
 import { useSettings } from "./hooks/useSettings";
 import { assetUrl } from "./lib/asset";
+import TrackRow from "./TrackRow";
+import AddToPlaylistDialog from "./AddToPlaylistDialog";
 import { IconDownload } from "./icons";
 
-export default function ArtistsPage() {
+export default function ArtistsPage({
+  onPlay,
+}: {
+  onPlay?: (tracks: Track[], index: number) => Promise<void>;
+}) {
   const { t } = useLang();
   const { settings } = useSettings();
   const [rows, setRows] = useState<Artist[] | null>(null);
@@ -18,6 +30,10 @@ export default function ArtistsPage() {
   const [fetching, setFetching] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  /** 详情态：选中的艺术家（null = 列表态） */
+  const [sel, setSel] = useState<Artist | null>(null);
+  const [tracks, setTracks] = useState<Track[] | null>(null);
+  const [addTarget, setAddTarget] = useState<Track | null>(null);
 
   useEffect(() => {
     if (!IS_DESKTOP) return;
@@ -41,6 +57,15 @@ export default function ArtistsPage() {
       .catch(() => setRows([]));
   }, []);
 
+  const openArtist = (a: Artist) => {
+    setSel(a);
+    setTracks(null);
+    setErr(null);
+    artistTracks(a.id)
+      .then(setTracks)
+      .catch(() => setTracks([]));
+  };
+
   if (!IS_DESKTOP) {
     return (
       <div className="media-empty">
@@ -52,13 +77,6 @@ export default function ArtistsPage() {
     return (
       <div className="media-empty">
         <p>{t.media.loading}</p>
-      </div>
-    );
-  }
-  if (rows.length === 0) {
-    return (
-      <div className="media-empty">
-        <p>{t.media.searchEmpty}</p>
       </div>
     );
   }
@@ -90,6 +108,91 @@ export default function ArtistsPage() {
     setProgress(null);
   };
 
+  // ---------------------------------------------------------------- 详情态 --
+  if (sel) {
+    const url = covers[sel.id];
+    return (
+      <>
+        <div className="media-head">
+          <div className="detail-top">
+            {url ? (
+              <img className="detail-cover" src={url} alt="" />
+            ) : (
+              <span className="detail-cover g3" aria-hidden="true">
+                {sel.name.slice(0, 1).toUpperCase()}
+              </span>
+            )}
+            <div>
+              <button
+                className="btn sm"
+                onClick={() => {
+                  setSel(null);
+                  setTracks(null);
+                }}
+              >
+                ← {t.media.back}
+              </button>
+              <h2 style={{ marginTop: 8 }}>{sel.name}</h2>
+              <p className="sub">{t.media.tracksN(tracks?.length ?? sel.trackCount)}</p>
+            </div>
+          </div>
+          <div className="act">
+            <button
+              className="btn sm primary"
+              disabled={!tracks || tracks.length === 0}
+              onClick={() => {
+                if (onPlay && tracks && tracks.length > 0) void onPlay(tracks, 0);
+              }}
+            >
+              {t.media.playAll}
+            </button>
+          </div>
+        </div>
+        {err && <p className="scan-error">{err}</p>}
+        {tracks === null ? (
+          <p className="scan-note">{t.media.loading}</p>
+        ) : tracks.length === 0 ? (
+          <div className="media-empty">
+            <p>{t.media.searchEmpty}</p>
+          </div>
+        ) : (
+          <div className="panel" style={{ padding: 0, overflow: "hidden" }}>
+            <div className="vt-head">
+              <span>{t.media.colIndex}</span>
+              <span>{t.media.colTitle}</span>
+              <span>{t.media.colAlbum}</span>
+              <span style={{ textAlign: "right" }}>{t.media.colTime}</span>
+              <span style={{ textAlign: "right" }}>{t.media.colFormat}</span>
+              <span />
+            </div>
+            {tracks.map((r, i) => (
+              <TrackRow
+                key={r.id}
+                lead={i + 1}
+                track={r}
+                onPlay={onPlay ? () => void onPlay(tracks, i) : undefined}
+                onAdd={() => setAddTarget(r)}
+              />
+            ))}
+          </div>
+        )}
+        <AddToPlaylistDialog
+          tracks={addTarget ? [addTarget] : null}
+          onClose={() => setAddTarget(null)}
+        />
+      </>
+    );
+  }
+
+  // ---------------------------------------------------------------- 列表态 --
+  if (rows.length === 0) {
+    return (
+      <div className="media-empty">
+        <p>{t.media.searchEmpty}</p>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="media-head">
@@ -118,7 +221,7 @@ export default function ArtistsPage() {
       {err && <p className="scan-error">{err}</p>}
       <div className="mgrid">
         {rows.map((a, i) => (
-          <div className="mcard" key={a.id}>
+          <div className="mcard pl-card" key={a.id} onClick={() => openArtist(a)}>
             {covers[a.id] ? (
               <span className="ava" aria-hidden="true">
                 <img src={covers[a.id]} alt="" loading="lazy" />
