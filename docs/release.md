@@ -76,11 +76,18 @@ Actions → Release (multi-platform) → Run workflow → 填 `version`。
 
 ## 6. 跨平台 GUI（Linux / macOS）
 
-`GUI portability` workflow 在 gui/core 变更时构建 **Linux（deb + AppImage）与 macOS（dmg）**
-未签名 beta，产物留在 Actions artifact（保留期内可手动取用）：
+**正式 Release 已收编**（`release-installer.yml` 的 `linux-gui` / `macos-gui` job）：
+发布资产含
 
-- 触发：master push（`musicforge-gui/**`、`musicforge-core/**`、Cargo 文件）+ 手动 dispatch
-- updater：跨平台 beta **不产 updater 产物**（`--config '{"bundle":{"createUpdaterArtifacts":false}}'`），
+| 资产 | 平台 | 签名 |
+|:--|:--|:--|
+| `musicforge-v{v}-linux-x86_64.deb` | Linux（Debian/Ubuntu） | 未签名 |
+| `musicforge-v{v}-linux-x86_64.AppImage` | Linux（通用） | 未签名 |
+| `musicforge-v{v}-macos-aarch64.dmg` | macOS（Apple Silicon） | 未签名（**用户需右键→打开** 手动放行） |
+
+- **持续构建验证**：`GUI portability` workflow 在 gui/core 变更时跑同样的构建（artifact 留档），
+  防止跨平台构建回归
+- updater：跨平台包**不产 updater 产物**（`--config '{"bundle":{"createUpdaterArtifacts":false}}'`），
   免签名密钥；自动更新仍以 Windows 先行（见第 0/3 节）
 - Linux 构建依赖：`libwebkit2gtk-4.1-dev`、`libappindicator3-dev`、`librsvg2-dev`、`patchelf`、`libasound2-dev`
-- 正式 Release 收编（把 dmg/deb/AppImage 挂进 Release）为后续项；macOS 正式签名同样后置
+- macOS 正式签名（公证）为后续项
