@@ -10,12 +10,14 @@ import {
   playlistRemove,
   playlistRename,
   playlistTracks,
+  playlistsCovers,
   playlistsList,
 } from "./api";
 import type { Playlist, Track } from "./api";
 import ConfirmDialog from "./ConfirmDialog";
 import TrackRow from "./TrackRow";
 import { useLang } from "./i18n";
+import { assetUrl } from "./lib/asset";
 import { IconList, IconPlus } from "./icons";
 
 export default function PlaylistsPage({
@@ -25,6 +27,8 @@ export default function PlaylistsPage({
 }) {
   const { t } = useLang();
   const [lists, setLists] = useState<Playlist[] | null>(null);
+  /** 封面拼贴（歌单 id → 至多 4 张专辑封面路径；P6.12） */
+  const [covers, setCovers] = useState<Record<string, string[]>>({});
   const [open, setOpen] = useState<Playlist | null>(null);
   const [items, setItems] = useState<Track[] | null>(null);
   const [newName, setNewName] = useState("");
@@ -42,6 +46,9 @@ export default function PlaylistsPage({
     playlistsList()
       .then(setLists)
       .catch(() => setLists([]));
+    playlistsCovers()
+      .then(setCovers)
+      .catch(() => setCovers({}));
   }, []);
   useEffect(() => reload(), [reload]);
 
@@ -327,17 +334,30 @@ export default function PlaylistsPage({
           className="mgrid"
           style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}
         >
-          {lists.map((p) => (
-            <button className="mcard pl-card" key={p.id} onClick={() => openList(p)}>
-              <span className="cover2 g3" aria-hidden="true">
-                <IconList size={34} />
-              </span>
-              <span className="nm" title={p.name}>
-                {p.name}
-              </span>
-              <span className="ct">{t.media.tracksN(p.trackCount)}</span>
-            </button>
-          ))}
+          {lists.map((p) => {
+            const cov = covers[String(p.id)] ?? [];
+            // 拼贴布局随张数变化（1 张铺满 / 2 张左右分栏 / 3 张左大右二 / 4 张 2×2）
+            const cls =
+              cov.length === 1 ? " c1" : cov.length === 2 ? " c2" : cov.length === 3 ? " c3" : "";
+            return (
+              <button className="mcard pl-card" key={p.id} onClick={() => openList(p)}>
+                <span
+                  className={"cover2 g3" + (cov.length > 0 ? " pl-mosaic" + cls : "")}
+                  aria-hidden="true"
+                >
+                  {cov.length > 0 ? (
+                    cov.map((c, i) => <img key={i} src={assetUrl(c) ?? ""} alt="" />)
+                  ) : (
+                    <IconList size={34} />
+                  )}
+                </span>
+                <span className="nm" title={p.name}>
+                  {p.name}
+                </span>
+                <span className="ct">{t.media.tracksN(p.trackCount)}</span>
+              </button>
+            );
+          })}
         </div>
       )}
     </>

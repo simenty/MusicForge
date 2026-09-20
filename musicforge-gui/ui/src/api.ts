@@ -699,6 +699,12 @@ export async function playlistsList(): Promise<Playlist[]> {
   return invoke<Playlist[]>("playlists_list");
 }
 
+/** 歌单封面拼贴（每单至多 4 张专辑封面；无封面歌单缺省）——P6.12 */
+export async function playlistsCovers(): Promise<Record<string, string[]>> {
+  if (!IS_DESKTOP) return {};
+  return invoke<Record<string, string[]>>("playlists_covers");
+}
+
 /** 歌单内曲目（按歌单顺序） */
 export async function playlistTracks(playlistId: number): Promise<Track[]> {
   if (!IS_DESKTOP) return [];

@@ -129,3 +129,16 @@ pub async fn playlist_export(
         "tracks": n,
     })))
 }
+
+/// 歌单封面拼贴（P6.12）：`{ "<playlist_id>": ["<cover_path>", ...] }`——
+/// 每单至多 4 张、按曲序去重；无封面/空歌单不出现在映射中。
+#[tauri::command]
+pub fn playlists_covers() -> Result<serde_json::Value, String> {
+    let db = open_db()?;
+    let rows = db.playlist_covers(4).map_err(|e| e.to_string())?;
+    let mut map: std::collections::HashMap<i64, Vec<String>> = std::collections::HashMap::new();
+    for (pid, path) in rows {
+        map.entry(pid).or_default().push(path);
+    }
+    Ok(serde_json::json!(map))
+}

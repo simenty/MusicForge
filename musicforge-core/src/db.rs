@@ -1488,6 +1488,39 @@ impl Db {
         tx.commit().map_err(|e| NcmError::Db(e.to_string()))?;
         Ok(())
     }
+
+    /// 歌单封面候选（P6.12）：`(playlist_id, cover_path)`——按歌单内曲序，
+    /// 每个歌单至多 `per` 条且路径去重（拼贴四格不应重复同图）。
+    pub fn playlist_covers(&self, per: i64) -> Result<Vec<(i64, String)>, NcmError> {
+        let per = per.clamp(1, 8) as usize;
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT pi.playlist_id, al.cover_cache
+                 FROM playlist_items pi
+                 JOIN tracks t ON t.id = pi.track_id
+                 JOIN albums al ON al.id = t.album_id
+                 WHERE al.cover_cache IS NOT NULL
+                 ORDER BY pi.playlist_id, pi.position",
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
+            .map_err(|e| NcmError::Db(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        // 每单去重 + 截断（候选行本身很小，内存侧处理；SQL 窗口函数不值得）
+        let mut out: Vec<(i64, String)> = Vec::new();
+        let mut seen: std::collections::HashMap<i64, std::collections::HashSet<String>> =
+            std::collections::HashMap::new();
+        for (pid, path) in rows {
+            let set = seen.entry(pid).or_default();
+            if set.len() < per && set.insert(path.clone()) {
+                out.push((pid, path));
+            }
+        }
+        Ok(out)
+    }
 }
 
 /// 曲目读取的公共 SELECT（`list_tracks` / `search_tracks` 共用，列序与

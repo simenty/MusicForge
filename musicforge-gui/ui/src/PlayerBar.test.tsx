@@ -41,6 +41,8 @@ function api(over: Partial<PlayerApi> = {}, status: Partial<PlayerSnapshot> | nu
     status: snapshot,
     playing: false,
     queue: [],
+    restored: null,
+    resume: vi.fn(async () => {}),
     playTracks: vi.fn(async () => {}),
     toggle: vi.fn(async () => {}),
     pause: vi.fn(async () => {}),
@@ -106,6 +108,31 @@ describe("PlayerBar（播放底栏）", () => {
     expect(btn).not.toBeDisabled();
     await user.click(btn);
     expect(p.toggle).toHaveBeenCalledOnce();
+  });
+
+  it("会话恢复：引擎空闲但有上次队列 → 显示曲目、点播放调 resume 而非 toggle", async () => {
+    const user = userEvent.setup();
+    const p = api(
+      {
+        restored: {
+          items: [
+            { trackId: 9, path: "C:\\m\\x.flac", title: "夜航", artist: "Nova", durationMs: 200_000 },
+          ],
+          index: 0,
+          positionMs: 61_000,
+          ts: 1,
+        },
+      },
+      { state: "idle" }
+    );
+    renderBar(p);
+    expect(screen.getByText("夜航")).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(zh.player.sessionResume))).toBeInTheDocument();
+    const btn = screen.getByRole("button", { name: zh.player.play });
+    expect(btn).not.toBeDisabled();
+    await user.click(btn);
+    expect(p.resume).toHaveBeenCalledOnce();
+    expect(p.toggle).not.toHaveBeenCalled();
   });
 
   it("睡眠定时：15 分钟到期自动暂停（pause 一次性，不调 toggle）", () => {

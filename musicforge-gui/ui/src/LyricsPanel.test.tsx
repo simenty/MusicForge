@@ -33,6 +33,8 @@ function api(positionMs = 1000): PlayerApi {
     },
     playing: true,
     queue: [],
+    restored: null,
+    resume: vi.fn(async () => {}),
     playTracks: vi.fn(async () => {}),
     toggle: vi.fn(async () => {}),
     pause: vi.fn(async () => {}),

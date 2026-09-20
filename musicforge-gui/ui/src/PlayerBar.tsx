@@ -10,7 +10,9 @@ import LyricsPanel from "./LyricsPanel";
 
 export default function PlayerBar({ player }: { player: PlayerApi }) {
   const { t } = useLang();
-  const { status, playing } = player;
+  const { status, playing, restored } = player;
+  /** 会话恢复的当前曲目（引擎空闲时的展示数据；P6.12） */
+  const resumed = restored?.items[restored.index] ?? null;
   const [drag, setDrag] = useState<number | null>(null);
   const [qOpen, setQOpen] = useState(false);
   const [lyrOpen, setLyrOpen] = useState(false);
@@ -21,8 +23,8 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
   const [sleepUntil, setSleepUntil] = useState<number | null>(null);
   const [sleepLeftMs, setSleepLeftMs] = useState(0);
 
-  // 曲目切换时拉一次封面（纯本地 db 查询，不发网络）
-  const trackId = status?.trackId ?? null;
+  // 曲目切换时拉一次封面（纯本地 db 查询，不发网络）；会话恢复时同样展示这张
+  const trackId = status?.trackId ?? resumed?.trackId ?? null;
   useEffect(() => {
     if (trackId === null || !IS_DESKTOP) {
       setCover(null);
@@ -74,6 +76,24 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
   const pos = drag ?? status?.positionMs ?? 0;
   const hasTrack = !!status && status.trackId !== null;
 
+  /** 封面缺省占位（无封面 / 会话恢复共用） */
+  const coverFallback = (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M9 18V6l10-2v12" />
+      <circle cx="6.5" cy="18" r="2.5" />
+      <circle cx="16.5" cy="16" r="2.5" />
+    </svg>
+  );
+
   return (
     <>
     <footer className="player-bar" aria-label={t.player.play}>
@@ -81,30 +101,25 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
         {hasTrack ? (
           <>
             <span className="pb-cover" aria-hidden="true">
-              {cover ? (
-                <img src={cover} alt="" />
-              ) : (
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.7"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M9 18V6l10-2v12" />
-                  <circle cx="6.5" cy="18" r="2.5" />
-                  <circle cx="16.5" cy="16" r="2.5" />
-                </svg>
-              )}
+              {cover ? <img src={cover} alt="" /> : coverFallback}
             </span>
             <span className="pb-title">
               <b title={status.title ?? undefined}>{status.title ?? "—"}</b>
               <span>
                 {status.artist ?? "—"}
                 {status.queueLen > 0 ? ` · ${t.player.queueN(status.queueLen)}` : ""}
+              </span>
+            </span>
+          </>
+        ) : resumed ? (
+          <>
+            <span className="pb-cover" aria-hidden="true">
+              {cover ? <img src={cover} alt="" /> : coverFallback}
+            </span>
+            <span className="pb-title">
+              <b title={resumed.title ?? undefined}>{resumed.title ?? "—"}</b>
+              <span>
+                {resumed.artist ?? "—"} · {t.player.sessionResume}
               </span>
             </span>
           </>
@@ -129,8 +144,8 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
         </button>
         <button
           className="pb-btn main"
-          onClick={() => void player.toggle()}
-          disabled={!hasTrack}
+          onClick={() => void (hasTrack ? player.toggle() : player.resume())}
+          disabled={!hasTrack && !restored}
           aria-label={playing ? t.player.pause : t.player.play}
           title={playing ? t.player.pause : t.player.play}
         >

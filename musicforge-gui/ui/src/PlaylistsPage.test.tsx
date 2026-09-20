@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./api", () => ({
   IS_DESKTOP: true,
   playlistsList: vi.fn(),
+  playlistsCovers: vi.fn(),
   playlistCreate: vi.fn(),
   playlistTracks: vi.fn(),
   playlistRemove: vi.fn(),
@@ -12,12 +13,13 @@ vi.mock("./api", () => ({
   playlistDelete: vi.fn(),
 }));
 
-import { playlistCreate, playlistTracks, playlistsList } from "./api";
+import { playlistCreate, playlistTracks, playlistsCovers, playlistsList } from "./api";
 import PlaylistsPage from "./PlaylistsPage";
 import { I18nProvider } from "./i18n";
 import { zh } from "./i18n/zh";
 
 const mockList = vi.mocked(playlistsList);
+const mockCovers = vi.mocked(playlistsCovers);
 const mockCreate = vi.mocked(playlistCreate);
 const mockTracks = vi.mocked(playlistTracks);
 
@@ -34,6 +36,22 @@ describe("PlaylistsPage（歌单）", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockTracks.mockResolvedValue([]);
+    mockCovers.mockResolvedValue({});
+  });
+
+  it("封面拼贴：有封面的歌单渲染到拼贴容器，无封面保持图标占位（P6.12）", async () => {
+    mockList.mockResolvedValue([
+      { id: 1, name: "有封面", trackCount: 2 },
+      { id: 2, name: "无封面", trackCount: 0 },
+    ]);
+    mockCovers.mockResolvedValue({ "1": ["C:\\cov\\a.jpg", "C:\\cov\\b.jpg"] });
+    renderPage();
+
+    await screen.findByText("有封面");
+    const mosaics = document.querySelectorAll(".pl-mosaic");
+    expect(mosaics.length).toBe(1);
+    expect(mosaics[0].querySelectorAll("img").length).toBe(2);
+    expect(document.querySelector(".pl-mosaic.c2")).not.toBeNull();
   });
 
   it("空态：输入名称创建并进入详情", async () => {

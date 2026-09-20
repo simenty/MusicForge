@@ -222,6 +222,7 @@ fn main() {
             playlist_delete,
             playlist_move,
             playlist_export,
+            playlists_covers,
             // P6.10 详情页
             artist_tracks,
             album_tracks,

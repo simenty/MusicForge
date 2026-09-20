@@ -175,3 +175,94 @@ fn source_removal_cleans_playlist_items() {
     assert_eq!(db.list_playlists().unwrap().len(), 1);
     assert_eq!(db.list_playlists().unwrap()[0].track_count, 0);
 }
+
+/// 封面拼贴（P6.12）：按曲序、路径去重、每单截断、无封面剔除、歌单间隔离。
+#[test]
+fn playlist_covers_ordered_deduped_and_capped() {
+    let db = Db::open_in_memory().unwrap();
+    let sid = db.upsert_source("/m", None).unwrap();
+    // a1/a2 同专辑 A（同封面）+ B/C/D/E 各一专辑 —— 5 张不同封面候选
+    let mk = |path: &str, album: &str| {
+        let mut x = track(path, path);
+        x.source_id = sid;
+        x.album = Some(album.to_string());
+        x
+    };
+    db.upsert_tracks_batch(
+        &[
+            mk("/m/a1.flac", "A"),
+            mk("/m/a2.flac", "A"),
+            mk("/m/b.flac", "B"),
+            mk("/m/c.flac", "C"),
+            mk("/m/d.flac", "D"),
+            mk("/m/e.flac", "E"),
+        ],
+        1,
+    )
+    .unwrap();
+    let tracks = db.list_tracks(20, 0).unwrap();
+    let find = |p: &str| tracks.iter().find(|t| t.path == p).unwrap().id;
+
+    let by_title: std::collections::HashMap<String, i64> = db
+        .list_albums()
+        .unwrap()
+        .into_iter()
+        .map(|a| (a.title, a.id))
+        .collect();
+    for (title, n) in [("A", 1), ("B", 2), ("C", 3), ("D", 4), ("E", 5)] {
+        db.set_album_cover(by_title[title], &format!("C:\\cov\\{n}.jpg"))
+            .unwrap();
+    }
+
+    let pid = db.create_playlist("拼贴").unwrap();
+    db.playlist_add_tracks(
+        pid,
+        &[
+            find("/m/a1.flac"),
+            find("/m/a2.flac"), // 与 a1 同专辑 → 封面重复，应被去重
+            find("/m/b.flac"),
+            find("/m/c.flac"),
+            find("/m/d.flac"),
+            find("/m/e.flac"),
+        ],
+    )
+    .unwrap();
+
+    // per=4：A→B→C→D（去重 a2、截断 E）
+    let covs = db.playlist_covers(4).unwrap();
+    assert!(covs.iter().all(|(id, _)| *id == pid));
+    assert_eq!(
+        covs.iter().map(|(_, p)| p.as_str()).collect::<Vec<_>>(),
+        vec![
+            "C:\\cov\\1.jpg",
+            "C:\\cov\\2.jpg",
+            "C:\\cov\\3.jpg",
+            "C:\\cov\\4.jpg"
+        ],
+        "按曲序去重 + 每单截断"
+    );
+
+    // per 放宽 → 5 张全出（含 E）
+    assert_eq!(db.playlist_covers(8).unwrap().len(), 5);
+
+    // 歌单间隔离：新歌单只含自己的封面
+    let pid2 = db.create_playlist("单曲").unwrap();
+    db.playlist_add_tracks(pid2, &[find("/m/e.flac")]).unwrap();
+    let covs2 = db.playlist_covers(4).unwrap();
+    assert_eq!(
+        covs2
+            .iter()
+            .filter(|(id, _)| *id == pid2)
+            .map(|(_, p)| p.as_str())
+            .collect::<Vec<_>>(),
+        vec!["C:\\cov\\5.jpg"]
+    );
+
+    // 空歌单不出现
+    let pid3 = db.create_playlist("空").unwrap();
+    assert!(db
+        .playlist_covers(8)
+        .unwrap()
+        .iter()
+        .all(|(id, _)| *id != pid3));
+}

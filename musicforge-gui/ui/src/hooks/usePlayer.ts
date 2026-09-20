@@ -15,6 +15,7 @@ import {
   playerStop,
   playerToggle,
 } from "../api";
+import { loadSession, saveSession, type SavedSession } from "../lib/session";
 import type { PlayerSnapshot, QueueItem, Track } from "../lib/types";
 
 const POLL_MS = 500;
@@ -26,6 +27,10 @@ export interface PlayerApi {
   playing: boolean;
   /** 当前队列（前端持有的副本；引擎侧队列经 playTracks 一次性提交） */
   queue: QueueItem[];
+  /** 上次会话（P6.12）：非 null = 引擎空闲但存在可续播的上次队列 */
+  restored: SavedSession | null;
+  /** 续播上次会话（重建队列 + 回到保存位置；绝不自动出声） */
+  resume: () => Promise<void>;
   /** 以 `tracks` 为队列、从 `startIndex` 开始播放 */
   playTracks: (tracks: Track[], startIndex: number) => Promise<void>;
   toggle: () => Promise<void>;
@@ -68,6 +73,52 @@ export function usePlayer(): PlayerApi {
     };
   }, []);
 
+  // ---- P6.12 会话持久化：关掉应用再打开，队列与进度还在 ----
+
+  const [restored, setRestored] = useState<SavedSession | null>(null);
+
+  // 启动恢复：读一次上次会话（只恢复队列与展示，不自动播放——出声必须是用户动作）
+  useEffect(() => {
+    if (!IS_DESKTOP) return;
+    const s = loadSession();
+    if (s && s.items.length > 0) {
+      setQueue(s.items);
+      setRestored(s);
+    }
+  }, []);
+
+  const statusRef = useRef<PlayerSnapshot | null>(null);
+  statusRef.current = status;
+  const lastSaveRef = useRef(0);
+
+  // 队列变化立即存；`restored` 未消费时跳过（否则会把恢复出来的进度覆盖成 0）
+  useEffect(() => {
+    if (!IS_DESKTOP || queue.length === 0 || restored !== null) return;
+    const st = statusRef.current;
+    const pos = st?.positionMs ?? 0;
+    saveSession({
+      items: queue,
+      index: st?.queueIndex ?? 0,
+      positionMs: pos,
+      ts: Date.now(),
+    });
+    lastSaveRef.current = Date.now();
+  }, [queue, restored]);
+
+  // 播放位置节流保存（轮询 500ms 太密；5s 一次足够新）
+  useEffect(() => {
+    if (!IS_DESKTOP || !status || queue.length === 0 || restored !== null) return;
+    const now = Date.now();
+    if (now - lastSaveRef.current < 5_000) return;
+    lastSaveRef.current = now;
+    saveSession({
+      items: queue,
+      index: status.queueIndex ?? 0,
+      positionMs: status.positionMs,
+      ts: now,
+    });
+  }, [queue, status, restored]);
+
   const playTracks = useCallback(async (tracks: Track[], startIndex: number) => {
     const items: QueueItem[] = tracks.map((t) => ({
       trackId: t.id,
@@ -76,9 +127,11 @@ export function usePlayer(): PlayerApi {
       artist: t.artist,
       durationMs: t.durationMs,
     }));
+    setRestored(null); // 用户开始新播放：上次会话作废
     setQueue(items);
     await playerPlayQueue(items, startIndex);
   }, []);
+
 
   const toggle = useCallback(async () => {
     await playerToggle();
@@ -112,6 +165,16 @@ export function usePlayer(): PlayerApi {
     await playerStop();
   }, []);
 
+  /** 续播上次会话（P6.12）：重建引擎队列并回到保存位置；位置太靠前则不 seek。 */
+  const resume = useCallback(async () => {
+    const s = restored;
+    if (!s || s.items.length === 0) return;
+    setRestored(null);
+    setQueue(s.items);
+    await playerPlayQueue(s.items, s.index);
+    if (s.positionMs > 1_500) await playerSeek(s.positionMs);
+  }, [restored]);
+
   const setVolume = useCallback((v: number) => {
     const clamped = Math.min(1, Math.max(0, v));
     // 本地乐观更新（拖动即时反馈）；下发节流
@@ -126,6 +189,8 @@ export function usePlayer(): PlayerApi {
     status,
     playing: status?.state === "playing",
     queue,
+    restored,
+    resume,
     playTracks,
     toggle,
     pause,
