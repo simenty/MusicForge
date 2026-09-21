@@ -183,3 +183,28 @@ fn album_year_backfilled_when_missing() {
     assert_eq!(albums.len(), 1, "同艺术家同名专辑不得重复建行");
     assert_eq!(albums[0].year, Some(2001));
 }
+
+/// 批量移除曲目：FK 是活的，须连带清理行为行（否则 FOREIGN KEY constraint failed）。
+#[test]
+fn remove_tracks_cascades_behavior_rows() {
+    let db = Db::open_in_memory().unwrap();
+    let sid = db.upsert_source("/music", None).unwrap();
+    let mk = |p: &str, t: &str| {
+        let mut x = track(p, Some("A"), Some("Al"), t);
+        x.source_id = sid;
+        x
+    };
+    db.upsert_tracks_batch(&[mk("/m/1.flac", "one"), mk("/m/2.flac", "two")], 1)
+        .unwrap();
+    let tracks = db.list_tracks(10, 0).unwrap();
+    let id1 = tracks[0].id;
+    // 制造行为行（FK 依赖），验证级联清理不报约束错误
+    db.record_play(id1, 1_700_000_000_000, 120_000).unwrap();
+    db.toggle_like(id1).unwrap();
+
+    let removed = db.remove_tracks(&[id1]).unwrap();
+    assert_eq!(removed, 1);
+    assert_eq!(db.count_tracks().unwrap(), 1);
+    assert_eq!(db.list_history(10).unwrap().len(), 0, "播放历史须级联清理");
+    assert_eq!(db.liked_count().unwrap(), 0, "喜欢须级联清理");
+}

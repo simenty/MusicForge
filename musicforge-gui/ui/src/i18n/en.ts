@@ -398,6 +398,11 @@ export const en: typeof zh = {
     tabOrganize: "Organize",
     tabClean: "Clean",
     tabTrash: "Recycle bin",
+    removeTitle: "Remove from library",
+    removeSummary: (n: number) => `Will remove ${n} track(s)`,
+    removeNote: "Only index records are removed; audio files are untouched. Re-scan the folder to restore.",
+    removeAck: "I understand: audio files will not be deleted",
+    removeConfirm: "Remove",
   },
   /** P1: organize — archive by template (read-only preview + confirm + rollback) */
   organize: {

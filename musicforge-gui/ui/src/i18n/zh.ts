@@ -399,6 +399,11 @@ export const zh = {
     tabOrganize: "整理归档",
     tabClean: "垃圾清洗",
     tabTrash: "回收站",
+    removeTitle: "从资料库移除",
+    removeSummary: (n: number) => `将移除 ${n} 项曲目`,
+    removeNote: "仅移除索引记录，不会删除音频文件；重新扫描该目录即可恢复。",
+    removeAck: "我了解：音频文件不会被删除",
+    removeConfirm: "移除",
   },
   /** P1：整理（organize）——按模板归档，预览只读 + 二次确认 + 可整体还原 */
   organize: {

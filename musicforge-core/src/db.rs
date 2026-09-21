@@ -595,6 +595,36 @@ impl Db {
         Ok(n)
     }
 
+    /// 从资料库移除指定曲目（仅删索引行，不动文件）。FK 是活的（P2 实测），
+    /// 必须由近及远在单事务内连带清理行为行，否则 `FOREIGN KEY constraint failed`。
+    ///
+    /// 返回被删除的曲目行数；空切片直接返回 0（不开启事务）。
+    pub fn remove_tracks(&self, ids: &[i64]) -> Result<usize, NcmError> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let placeholders = vec!["?"; ids.len()].join(",");
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        for table in ["play_history", "likes", "playlist_items"] {
+            tx.execute(
+                &format!("DELETE FROM {table} WHERE track_id IN ({placeholders})"),
+                rusqlite::params_from_iter(ids.iter()),
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        }
+        let n = tx
+            .execute(
+                &format!("DELETE FROM tracks WHERE id IN ({placeholders})"),
+                rusqlite::params_from_iter(ids.iter()),
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        tx.commit().map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(n)
+    }
+
     /// 批量写入曲目（单事务）。
     ///
     /// - 对不存在的 artist/album 先建后引（`INSERT OR IGNORE` + 回读 id），

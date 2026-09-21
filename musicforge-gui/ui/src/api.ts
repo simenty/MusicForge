@@ -433,6 +433,11 @@ export async function listTracks(limit = 200, offset = 0, sort?: TrackSortField)
   return invoke<Track[]>("list_tracks", { limit, offset, sort: sort ?? null });
 }
 
+/** 从资料库移除曲目（仅删索引行；不动文件）。P6.22：批量破坏性操作，调用方须确认。返回删除行数。 */
+export async function removeTracks(ids: number[]): Promise<number> {
+  return invoke<number>("remove_tracks", { ids });
+}
+
 /** 艺术家聚合列表（按曲目数降序） */
 export async function listArtists(): Promise<Artist[]> {
   return invoke<Artist[]>("list_artists");

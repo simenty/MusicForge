@@ -275,6 +275,13 @@ pub fn liked_ids() -> Result<Vec<i64>, String> {
     db.all_liked_ids().map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+/// P6.22：从资料库移除指定曲目（仅删索引行；不动文件）。破坏性，调用方须确认。
+pub fn remove_tracks(ids: Vec<i64>) -> Result<usize, String> {
+    let db = open_db()?;
+    db.remove_tracks(&ids).map_err(|e| e.to_string())
+}
+
 /// 播放历史（倒序；Track 字段 + playedAt / msPlayed）。
 #[tauri::command]
 pub fn play_history(limit: Option<i64>, sort: Option<String>) -> Result<Vec<serde_json::Value>, String> {

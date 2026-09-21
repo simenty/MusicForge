@@ -2,7 +2,7 @@
 // 搜索走 core 的 search_tracks（一次 ≤500，不走虚拟化）。
 // P2：双击行 → 以「已缓存行快照」为队列开始播放。
 import { useCallback, useEffect, useState } from "react";
-import { IS_DESKTOP, libraryStats, searchTracks } from "./api";
+import { IS_DESKTOP, libraryStats, removeTracks, searchTracks } from "./api";
 import type { LibraryStats, Track } from "./api";
 import { useLang } from "./i18n";
 import { fmtSizeGB } from "./lib/format";
@@ -12,6 +12,7 @@ import TrackRow from "./TrackRow";
 import SelectionBar from "./SelectionBar";
 import { useSelection } from "./hooks/useSelection";
 import AddToPlaylistDialog from "./AddToPlaylistDialog";
+import ConfirmDialog from "./ConfirmDialog";
 import SortControl from "./SortControl";
 import { useSort } from "./hooks/useSort";
 
@@ -40,6 +41,8 @@ export default function LibraryPage({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Track[] | null>(null);
   const [searching, setSearching] = useState(false);
+  // P6.22：批量从资料库移除的确认闸
+  const [pendingRemove, setPendingRemove] = useState(false);
 
   const { reset, snapshot } = w;
   useEffect(() => {
@@ -106,6 +109,25 @@ export default function LibraryPage({
   const bulkPlayNext = async () => {
     if (selectedTracks.length && onPlayNext) await onPlayNext(selectedTracks);
     selApi.toggleSelMode();
+  };
+  // P6.22 批量从资料库移除（破坏性，经 ConfirmDialog 三级闸）
+  const doRemove = async () => {
+    const ids = [...selApi.sel].map(Number);
+    if (ids.length === 0) {
+      setPendingRemove(false);
+      return;
+    }
+    try {
+      await removeTracks(ids);
+      const removed = ids.length;
+      setStats((prev) => (prev ? { ...prev, tracks: Math.max(0, prev.tracks - removed) } : prev));
+      reset(Math.max(0, (stats?.tracks ?? 0) - removed));
+      selApi.toggleSelMode();
+    } catch (e) {
+      setInitErr(String(e));
+    } finally {
+      setPendingRemove(false);
+    }
   };
 
   return (
@@ -242,10 +264,28 @@ export default function LibraryPage({
           total={list.length}
           onAddToQueue={bulkQueue}
           onPlayNext={bulkPlayNext}
+          onRemove={() => setPendingRemove(true)}
+          removeLabel={t.library.removeTitle}
           onSelectAll={() => selApi.selectAll(list.map((x) => String(x.id)))}
           onClear={selApi.toggleSelMode}
         />
       )}
+      <ConfirmDialog
+        open={pendingRemove}
+        title={t.library.removeTitle}
+        summary={t.library.removeSummary(selApi.count)}
+        items={snapshot()
+          .filter((x) => selApi.sel.has(String(x.id)))
+          .map((x) => x.title ?? x.path)
+          .slice(0, 5)}
+        moreCount={Math.max(0, selApi.count - 5)}
+        note={t.library.removeNote}
+        ackLabel={t.library.removeAck}
+        confirmLabel={t.library.removeConfirm}
+        cancelLabel={t.player.cancel}
+        onConfirm={doRemove}
+        onCancel={() => setPendingRemove(false)}
+      />
     </>
   );
 }
