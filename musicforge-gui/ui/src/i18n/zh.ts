@@ -202,6 +202,12 @@ export const zh = {
     tabFavorites: "我喜欢的音乐",
     favSub: (n: number) => `${n} 首 · 按收藏时间排序`,
     favEmpty: "还没有喜欢的曲目——在音乐库里点 ♡ 即可收藏",
+    // —— P6.23 收藏页批量取消喜欢 ——
+    unlikeTitle: "取消喜欢",
+    unlikeSummary: (n: number) => `将取消 ${n} 首的喜欢`,
+    unlikeNote: "仅从「我喜欢的音乐」移除，曲库与音频文件不受影响。",
+    unlikeAck: "我了解：这些曲目仍保留在曲库中",
+    unlikeConfirm: "取消喜欢",
     favCount: (n: number) => `共 ${n} 首`,
     playAll: "播放全部",
     statsSub: "数据来自本地播放记录，仅存于本机",

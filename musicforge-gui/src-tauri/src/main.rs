@@ -186,6 +186,7 @@ fn main() {
             // P2 行为层：喜欢 / 播放历史
             track_toggle_like,
             liked_ids,
+            unlike_tracks,
             play_history,
             history_clear,
             // P3 收藏与统计视图

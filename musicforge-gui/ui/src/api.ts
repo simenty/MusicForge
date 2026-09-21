@@ -583,6 +583,11 @@ export async function trackToggleLike(trackId: number): Promise<{ liked: boolean
   return invoke<{ liked: boolean }>("track_toggle_like", { trackId });
 }
 
+/** 批量取消喜欢（P6.23）。仅删 likes 行，曲库与音频文件不受影响。返回取消条数。 */
+export async function unlikeTracks(ids: number[]): Promise<number> {
+  return invoke<number>("unlike_tracks", { ids });
+}
+
 /** 全部已喜欢的曲目 id（前端 Set 判定行状态；刻意不分页） */
 export async function likedIds(): Promise<number[]> {
   return invoke<number[]>("liked_ids");

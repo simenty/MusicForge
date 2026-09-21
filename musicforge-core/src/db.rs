@@ -1225,6 +1225,21 @@ impl Db {
         Ok(!liked)
     }
 
+    /// 批量取消喜欢（仅删 `likes` 行；不动曲目/文件）。返回被取消的条数；
+    /// 空切片直接返回 0（不开启事务）。P6.23 收藏页批量清理用。
+    pub fn unlike_tracks(&self, ids: &[i64]) -> Result<usize, NcmError> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let placeholders = vec!["?"; ids.len()].join(",");
+        self.conn
+            .execute(
+                &format!("DELETE FROM likes WHERE track_id IN ({placeholders})"),
+                rusqlite::params_from_iter(ids.iter()),
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))
+    }
+
     /// 是否已喜欢。
     pub fn is_liked(&self, track_id: i64) -> Result<bool, NcmError> {
         let n: i64 = self

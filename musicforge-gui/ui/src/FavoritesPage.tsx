@@ -12,6 +12,7 @@ import SelectionBar from "./SelectionBar";
 import { useSelection } from "./hooks/useSelection";
 import SortControl from "./SortControl";
 import { useSort } from "./hooks/useSort";
+import ConfirmDialog from "./ConfirmDialog";
 
 export default function FavoritesPage({
   onPlay,
@@ -29,6 +30,8 @@ export default function FavoritesPage({
   const liked = useLiked();
   const selApi = useSelection();
   const [sort, setSort] = useSort("favorites", "default");
+  // P6.23：批量取消喜欢的确认闸
+  const [pendingUnlike, setPendingUnlike] = useState(false);
 
   const reload = useCallback(() => {
     if (!IS_DESKTOP) return;
@@ -58,6 +61,17 @@ export default function FavoritesPage({
   const bulkPlayNext = async () => {
     if (selectedTracks.length && onPlayNext) await onPlayNext(selectedTracks);
     selApi.toggleSelMode();
+  };
+  // P6.23 批量取消喜欢（破坏性于「收藏」语义，但曲库/文件不动；经 ConfirmDialog 三级闸）
+  const doUnlike = async () => {
+    const ids = [...selApi.sel].map(Number);
+    if (ids.length === 0) {
+      setPendingUnlike(false);
+      return;
+    }
+    await liked.unlikeMany(ids); // 成功即乐观更新本地集合 → 对应行消失
+    selApi.toggleSelMode();
+    setPendingUnlike(false);
   };
 
   const playFrom = (tr: Track) => {
@@ -146,10 +160,23 @@ export default function FavoritesPage({
           total={list.length}
           onAddToQueue={bulkQueue}
           onPlayNext={bulkPlayNext}
+          onRemove={() => setPendingUnlike(true)}
+          removeLabel={t.media.unlikeTitle}
           onSelectAll={() => selApi.selectAll(list.map((x) => String(x.id)))}
           onClear={selApi.toggleSelMode}
         />
       )}
+      <ConfirmDialog
+        open={pendingUnlike}
+        title={t.media.unlikeTitle}
+        summary={t.media.unlikeSummary(selApi.count)}
+        note={t.media.unlikeNote}
+        ackLabel={t.media.unlikeAck}
+        confirmLabel={t.media.unlikeConfirm}
+        cancelLabel={t.player.cancel}
+        onConfirm={doUnlike}
+        onCancel={() => setPendingUnlike(false)}
+      />
     </>
   );
 }

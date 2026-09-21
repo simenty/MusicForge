@@ -1,6 +1,6 @@
 // 播放历史（P2）：倒序列表按「今天 / 昨天 / 更早」分组 + 清空（二次确认）。
 import { useCallback, useEffect, useState } from "react";
-import { IS_DESKTOP, historyClear, playHistory } from "./api";
+import { IS_DESKTOP, historyClear, playHistory, removeTracks } from "./api";
 import type { HistoryEntry, Track } from "./api";
 import { useLang } from "./i18n";
 import { useLiked } from "./hooks/useLiked";
@@ -9,6 +9,7 @@ import SelectionBar from "./SelectionBar";
 import { useSelection } from "./hooks/useSelection";
 import SortControl from "./SortControl";
 import { useSort } from "./hooks/useSort";
+import ConfirmDialog from "./ConfirmDialog";
 
 type DayKey = "today" | "yesterday" | "earlier";
 
@@ -44,6 +45,9 @@ export default function HistoryPage({
   const [msg, setMsg] = useState<string | null>(null);
 
   const [sort, setSort] = useSort("history", "default");
+  // P6.23：批量从资料库移除的确认闸
+  const [pendingRemove, setPendingRemove] = useState(false);
+  const [busyRemove, setBusyRemove] = useState(false);
   const reload = useCallback(() => {
     if (!IS_DESKTOP) return;
     playHistory(300, sort)
@@ -73,6 +77,25 @@ export default function HistoryPage({
   const bulkPlayNext = async () => {
     if (selectedTracks.length && onPlayNext) await onPlayNext(selectedTracks);
     selApi.toggleSelMode();
+  };
+  // P6.23 批量从资料库移除（破坏性，经 ConfirmDialog 三级闸）；历史按曲目去重后取唯一 id
+  const doRemove = async () => {
+    const ids = [...new Set([...selApi.sel].map(Number))];
+    if (ids.length === 0) {
+      setPendingRemove(false);
+      return;
+    }
+    setBusyRemove(true);
+    try {
+      await removeTracks(ids);
+      selApi.toggleSelMode();
+      reload();
+    } catch {
+      /* 失败：列表不变即为信号 */
+    } finally {
+      setBusyRemove(false);
+      setPendingRemove(false);
+    }
   };
 
   /** 双击历史行播放：队列 = 历史去重后的曲目（同一首歌只入队一次） */
@@ -223,10 +246,29 @@ export default function HistoryPage({
           total={list.length}
           onAddToQueue={bulkQueue}
           onPlayNext={bulkPlayNext}
+          onRemove={() => setPendingRemove(true)}
+          removeLabel={t.library.removeTitle}
           onSelectAll={() => selApi.selectAll([...new Set(list.map((x) => String(x.id)))] as string[])}
           onClear={selApi.toggleSelMode}
         />
       )}
+      <ConfirmDialog
+        open={pendingRemove}
+        busy={busyRemove}
+        title={t.library.removeTitle}
+        summary={t.library.removeSummary(selApi.count)}
+        items={list
+          .filter((x) => selApi.sel.has(String(x.id)))
+          .map((x) => x.title ?? x.path)
+          .slice(0, 5)}
+        moreCount={Math.max(0, selApi.count - 5)}
+        note={t.library.removeNote}
+        ackLabel={t.library.removeAck}
+        confirmLabel={t.library.removeConfirm}
+        cancelLabel={t.player.cancel}
+        onConfirm={doRemove}
+        onCancel={() => setPendingRemove(false)}
+      />
     </>
   );
 }

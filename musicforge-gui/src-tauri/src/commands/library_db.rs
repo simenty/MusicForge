@@ -275,6 +275,13 @@ pub fn liked_ids() -> Result<Vec<i64>, String> {
     db.all_liked_ids().map_err(|e| e.to_string())
 }
 
+/// P6.23：批量取消喜欢（仅删 likes 行；曲库与音频文件不受影响）。返回取消条数。
+#[tauri::command]
+pub fn unlike_tracks(ids: Vec<i64>) -> Result<usize, String> {
+    let db = open_db()?;
+    db.unlike_tracks(&ids).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 /// P6.22：从资料库移除指定曲目（仅删索引行；不动文件）。破坏性，调用方须确认。
 pub fn remove_tracks(ids: Vec<i64>) -> Result<usize, String> {

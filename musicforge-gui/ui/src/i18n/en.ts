@@ -201,6 +201,12 @@ export const en: typeof zh = {
     tabFavorites: "Liked Songs",
     favSub: (n: number) => `${n} track${n === 1 ? "" : "s"} · by date added`,
     favEmpty: "No liked tracks yet — tap ♡ in the library to add some",
+    // —— P6.23 bulk unlike from Liked Songs ——
+    unlikeTitle: "Remove from Liked",
+    unlikeSummary: (n: number) => `Will remove ${n} track${n === 1 ? "" : "s"} from Liked`,
+    unlikeNote: "Only removed from Liked Songs; the tracks stay in your library and on disk.",
+    unlikeAck: "I understand: these tracks remain in the library",
+    unlikeConfirm: "Remove",
     favCount: (n: number) => `${n} track${n === 1 ? "" : "s"}`,
     playAll: "Play all",
     statsSub: "Based on local play records; stored on this device only",

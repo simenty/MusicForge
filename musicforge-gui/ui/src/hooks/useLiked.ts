@@ -3,11 +3,13 @@
 // 为什么一次拉全量 id：likes 是用户显式行为（量级远小于曲库），
 // 一次 IPC 换取每行的 O(1) 判定——避免「逐行查询 liked 状态」的 N+1。
 import { useCallback, useEffect, useRef, useState } from "react";
-import { IS_DESKTOP, likedIds, trackToggleLike } from "../api";
+import { IS_DESKTOP, likedIds, trackToggleLike, unlikeTracks } from "../api";
 
 export interface LikedApi {
   isLiked: (id: number) => boolean;
   toggle: (id: number) => Promise<void>;
+  /** P6.23：批量取消喜欢（一次 IPC）；成功后乐观更新本地集合，收藏页即隐藏对应行 */
+  unlikeMany: (ids: number[]) => Promise<void>;
   count: number;
   /** 初始 liked 集合是否已拉取（收藏页过滤依赖它——未加载时不能按空集过滤） */
   loaded: boolean;
@@ -54,5 +56,19 @@ export function useLiked(): LikedApi {
 
   const isLiked = useCallback((id: number) => ids.has(id), [ids]);
 
-  return { isLiked, toggle, count: ids.size, loaded };
+  const unlikeMany = useCallback(async (idsToRemove: number[]) => {
+    if (idsToRemove.length === 0) return;
+    try {
+      await unlikeTracks(idsToRemove);
+      setIds((prev) => {
+        const next = new Set(prev);
+        for (const id of idsToRemove) next.delete(id);
+        return next;
+      });
+    } catch {
+      /* 失败：保留本地集合原状（下次操作可重试） */
+    }
+  }, []);
+
+  return { isLiked, toggle, unlikeMany, count: ids.size, loaded };
 }
