@@ -364,6 +364,7 @@ export const zh = {
     selected: (n: number) => `已选 ${n} 项`,
     selectAll: "全选",
     selection: "批量操作",
+    remove: "移除",
     cancel: "取消",
   },
   serverInfo: {

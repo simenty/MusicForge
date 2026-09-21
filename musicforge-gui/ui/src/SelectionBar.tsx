@@ -14,6 +14,10 @@ export interface SelectionBarProps {
   onSelectAll: () => void;
   /** 取消选择（退出选择模式） */
   onClear: () => void;
+  /** 可选：批量从某集合移除（如歌单内移除曲目；P6.20） */
+  onRemove?: () => void;
+  /** 移除按钮文案（缺省用 t.player.remove） */
+  removeLabel?: string;
 }
 
 export default function SelectionBar({
@@ -23,6 +27,8 @@ export default function SelectionBar({
   onPlayNext,
   onSelectAll,
   onClear,
+  onRemove,
+  removeLabel,
 }: SelectionBarProps) {
   const { t } = useLang();
   return (
@@ -53,6 +59,16 @@ export default function SelectionBar({
         >
           {t.player.playNext}
         </button>
+        {onRemove && (
+          <button
+            className="btn sm danger"
+            onClick={onRemove}
+            disabled={count === 0}
+            aria-label={removeLabel ?? t.player.remove}
+          >
+            {removeLabel ?? t.player.remove}
+          </button>
+        )}
         <button className="btn sm ghost" onClick={onClear} aria-label={t.player.cancel}>
           {t.player.cancel}
         </button>

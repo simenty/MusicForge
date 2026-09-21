@@ -201,6 +201,21 @@ export default function PlaylistsPage({
       if (selectedTracks.length && onPlayNext) await onPlayNext(selectedTracks);
       selApi.toggleSelMode();
     };
+    const bulkRemove = async () => {
+      if (!open) return;
+      const ids = [...selApi.sel].map(Number);
+      for (const id of ids) {
+        try {
+          await playlistRemove(open.id, id);
+        } catch (e) {
+          setErr(String(e));
+        }
+      }
+      setItems((prev) => prev?.filter((x) => !selApi.sel.has(String(x.id))) ?? prev);
+      setOpen((p) => (p ? { ...p, trackCount: Math.max(0, p.trackCount - ids.length) } : p));
+      reload();
+      selApi.toggleSelMode();
+    };
     return (
       <>
         <div className="media-head">
@@ -352,6 +367,8 @@ export default function PlaylistsPage({
             total={list.length}
             onAddToQueue={bulkQueue}
             onPlayNext={bulkPlayNext}
+            onRemove={bulkRemove}
+            removeLabel={t.pl.psRemove}
             onSelectAll={() => selApi.selectAll(list.map((x) => String(x.id)))}
             onClear={selApi.toggleSelMode}
           />

@@ -363,6 +363,7 @@ export const en: typeof zh = {
     selected: (n: number) => `Selected ${n}`,
     selectAll: "Select all",
     selection: "Bulk actions",
+    remove: "Remove",
     cancel: "Cancel",
   },
   serverInfo: {

@@ -54,4 +54,26 @@ describe("SelectionBar (P6.19)", () => {
     // 加入队列按钮（index 1）在空选时禁用
     expect((buttons[1] as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it("renders and triggers onRemove when provided", () => {
+    const onRemove = vi.fn();
+    wrap(
+      <SelectionBar
+        count={3}
+        total={10}
+        onAddToQueue={vi.fn()}
+        onPlayNext={vi.fn()}
+        onSelectAll={vi.fn()}
+        onClear={vi.fn()}
+        onRemove={onRemove}
+        removeLabel="从歌单移除"
+      />,
+    );
+    // 提供 onRemove 时多一个按钮：全选 / 加入队列 / 下一首播放 / 移除 / 取消
+    const buttons = screen.getAllByRole("button");
+    expect(buttons).toHaveLength(5);
+    expect(buttons[3].textContent).toBe("从歌单移除");
+    fireEvent.click(buttons[3]);
+    expect(onRemove).toHaveBeenCalledTimes(1);
+  });
 });
