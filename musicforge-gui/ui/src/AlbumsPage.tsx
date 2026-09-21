@@ -17,8 +17,10 @@ import TrackRow from "./TrackRow";
 import SelectionBar from "./SelectionBar";
 import { useSelection } from "./hooks/useSelection";
 import SortControl from "./SortControl";
+import FilterInput from "./FilterInput";
 import { useSort } from "./hooks/useSort";
 import { sortTracks } from "./lib/sortTracks";
+import { filterTracks } from "./lib/filterTracks";
 import AddToPlaylistDialog from "./AddToPlaylistDialog";
 import { IconDisc, IconDownload } from "./icons";
 
@@ -40,6 +42,8 @@ export default function AlbumsPage({
   const { settings } = useSettings();
   const selApi = useSelection();
   const [sort, setSort] = useSort("album-detail", "default");
+  /** P6.26 详情页筛选：整段曲目已在内存 → 纯前端过滤，无需防抖/IPC */
+  const [filter, setFilter] = useState("");
   const [rows, setRows] = useState<Album[] | null>(null);
   const [fetching, setFetching] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -141,7 +145,7 @@ export default function AlbumsPage({
   // ---------------------------------------------------------------- 详情态 --
   if (sel) {
     // P6.19 批量操作；P6.21：详情页按 sort 前端排序（整段已在内存）
-    const list = sortTracks(tracks ?? [], sort);
+    const list = filterTracks(sortTracks(tracks ?? [], sort), filter);
     const selectedTracks = list.filter((x) => selApi.sel.has(String(x.id)));
     const bulkQueue = async () => {
       if (selectedTracks.length && onQueue) await onQueue(selectedTracks);
@@ -192,6 +196,12 @@ export default function AlbumsPage({
                 { value: "album", label: t.sort.album },
                 { value: "duration", label: t.sort.duration },
               ]}
+            />
+            <FilterInput
+              value={filter}
+              onChange={setFilter}
+              placeholder={t.listFilter.placeholder}
+              clearLabel={t.listFilter.clear}
             />
             <button
               className="btn sm primary"
