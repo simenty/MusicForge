@@ -7,6 +7,8 @@ import { useLiked } from "./hooks/useLiked";
 import TrackRow from "./TrackRow";
 import SelectionBar from "./SelectionBar";
 import { useSelection } from "./hooks/useSelection";
+import SortControl from "./SortControl";
+import { useSort } from "./hooks/useSort";
 
 type DayKey = "today" | "yesterday" | "earlier";
 
@@ -41,12 +43,13 @@ export default function HistoryPage({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
+  const [sort, setSort] = useSort("history", "default");
   const reload = useCallback(() => {
     if (!IS_DESKTOP) return;
-    playHistory(300)
+    playHistory(300, sort)
       .then(setRows)
       .catch(() => setRows([]));
-  }, []);
+  }, [sort]);
   useEffect(() => reload(), [reload]);
 
   const liked = useLiked();
@@ -133,6 +136,18 @@ export default function HistoryPage({
           <p className="sub">{t.media.historySub}</p>
         </div>
         <div className="act">
+          <SortControl
+            value={sort}
+            onChange={setSort}
+            fields={[
+              { value: "default", label: t.sort.playedAt },
+              { value: "title", label: t.sort.title },
+              { value: "artist", label: t.sort.artist },
+              { value: "album", label: t.sort.album },
+              { value: "duration", label: t.sort.duration },
+              { value: "play_count", label: t.sort.playCount },
+            ]}
+          />
           <button
             className="btn sm"
             onClick={() => void clear()}
@@ -160,7 +175,7 @@ export default function HistoryPage({
         <div className="media-empty">
           <p>{t.media.historyEmpty}</p>
         </div>
-      ) : (
+      ) : sort === "default" ? (
         grouped.map((g) => (
           <section key={g.key} className="tl-group">
             <h3>{labelOf(g.key)}</h3>
@@ -183,6 +198,24 @@ export default function HistoryPage({
             </div>
           </section>
         ))
+      ) : (
+        <div className="tracks">
+          {rows.map((r, i) => (
+            <TrackRow
+              key={`${r.id}-${r.playedAt}-${i}`}
+              lead={timeOf(r.playedAt)}
+              track={r}
+              onPlay={onPlay ? () => playFrom(r) : undefined}
+              liked={liked.isLiked(r.id)}
+              onLike={() => void liked.toggle(r.id)}
+              onQueue={onQueue ? () => void onQueue([r]) : undefined}
+              onPlayNext={onPlayNext ? () => void onPlayNext([r]) : undefined}
+              selectable={selApi.selMode}
+              selected={selApi.has(String(r.id))}
+              onToggleSelect={() => selApi.toggle(String(r.id))}
+            />
+          ))}
+        </div>
       )}
       {selApi.selMode && (
         <SelectionBar

@@ -42,6 +42,22 @@ fn outcome_json(o: &musicforge_core::library::IndexOutcome) -> serde_json::Value
     })
 }
 
+/// 解析前端传来的排序键（snake_case 字符串）→ core `TrackSort`；
+/// 未知 / 缺失 → `Default`（各列表的自然序）。白名单，绝不透传原始串进 SQL。
+fn parse_track_sort(s: Option<String>) -> musicforge_core::db::TrackSort {
+    use musicforge_core::db::TrackSort;
+    match s.as_deref() {
+        Some("title") => TrackSort::Title,
+        Some("artist") => TrackSort::Artist,
+        Some("album") => TrackSort::Album,
+        Some("duration") => TrackSort::Duration,
+        Some("played_at") => TrackSort::PlayedAt,
+        Some("liked_at") => TrackSort::LikedAt,
+        Some("play_count") => TrackSort::PlayCount,
+        _ => TrackSort::Default,
+    }
+}
+
 /// 曲库总览统计。
 #[tauri::command]
 pub fn library_stats() -> Result<serde_json::Value, String> {
@@ -61,10 +77,14 @@ pub fn library_stats() -> Result<serde_json::Value, String> {
 /// **分页是契约而非建议**：core 侧 limit 硬上限 500，IPC 禁止全量序列化——
 /// 十万级曲库靠前端虚拟列表按需取页（windowed fetch）。
 #[tauri::command]
-pub fn list_tracks(limit: Option<i64>, offset: Option<i64>) -> Result<Vec<serde_json::Value>, String> {
+pub fn list_tracks(
+    limit: Option<i64>,
+    offset: Option<i64>,
+    sort: Option<String>,
+) -> Result<Vec<serde_json::Value>, String> {
     let db = open_db()?;
     let rows = db
-        .list_tracks(limit.unwrap_or(200), offset.unwrap_or(0))
+        .list_tracks_sorted(parse_track_sort(sort), limit.unwrap_or(200), offset.unwrap_or(0))
         .map_err(|e| e.to_string())?;
     Ok(rows.iter().map(track_json).collect())
 }
@@ -257,10 +277,10 @@ pub fn liked_ids() -> Result<Vec<i64>, String> {
 
 /// 播放历史（倒序；Track 字段 + playedAt / msPlayed）。
 #[tauri::command]
-pub fn play_history(limit: Option<i64>) -> Result<Vec<serde_json::Value>, String> {
+pub fn play_history(limit: Option<i64>, sort: Option<String>) -> Result<Vec<serde_json::Value>, String> {
     let db = open_db()?;
     let rows = db
-        .list_history(limit.unwrap_or(200))
+        .list_history_sorted(parse_track_sort(sort), limit.unwrap_or(200))
         .map_err(|e| e.to_string())?;
     Ok(rows
         .iter()
@@ -285,10 +305,14 @@ pub fn history_clear() -> Result<serde_json::Value, String> {
 
 /// 喜欢的曲目（分页；按收藏时间倒序）——「我喜欢的音乐」页。
 #[tauri::command]
-pub fn liked_tracks(limit: Option<i64>, offset: Option<i64>) -> Result<Vec<serde_json::Value>, String> {
+pub fn liked_tracks(
+    limit: Option<i64>,
+    offset: Option<i64>,
+    sort: Option<String>,
+) -> Result<Vec<serde_json::Value>, String> {
     let db = open_db()?;
     let rows = db
-        .list_liked(limit.unwrap_or(200), offset.unwrap_or(0))
+        .list_liked_sorted(parse_track_sort(sort), limit.unwrap_or(200), offset.unwrap_or(0))
         .map_err(|e| e.to_string())?;
     Ok(rows.iter().map(track_json).collect())
 }

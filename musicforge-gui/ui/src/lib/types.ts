@@ -334,6 +334,10 @@ export interface IndexOutcome {
 /** 播放模式（P6.18）：normal | shuffle | repeatOne | repeatAll（与 Rust PlayMode 同形） */
 export type PlayMode = "normal" | "shuffle" | "repeatOne" | "repeatAll";
 
+/** 列表排序键（P6.21）：与后端 `TrackSort` 白名单一一对应（snake_case）。
+ *  `default` = 各列表自然序（库=路径 / 喜欢=收藏时间 / 历史=播放时间）。 */
+export type TrackSortField = "default" | "title" | "artist" | "album" | "duration" | "played_at" | "liked_at" | "play_count";
+
 /** 播放状态快照（player_status） */
 export interface PlayerSnapshot {
   state: "idle" | "playing" | "paused" | "error";

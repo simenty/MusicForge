@@ -283,6 +283,45 @@ pub struct PlaylistRow {
     pub track_count: i64,
 }
 
+/// 曲目列表排序键（P6.21）。
+///
+/// `Default` 由各调用方回退到其自然序（库 = path 稳定序；喜欢 = 收藏时间倒序；
+/// 历史 = 播放时间倒序）。所有变体映射到**固定 SQL 片段**（白名单，绝不拼接用户
+/// 输入，杜绝注入）。`Title/Artist/Album` 用 `COLLATE NOCASE` 做大小写不敏感排序。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TrackSort {
+    #[default]
+    Default,
+    Title,
+    Artist,
+    Album,
+    Duration,
+    PlayedAt,
+    LikedAt,
+    PlayCount,
+}
+
+impl TrackSort {
+    /// 返回 `(extra_join, order_by)`：
+    /// - `extra_join` 空串 = 无需额外 JOIN；`PlayCount` 需 LEFT JOIN 播放次数子查询；
+    /// - `order_by` 空串 = 调用方自行决定自然序（见各 `list_*` 方法）。
+    fn clause(self) -> (&'static str, &'static str) {
+        match self {
+            TrackSort::Default => ("", ""),
+            TrackSort::Title => ("", "t.title COLLATE NOCASE"),
+            TrackSort::Artist => ("", "ar.name COLLATE NOCASE"),
+            TrackSort::Album => ("", "al.title COLLATE NOCASE"),
+            TrackSort::Duration => ("", "t.duration_ms"),
+            TrackSort::PlayedAt => ("", "h.played_at DESC"),
+            TrackSort::LikedAt => ("", "lk.created_at DESC"),
+            TrackSort::PlayCount => (
+                "LEFT JOIN (SELECT track_id, COUNT(*) AS pc FROM play_history GROUP BY track_id) pc ON pc.track_id = t.id",
+                "COALESCE(pc.pc, 0) DESC, t.path",
+            ),
+        }
+    }
+}
+
 impl Db {
     /// 打开（不存在则创建）状态库并完成迁移。
     ///
@@ -737,15 +776,22 @@ impl Db {
             .map_err(|e| NcmError::Db(e.to_string()))
     }
 
-    /// 分页读取曲目（按 path 稳定排序）。
+    /// 分页读取曲目（P6.21：支持排序；`Default` = path 稳定序）。
     ///
     /// `limit` 硬上限 500：IPC 层禁止全量序列化，分页是契约而非建议。
-    pub fn list_tracks(&self, limit: i64, offset: i64) -> Result<Vec<TrackRow>, NcmError> {
+    pub fn list_tracks_sorted(
+        &self,
+        sort: TrackSort,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TrackRow>, NcmError> {
         let limit = limit.clamp(1, 500);
         let offset = offset.max(0);
+        let (join, order_raw) = sort.clause();
+        let order = if order_raw.is_empty() { "t.path" } else { order_raw };
         let mut stmt = self
             .conn
-            .prepare(&format!("{TRACK_SELECT} ORDER BY t.path LIMIT ?1 OFFSET ?2"))
+            .prepare(&format!("{TRACK_SELECT} {join} ORDER BY {order} LIMIT ?1 OFFSET ?2"))
             .map_err(|e| NcmError::Db(e.to_string()))?;
         let rows = stmt
             .query_map(params![limit, offset], map_track_row)
@@ -753,6 +799,11 @@ impl Db {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| NcmError::Db(e.to_string()))?;
         Ok(rows)
+    }
+
+    /// 分页读取曲目（按 path 稳定排序；P6.21 委托给 [`list_tracks_sorted`]）。
+    pub fn list_tracks(&self, limit: i64, offset: i64) -> Result<Vec<TrackRow>, NcmError> {
+        self.list_tracks_sorted(TrackSort::Default, limit, offset)
     }
 
     /// 艺术家聚合列表（只含 ≥1 首曲目的艺术家；脏数据自愈）。
@@ -1157,16 +1208,29 @@ impl Db {
         Ok(n > 0)
     }
 
-    /// 喜欢列表（按收藏时间倒序；曲目已被移除的行自动消失——INNER JOIN）。
-    pub fn list_liked(&self, limit: i64, offset: i64) -> Result<Vec<TrackRow>, NcmError> {
+    /// 喜欢列表（P6.21：支持排序；`Default` = 收藏时间倒序）。
+    /// 曲目已被移除的行自动消失——INNER JOIN。
+    pub fn list_liked_sorted(
+        &self,
+        sort: TrackSort,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TrackRow>, NcmError> {
         let limit = limit.clamp(1, 500);
         let offset = offset.max(0);
+        let (join, order_raw) = sort.clause();
+        // `PlayedAt` 需要 history JOIN（本查询未 JOIN），回退默认序。
+        let order = match (sort, order_raw.is_empty()) {
+            (TrackSort::PlayedAt, _) | (_, true) => "lk.created_at DESC, t.id DESC",
+            _ => order_raw,
+        };
         let mut stmt = self
             .conn
             .prepare(&format!(
                 "{TRACK_SELECT}
                  JOIN likes lk ON lk.track_id = t.id
-                 ORDER BY lk.created_at DESC, t.id DESC
+                 {join}
+                 ORDER BY {order}
                  LIMIT ?1 OFFSET ?2"
             ))
             .map_err(|e| NcmError::Db(e.to_string()))?;
@@ -1176,6 +1240,11 @@ impl Db {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| NcmError::Db(e.to_string()))?;
         Ok(rows)
+    }
+
+    /// 喜欢列表（按收藏时间倒序；P6.21 委托给 [`list_liked_sorted`]）。
+    pub fn list_liked(&self, limit: i64, offset: i64) -> Result<Vec<TrackRow>, NcmError> {
+        self.list_liked_sorted(TrackSort::Default, limit, offset)
     }
 
     /// 喜欢总数。
@@ -1218,14 +1287,19 @@ impl Db {
         Ok(())
     }
 
-    /// 播放历史（按时间倒序，含曲目信息）。
-    pub fn list_history(&self, limit: i64) -> Result<Vec<HistoryRow>, NcmError> {
+    /// 播放历史（P6.21：支持排序；`Default` = 播放时间倒序；含曲目信息）。
+    pub fn list_history_sorted(&self, sort: TrackSort, limit: i64) -> Result<Vec<HistoryRow>, NcmError> {
         let limit = limit.clamp(1, 500);
-        // 不用 TRACK_SELECT 拼接（追加列必须在 FROM 之前）——显式列出，
+        let (join, order_raw) = sort.clause();
+        // `LikedAt` 需要 likes JOIN（本查询未 JOIN），回退默认序。
+        let order = match (sort, order_raw.is_empty()) {
+            (TrackSort::LikedAt, _) | (_, true) => "h.played_at DESC, h.id DESC",
+            _ => order_raw,
+        };
         // 列序与 map_track_row 保持一一对应（0..13），14/15 为历史列。
         let mut stmt = self
             .conn
-            .prepare(
+            .prepare(&format!(
                 "SELECT t.id, t.source_id, t.path, t.size, t.title, ar.name, al.title, \
                  t.track_no, t.duration_ms, t.format, t.sample_rate, t.bit_depth, t.channels, \
                  t.is_lossless, h.played_at, h.ms_played \
@@ -1233,8 +1307,8 @@ impl Db {
                  JOIN tracks t ON t.id = h.track_id \
                  LEFT JOIN artists ar ON ar.id = t.artist_id \
                  LEFT JOIN albums  al ON al.id = t.album_id \
-                 ORDER BY h.played_at DESC, h.id DESC LIMIT ?1",
-            )
+                 {join} ORDER BY {order} LIMIT ?1"
+            ))
             .map_err(|e| NcmError::Db(e.to_string()))?;
         let rows = stmt
             .query_map([limit], |r| {
@@ -1248,6 +1322,11 @@ impl Db {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| NcmError::Db(e.to_string()))?;
         Ok(rows)
+    }
+
+    /// 播放历史（按时间倒序；P6.21 委托给 [`list_history_sorted`]）。
+    pub fn list_history(&self, limit: i64) -> Result<Vec<HistoryRow>, NcmError> {
+        self.list_history_sorted(TrackSort::Default, limit)
     }
 
     /// 清空播放历史；返回被清空的行数。

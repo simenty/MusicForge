@@ -50,6 +50,7 @@ import type {
   Source,
   StatsOverview,
   Track,
+  TrackSortField,
   WizardStatus,
 } from "./lib/types";
 
@@ -426,9 +427,10 @@ export async function libraryStats(): Promise<LibraryStats> {
   return invoke<LibraryStats>("library_stats");
 }
 
-/** 分页读取曲目（core 侧 limit 硬上限 500——分页是契约，不传全量） */
-export async function listTracks(limit = 200, offset = 0): Promise<Track[]> {
-  return invoke<Track[]>("list_tracks", { limit, offset });
+/** 分页读取曲目（core 侧 limit 硬上限 500——分页是契约，不传全量）。
+ *  P6.21：可选 `sort` 走服务端排序（虚拟化库须服务端排序才正确）。 */
+export async function listTracks(limit = 200, offset = 0, sort?: TrackSortField): Promise<Track[]> {
+  return invoke<Track[]>("list_tracks", { limit, offset, sort: sort ?? null });
 }
 
 /** 艺术家聚合列表（按曲目数降序） */
@@ -581,9 +583,9 @@ export async function likedIds(): Promise<number[]> {
   return invoke<number[]>("liked_ids");
 }
 
-/** 播放历史（倒序；Track 字段 + playedAt/msPlayed） */
-export async function playHistory(limit = 200): Promise<HistoryEntry[]> {
-  return invoke<HistoryEntry[]>("play_history", { limit });
+/** 播放历史（倒序；Track 字段 + playedAt/msPlayed）。P6.21：可选 `sort`。 */
+export async function playHistory(limit = 200, sort?: TrackSortField): Promise<HistoryEntry[]> {
+  return invoke<HistoryEntry[]>("play_history", { limit, sort: sort ?? null });
 }
 
 /** 清空播放历史（返回清空条数） */
@@ -595,9 +597,9 @@ export async function historyClear(): Promise<{ cleared: number }> {
 // 收藏与统计（P3）
 // ---------------------------------------------------------------------------
 
-/** 喜欢的曲目（分页；按收藏时间倒序） */
-export async function likedTracks(limit = 200, offset = 0): Promise<Track[]> {
-  return invoke<Track[]>("liked_tracks", { limit, offset });
+/** 喜欢的曲目（分页；按收藏时间倒序）。P6.21：可选 `sort`。 */
+export async function likedTracks(limit = 200, offset = 0, sort?: TrackSortField): Promise<Track[]> {
+  return invoke<Track[]>("liked_tracks", { limit, offset, sort: sort ?? null });
 }
 
 /** 统计总览（曲库规模 + 行为计数 + 近 7 天 + 最常播放 Top 10） */

@@ -15,6 +15,18 @@ export const en: typeof zh = {
   filter: {
     all: "All",
   },
+  // P6.21 list / detail sort
+  sort: {
+    label: "Sort",
+    def: "Default",
+    title: "Title",
+    artist: "Artist",
+    album: "Album",
+    duration: "Duration",
+    playCount: "Plays",
+    likedAt: "Date liked",
+    playedAt: "Date played",
+  },
   lang: {
     aria: "Interface language",
   },

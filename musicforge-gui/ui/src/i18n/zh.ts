@@ -18,6 +18,18 @@ export const zh = {
   filter: {
     all: "全部",
   },
+  // P6.21 列表/详情页排序
+  sort: {
+    label: "排序",
+    def: "默认",
+    title: "标题",
+    artist: "艺术家",
+    album: "专辑",
+    duration: "时长",
+    playCount: "播放数",
+    likedAt: "收藏时间",
+    playedAt: "播放时间",
+  },
   /** 标题栏语言切换（控件 aria 标签） */
   lang: {
     aria: "界面语言",

@@ -436,6 +436,20 @@ code,
   font-size: var(--fs-sm);
 }
 
+/* 排序切换条（P6.21）：分段按钮组，复用 .btn.sm 外观 */
+.sort-ctrl {
+  display: inline-flex;
+  gap: var(--sp-1);
+  flex-wrap: wrap;
+}
+
+.btn.sm.on {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .btn .ico {
   display: inline-flex;
   flex: none;

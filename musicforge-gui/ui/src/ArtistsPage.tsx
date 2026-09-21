@@ -16,6 +16,9 @@ import { assetUrl } from "./lib/asset";
 import TrackRow from "./TrackRow";
 import SelectionBar from "./SelectionBar";
 import { useSelection } from "./hooks/useSelection";
+import SortControl from "./SortControl";
+import { useSort } from "./hooks/useSort";
+import { sortTracks } from "./lib/sortTracks";
 import AddToPlaylistDialog from "./AddToPlaylistDialog";
 import { IconDownload } from "./icons";
 
@@ -36,6 +39,7 @@ export default function ArtistsPage({
   const { t } = useLang();
   const { settings } = useSettings();
   const selApi = useSelection();
+  const [sort, setSort] = useSort("artist-detail", "default");
   const [rows, setRows] = useState<Artist[] | null>(null);
   /** artistId → asset URL（已有封面） */
   const [covers, setCovers] = useState<Record<number, string>>({});
@@ -137,8 +141,8 @@ export default function ArtistsPage({
 
   // ---------------------------------------------------------------- 详情态 --
   if (sel) {
-    // P6.19 批量操作
-    const list = tracks ?? [];
+    // P6.19 批量操作；P6.21：详情页按 sort 前端排序（整段已在内存）
+    const list = sortTracks(tracks ?? [], sort);
     const selectedTracks = list.filter((x) => selApi.sel.has(String(x.id)));
     const bulkQueue = async () => {
       if (selectedTracks.length && onQueue) await onQueue(selectedTracks);
@@ -175,11 +179,22 @@ export default function ArtistsPage({
             </div>
           </div>
           <div className="act">
+            <SortControl
+              value={sort}
+              onChange={setSort}
+              fields={[
+                { value: "default", label: t.sort.def },
+                { value: "title", label: t.sort.title },
+                { value: "artist", label: t.sort.artist },
+                { value: "album", label: t.sort.album },
+                { value: "duration", label: t.sort.duration },
+              ]}
+            />
             <button
               className="btn sm primary"
               disabled={!tracks || tracks.length === 0}
               onClick={() => {
-                if (onPlay && tracks && tracks.length > 0) void onPlay(tracks, 0);
+                if (onPlay && list.length > 0) void onPlay(list, 0);
               }}
             >
               {t.media.playAll}
@@ -210,12 +225,12 @@ export default function ArtistsPage({
               <span style={{ textAlign: "right" }}>{t.media.colFormat}</span>
               <span />
             </div>
-            {tracks.map((r, i) => (
+            {list.map((r, i) => (
               <TrackRow
                 key={r.id}
                 lead={i + 1}
                 track={r}
-                onPlay={onPlay ? () => void onPlay(tracks, i) : undefined}
+                onPlay={onPlay ? () => void onPlay(list, i) : undefined}
                 onAdd={() => setAddTarget(r)}
                 onQueue={onQueue ? () => void onQueue([r]) : undefined}
                 onPlayNext={onPlayNext ? () => void onPlayNext([r]) : undefined}

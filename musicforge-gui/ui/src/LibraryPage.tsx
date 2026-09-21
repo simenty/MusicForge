@@ -12,6 +12,8 @@ import TrackRow from "./TrackRow";
 import SelectionBar from "./SelectionBar";
 import { useSelection } from "./hooks/useSelection";
 import AddToPlaylistDialog from "./AddToPlaylistDialog";
+import SortControl from "./SortControl";
+import { useSort } from "./hooks/useSort";
 
 export default function LibraryPage({
   onPlay,
@@ -26,7 +28,8 @@ export default function LibraryPage({
   onPlayNext?: (tracks: Track[]) => Promise<void>;
 }) {
   const { t } = useLang();
-  const w = useWindowedTracks();
+  const [sort, setSort] = useSort("library", "default");
+  const w = useWindowedTracks(200, sort);
   const liked = useLiked();
   // P6.19 批量操作（hook 须无条件调用，置于早返回之前）
   const selApi = useSelection();
@@ -113,6 +116,18 @@ export default function LibraryPage({
           <p className="sub">{t.media.libSub(w.total, fmtSizeGB(stats?.totalSize ?? 0))}</p>
         </div>
         <div className="act">
+          <SortControl
+            value={sort}
+            onChange={setSort}
+            fields={[
+              { value: "default", label: t.sort.def },
+              { value: "title", label: t.sort.title },
+              { value: "artist", label: t.sort.artist },
+              { value: "album", label: t.sort.album },
+              { value: "duration", label: t.sort.duration },
+              { value: "play_count", label: t.sort.playCount },
+            ]}
+          />
           <label className="search-inline">
             <svg
               width="15"

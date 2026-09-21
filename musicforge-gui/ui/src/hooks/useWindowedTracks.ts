@@ -9,7 +9,7 @@
 //   （下次滚回立即可见）；拉取失败静默——滚动区间变化会自然重试。
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listTracks } from "../api";
-import type { Track } from "../lib/types";
+import type { Track, TrackSortField } from "../lib/types";
 
 /** 行高（必须与 styles.css 的 `.vt-row` height 一致） */
 export const TRACK_ROW_H = 44;
@@ -37,7 +37,7 @@ export interface WindowedTracks {
   snapshot: () => Track[];
 }
 
-export function useWindowedTracks(pageSize = 200): WindowedTracks {
+export function useWindowedTracks(pageSize = 200, sort?: TrackSortField): WindowedTracks {
   const [total, setTotal] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportH, setViewportH] = useState(560);
@@ -66,7 +66,7 @@ export function useWindowedTracks(pageSize = 200): WindowedTracks {
     for (let p = p0; p <= p1; p++) {
       if (pages.current.has(p) || inflight.current.has(p)) continue;
       inflight.current.add(p);
-      listTracks(pageSize, p * pageSize)
+      listTracks(pageSize, p * pageSize, sort)
         .then((rows) => {
           pages.current.set(p, rows);
         })
@@ -78,7 +78,14 @@ export function useWindowedTracks(pageSize = 200): WindowedTracks {
           setTick((v) => v + 1);
         });
     }
-  }, [start, end, total, pageSize]);
+  }, [start, end, total, pageSize, sort]);
+
+  // sort 改变 → 已加载的分页失效（服务端排序不同），清空后重拉
+  useEffect(() => {
+    pages.current.clear();
+    inflight.current.clear();
+    setTick((v) => v + 1);
+  }, [sort]);
 
   const rowAt = useCallback(
     (i: number): Track | undefined => pages.current.get(Math.floor(i / pageSize))?.[i % pageSize],

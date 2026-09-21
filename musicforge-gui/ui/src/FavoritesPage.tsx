@@ -10,6 +10,8 @@ import { useLiked } from "./hooks/useLiked";
 import TrackRow from "./TrackRow";
 import SelectionBar from "./SelectionBar";
 import { useSelection } from "./hooks/useSelection";
+import SortControl from "./SortControl";
+import { useSort } from "./hooks/useSort";
 
 export default function FavoritesPage({
   onPlay,
@@ -26,13 +28,14 @@ export default function FavoritesPage({
   const [rows, setRows] = useState<Track[] | null>(null);
   const liked = useLiked();
   const selApi = useSelection();
+  const [sort, setSort] = useSort("favorites", "default");
 
   const reload = useCallback(() => {
     if (!IS_DESKTOP) return;
-    likedTracks(500, 0)
+    likedTracks(500, 0, sort)
       .then(setRows)
       .catch(() => setRows([]));
-  }, []);
+  }, [sort]);
   useEffect(() => reload(), [reload]);
 
   if (!IS_DESKTOP) {
@@ -71,6 +74,18 @@ export default function FavoritesPage({
           <p className="sub">{t.media.favSub(live?.length ?? 0)}</p>
         </div>
         <div className="act">
+          <SortControl
+            value={sort}
+            onChange={setSort}
+            fields={[
+              { value: "default", label: t.sort.likedAt },
+              { value: "title", label: t.sort.title },
+              { value: "artist", label: t.sort.artist },
+              { value: "album", label: t.sort.album },
+              { value: "duration", label: t.sort.duration },
+              { value: "play_count", label: t.sort.playCount },
+            ]}
+          />
           <button
             className="btn sm primary"
             onClick={() => {
