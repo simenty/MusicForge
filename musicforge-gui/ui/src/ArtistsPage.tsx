@@ -20,7 +20,7 @@ import SortControl from "./SortControl";
 import FilterInput from "./FilterInput";
 import { useSort } from "./hooks/useSort";
 import { sortTracks } from "./lib/sortTracks";
-import { filterTracks } from "./lib/filterTracks";
+import { filterArtists, filterTracks } from "./lib/filterTracks";
 import AddToPlaylistDialog from "./AddToPlaylistDialog";
 import { IconDownload } from "./icons";
 
@@ -44,6 +44,8 @@ export default function ArtistsPage({
   const [sort, setSort] = useSort("artist-detail", "default");
   /** P6.26 详情页筛选：整段曲目已在内存 → 纯前端过滤，无需防抖/IPC */
   const [filter, setFilter] = useState("");
+  /** P6.27 列表网格筛选（与详情页筛选互相独立，见 AlbumsPage 同名注释） */
+  const [gridFilter, setGridFilter] = useState("");
   const [rows, setRows] = useState<Artist[] | null>(null);
   /** artistId → asset URL（已有封面） */
   const [covers, setCovers] = useState<Record<number, string>>({});
@@ -277,6 +279,8 @@ export default function ArtistsPage({
       </div>
     );
   }
+  /** P6.27：网格筛选后的可见集合（艺术家列表一次性取全 → 纯前端过滤） */
+  const visible = filterArtists(rows, gridFilter);
 
   return (
     <>
@@ -284,11 +288,17 @@ export default function ArtistsPage({
         <div>
           <h2>{t.media.artistsTitle}</h2>
           <p className="sub">
-            {t.media.artistsSub(rows.length)}
+            {t.media.artistsSub(visible.length)}
             {missing.length > 0 ? ` · ${t.media.coversMissing(missing.length)}` : ""}
           </p>
         </div>
         <div className="act">
+          <FilterInput
+            value={gridFilter}
+            onChange={setGridFilter}
+            placeholder={t.listFilter.placeholder}
+            clearLabel={t.listFilter.clear}
+          />
           <button
             className="btn sm"
             onClick={() => void fetchAll()}
@@ -304,25 +314,31 @@ export default function ArtistsPage({
       </div>
       {!online && <p className="scan-note">{t.media.coversNeedOnline}</p>}
       {err && <p className="scan-error">{err}</p>}
-      <div className="mgrid">
-        {rows.map((a, i) => (
-          <div className="mcard pl-card" key={a.id} onClick={() => openArtist(a)}>
-            {covers[a.id] ? (
-              <span className="ava" aria-hidden="true">
-                <img src={covers[a.id]} alt="" loading="lazy" />
+      {visible.length === 0 ? (
+        <div className="media-empty">
+          <p>{t.listFilter.noResult}</p>
+        </div>
+      ) : (
+        <div className="mgrid">
+          {visible.map((a, i) => (
+            <div className="mcard pl-card" key={a.id} onClick={() => openArtist(a)}>
+              {covers[a.id] ? (
+                <span className="ava" aria-hidden="true">
+                  <img src={covers[a.id]} alt="" loading="lazy" />
+                </span>
+              ) : (
+                <span className={"ava g" + ((i % 6) + 1)} aria-hidden="true">
+                  {a.name.slice(0, 1).toUpperCase()}
+                </span>
+              )}
+              <span className="nm" title={a.name}>
+                {a.name}
               </span>
-            ) : (
-              <span className={"ava g" + ((i % 6) + 1)} aria-hidden="true">
-                {a.name.slice(0, 1).toUpperCase()}
-              </span>
-            )}
-            <span className="nm" title={a.name}>
-              {a.name}
-            </span>
-            <span className="ct">{t.media.tracksN(a.trackCount)}</span>
-          </div>
-        ))}
-      </div>
+              <span className="ct">{t.media.tracksN(a.trackCount)}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </>
   );
 }

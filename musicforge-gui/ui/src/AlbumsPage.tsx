@@ -20,7 +20,7 @@ import SortControl from "./SortControl";
 import FilterInput from "./FilterInput";
 import { useSort } from "./hooks/useSort";
 import { sortTracks } from "./lib/sortTracks";
-import { filterTracks } from "./lib/filterTracks";
+import { filterAlbums, filterTracks } from "./lib/filterTracks";
 import AddToPlaylistDialog from "./AddToPlaylistDialog";
 import { IconDisc, IconDownload } from "./icons";
 
@@ -44,6 +44,9 @@ export default function AlbumsPage({
   const [sort, setSort] = useSort("album-detail", "default");
   /** P6.26 详情页筛选：整段曲目已在内存 → 纯前端过滤，无需防抖/IPC */
   const [filter, setFilter] = useState("");
+  /** P6.27 列表网格筛选（与详情页筛选**互相独立**：两个态不同时可见，
+   *  共用一个状态会导致「筛网格 → 进入详情后曲目被意外过滤」） */
+  const [gridFilter, setGridFilter] = useState("");
   const [rows, setRows] = useState<Album[] | null>(null);
   const [fetching, setFetching] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -285,6 +288,8 @@ export default function AlbumsPage({
   }
   const missing = rows.filter((a) => !a.coverPath);
   const online = settings.onlineMeta;
+  /** P6.27：网格筛选后的可见集合（专辑列表一次性取全 → 纯前端过滤） */
+  const visible = filterAlbums(rows, gridFilter);
 
   return (
     <>
@@ -292,11 +297,17 @@ export default function AlbumsPage({
         <div>
           <h2>{t.media.albumsTitle}</h2>
           <p className="sub">
-            {t.media.albumsSub(rows.length)}
+            {t.media.albumsSub(visible.length)}
             {missing.length > 0 ? ` · ${t.media.coversMissing(missing.length)}` : ""}
           </p>
         </div>
         <div className="act">
+          <FilterInput
+            value={gridFilter}
+            onChange={setGridFilter}
+            placeholder={t.listFilter.placeholder}
+            clearLabel={t.listFilter.clear}
+          />
           <button
             className="btn sm"
             onClick={() => void fetchAll()}
@@ -312,11 +323,16 @@ export default function AlbumsPage({
       </div>
       {!online && <p className="scan-note">{t.media.coversNeedOnline}</p>}
       {err && <p className="scan-error">{err}</p>}
-      <div
-        className="mgrid"
-        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}
-      >
-        {rows.map((a, i) => {
+      {visible.length === 0 ? (
+        <div className="media-empty">
+          <p>{t.listFilter.noResult}</p>
+        </div>
+      ) : (
+        <div
+          className="mgrid"
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}
+        >
+          {visible.map((a, i) => {
           const src = assetUrl(a.coverPath);
           return (
             <div className="mcard pl-card" key={a.id} onClick={() => openAlbum(a)}>
@@ -361,8 +377,9 @@ export default function AlbumsPage({
               <span className="ct">{t.media.tracksN(a.trackCount)}</span>
             </div>
           );
-        })}
-      </div>
+          })}
+        </div>
+      )}
     </>
   );
 }
