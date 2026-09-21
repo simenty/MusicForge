@@ -1911,6 +1911,10 @@ fn escape_like(s: &str) -> String {
 }
 
 #[cfg(test)]
+// 单元测试模块置于文件中部（紧邻 playlist 清理实现），用 allow 关闭
+// `items_after_test_module` 风格 lint——本库此前无单元测，集中放尾部会割裂
+// 与被测函数的对应关系。
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
 
