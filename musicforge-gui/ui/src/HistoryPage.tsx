@@ -5,6 +5,8 @@ import type { HistoryEntry, Track } from "./api";
 import { useLang } from "./i18n";
 import { useLiked } from "./hooks/useLiked";
 import TrackRow from "./TrackRow";
+import SelectionBar from "./SelectionBar";
+import { useSelection } from "./hooks/useSelection";
 
 type DayKey = "today" | "yesterday" | "earlier";
 
@@ -48,6 +50,27 @@ export default function HistoryPage({
   useEffect(() => reload(), [reload]);
 
   const liked = useLiked();
+
+  // P6.19 批量操作：历史按曲目 id 去重（同曲跨天多次出现只计一次）
+  const selApi = useSelection();
+  const list = rows ?? [];
+  const selectedIds = new Set(list.filter((x) => selApi.sel.has(String(x.id))).map((x) => x.id));
+  const seen = new Set<number>();
+  const selectedTracks: Track[] = [];
+  for (const e of list) {
+    if (selectedIds.has(e.id) && !seen.has(e.id)) {
+      seen.add(e.id);
+      selectedTracks.push(e);
+    }
+  }
+  const bulkQueue = async () => {
+    if (selectedTracks.length && onQueue) await onQueue(selectedTracks);
+    selApi.toggleSelMode();
+  };
+  const bulkPlayNext = async () => {
+    if (selectedTracks.length && onPlayNext) await onPlayNext(selectedTracks);
+    selApi.toggleSelMode();
+  };
 
   /** 双击历史行播放：队列 = 历史去重后的曲目（同一首歌只入队一次） */
   const playFrom = useCallback(
@@ -117,6 +140,13 @@ export default function HistoryPage({
           >
             {t.media.historyClear}
           </button>
+          <button
+            className={"btn sm" + (selApi.selMode ? " on" : "")}
+            onClick={selApi.toggleSelMode}
+            disabled={!rows || rows.length === 0}
+          >
+            {t.player.select}
+          </button>
         </div>
       </div>
 
@@ -145,11 +175,24 @@ export default function HistoryPage({
                   onLike={() => void liked.toggle(r.id)}
                   onQueue={onQueue ? () => void onQueue([r]) : undefined}
                   onPlayNext={onPlayNext ? () => void onPlayNext([r]) : undefined}
+                  selectable={selApi.selMode}
+                  selected={selApi.has(String(r.id))}
+                  onToggleSelect={() => selApi.toggle(String(r.id))}
               />
               ))}
             </div>
           </section>
         ))
+      )}
+      {selApi.selMode && (
+        <SelectionBar
+          count={selApi.count}
+          total={list.length}
+          onAddToQueue={bulkQueue}
+          onPlayNext={bulkPlayNext}
+          onSelectAll={() => selApi.selectAll([...new Set(list.map((x) => String(x.id)))] as string[])}
+          onClear={selApi.toggleSelMode}
+        />
       )}
     </>
   );

@@ -360,6 +360,11 @@ export const zh = {
     queueClear: "清空队列",
     queueAdd: "加入队列",
     playNext: "下一首播放",
+    select: "选择",
+    selected: (n: number) => `已选 ${n} 项`,
+    selectAll: "全选",
+    selection: "批量操作",
+    cancel: "取消",
   },
   serverInfo: {
     head: "服务端信息（fnOS / 自建 server）",

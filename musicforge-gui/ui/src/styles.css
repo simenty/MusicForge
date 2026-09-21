@@ -1714,6 +1714,14 @@ code,
 .vt-row { height: 44px; padding: 0 var(--sp-3); border-bottom: 1px solid var(--border); }
 .vt-row:hover { background: var(--surface-2); }
 .vt-idx { font-size: var(--fs-xs); color: var(--text-faint); text-align: right; font-variant-numeric: tabular-nums; }
+/* P6.19 选择模式：第 1 列的勾选框 + 选中行高亮 */
+.vt-check { width: 18px; height: 18px; margin-left: auto; border-radius: 5px; border: 1.5px solid var(--border); background: transparent; color: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.vt-check.on { background: var(--accent); border-color: var(--accent); }
+.vt-row.sel { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.vt-row.sel .vt-main b { color: var(--accent); }
+.sel-bar { position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); margin-top: var(--sp-3); padding: var(--sp-2) var(--sp-3); background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--r-md); }
+.sel-count { font-size: var(--fs-sm); color: var(--text-faint); }
+.sel-acts { display: flex; gap: var(--sp-2); }
 .vt-main { min-width: 0; }
 .vt-main b { display: block; font-size: var(--fs-md); font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vt-main span { display: block; font-size: var(--fs-xs); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

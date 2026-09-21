@@ -8,6 +8,8 @@ import type { Track } from "./api";
 import { useLang } from "./i18n";
 import { useLiked } from "./hooks/useLiked";
 import TrackRow from "./TrackRow";
+import SelectionBar from "./SelectionBar";
+import { useSelection } from "./hooks/useSelection";
 
 export default function FavoritesPage({
   onPlay,
@@ -23,6 +25,7 @@ export default function FavoritesPage({
   const { t } = useLang();
   const [rows, setRows] = useState<Track[] | null>(null);
   const liked = useLiked();
+  const selApi = useSelection();
 
   const reload = useCallback(() => {
     if (!IS_DESKTOP) return;
@@ -41,6 +44,18 @@ export default function FavoritesPage({
   }
 
   const live = rows && liked.loaded ? rows.filter((r) => liked.isLiked(r.id)) : rows;
+
+  // P6.19 批量操作（selApi 已在组件顶部无条件初始化）
+  const list = live ?? [];
+  const selectedTracks = list.filter((x) => selApi.sel.has(String(x.id)));
+  const bulkQueue = async () => {
+    if (selectedTracks.length && onQueue) await onQueue(selectedTracks);
+    selApi.toggleSelMode();
+  };
+  const bulkPlayNext = async () => {
+    if (selectedTracks.length && onPlayNext) await onPlayNext(selectedTracks);
+    selApi.toggleSelMode();
+  };
 
   const playFrom = (tr: Track) => {
     if (!onPlay || !live) return;
@@ -64,6 +79,13 @@ export default function FavoritesPage({
             disabled={!live || live.length === 0}
           >
             {t.media.playAll}
+          </button>
+          <button
+            className={"btn sm" + (selApi.selMode ? " on" : "")}
+            onClick={selApi.toggleSelMode}
+            disabled={!live || live.length === 0}
+          >
+            {t.player.select}
           </button>
         </div>
       </div>
@@ -96,9 +118,22 @@ export default function FavoritesPage({
               onLike={() => void liked.toggle(r.id)}
               onQueue={onQueue ? () => void onQueue([r]) : undefined}
               onPlayNext={onPlayNext ? () => void onPlayNext([r]) : undefined}
+              selectable={selApi.selMode}
+              selected={selApi.has(String(r.id))}
+              onToggleSelect={() => selApi.toggle(String(r.id))}
               />
-          ))}
+          )          )}
         </div>
+      )}
+      {selApi.selMode && (
+        <SelectionBar
+          count={selApi.count}
+          total={list.length}
+          onAddToQueue={bulkQueue}
+          onPlayNext={bulkPlayNext}
+          onSelectAll={() => selApi.selectAll(list.map((x) => String(x.id)))}
+          onClear={selApi.toggleSelMode}
+        />
       )}
     </>
   );

@@ -359,6 +359,11 @@ export const en: typeof zh = {
     queueClear: "Clear queue",
     queueAdd: "Add to queue",
     playNext: "Play next",
+    select: "Select",
+    selected: (n: number) => `Selected ${n}`,
+    selectAll: "Select all",
+    selection: "Bulk actions",
+    cancel: "Cancel",
   },
   serverInfo: {
     head: "Server info (fnOS / self-hosted)",

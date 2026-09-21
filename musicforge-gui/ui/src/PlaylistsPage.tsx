@@ -16,6 +16,8 @@ import {
 import type { Playlist, Track } from "./api";
 import ConfirmDialog from "./ConfirmDialog";
 import TrackRow from "./TrackRow";
+import SelectionBar from "./SelectionBar";
+import { useSelection } from "./hooks/useSelection";
 import { useLang } from "./i18n";
 import { assetUrl } from "./lib/asset";
 import { IconList, IconPlus } from "./icons";
@@ -35,6 +37,7 @@ export default function PlaylistsPage({
   onPlayNext?: (tracks: Track[]) => Promise<void>;
 }) {
   const { t } = useLang();
+  const selApi = useSelection();
   const [lists, setLists] = useState<Playlist[] | null>(null);
   /** 封面拼贴（歌单 id → 至多 4 张专辑封面路径；P6.12） */
   const [covers, setCovers] = useState<Record<string, string[]>>({});
@@ -187,6 +190,17 @@ export default function PlaylistsPage({
 
   // ---------------------------------------------------------------- 详情态 --
   if (open) {
+    // P6.19 批量操作
+    const list = items ?? [];
+    const selectedTracks = list.filter((x) => selApi.sel.has(String(x.id)));
+    const bulkQueue = async () => {
+      if (selectedTracks.length && onQueue) await onQueue(selectedTracks);
+      selApi.toggleSelMode();
+    };
+    const bulkPlayNext = async () => {
+      if (selectedTracks.length && onPlayNext) await onPlayNext(selectedTracks);
+      selApi.toggleSelMode();
+    };
     return (
       <>
         <div className="media-head">
@@ -217,6 +231,13 @@ export default function PlaylistsPage({
               }}
             >
               {t.media.playAll}
+            </button>
+            <button
+              className={"btn sm" + (selApi.selMode ? " on" : "")}
+              onClick={selApi.toggleSelMode}
+              disabled={!items || items.length === 0}
+            >
+              {t.player.select}
             </button>
             <button
               className="btn sm"
@@ -297,6 +318,9 @@ export default function PlaylistsPage({
                 }
                 onQueue={onQueue ? () => void onQueue([r]) : undefined}
                 onPlayNext={onPlayNext ? () => void onPlayNext([r]) : undefined}
+                selectable={selApi.selMode}
+                selected={selApi.has(String(r.id))}
+                onToggleSelect={() => selApi.toggle(String(r.id))}
                 trailing={
                   <button
                     className="row-mini"
@@ -322,6 +346,16 @@ export default function PlaylistsPage({
           onConfirm={() => void doDelete()}
           onCancel={() => setDelTarget(null)}
         />
+        {selApi.selMode && (
+          <SelectionBar
+            count={selApi.count}
+            total={list.length}
+            onAddToQueue={bulkQueue}
+            onPlayNext={bulkPlayNext}
+            onSelectAll={() => selApi.selectAll(list.map((x) => String(x.id)))}
+            onClear={selApi.toggleSelMode}
+          />
+        )}
       </>
     );
   }

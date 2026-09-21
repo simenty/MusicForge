@@ -14,6 +14,8 @@ import { useLang } from "./i18n";
 import { useSettings } from "./hooks/useSettings";
 import { assetUrl } from "./lib/asset";
 import TrackRow from "./TrackRow";
+import SelectionBar from "./SelectionBar";
+import { useSelection } from "./hooks/useSelection";
 import AddToPlaylistDialog from "./AddToPlaylistDialog";
 import { IconDownload } from "./icons";
 
@@ -33,6 +35,7 @@ export default function ArtistsPage({
 }) {
   const { t } = useLang();
   const { settings } = useSettings();
+  const selApi = useSelection();
   const [rows, setRows] = useState<Artist[] | null>(null);
   /** artistId → asset URL（已有封面） */
   const [covers, setCovers] = useState<Record<number, string>>({});
@@ -134,6 +137,17 @@ export default function ArtistsPage({
 
   // ---------------------------------------------------------------- 详情态 --
   if (sel) {
+    // P6.19 批量操作
+    const list = tracks ?? [];
+    const selectedTracks = list.filter((x) => selApi.sel.has(String(x.id)));
+    const bulkQueue = async () => {
+      if (selectedTracks.length && onQueue) await onQueue(selectedTracks);
+      selApi.toggleSelMode();
+    };
+    const bulkPlayNext = async () => {
+      if (selectedTracks.length && onPlayNext) await onPlayNext(selectedTracks);
+      selApi.toggleSelMode();
+    };
     const url = covers[sel.id];
     return (
       <>
@@ -170,6 +184,13 @@ export default function ArtistsPage({
             >
               {t.media.playAll}
             </button>
+            <button
+              className={"btn sm" + (selApi.selMode ? " on" : "")}
+              onClick={selApi.toggleSelMode}
+              disabled={!tracks || tracks.length === 0}
+            >
+              {t.player.select}
+            </button>
           </div>
         </div>
         {err && <p className="scan-error">{err}</p>}
@@ -198,6 +219,9 @@ export default function ArtistsPage({
                 onAdd={() => setAddTarget(r)}
                 onQueue={onQueue ? () => void onQueue([r]) : undefined}
                 onPlayNext={onPlayNext ? () => void onPlayNext([r]) : undefined}
+                selectable={selApi.selMode}
+                selected={selApi.has(String(r.id))}
+                onToggleSelect={() => selApi.toggle(String(r.id))}
               />
             ))}
           </div>
@@ -206,6 +230,16 @@ export default function ArtistsPage({
           tracks={addTarget ? [addTarget] : null}
           onClose={() => setAddTarget(null)}
         />
+        {selApi.selMode && (
+          <SelectionBar
+            count={selApi.count}
+            total={list.length}
+            onAddToQueue={bulkQueue}
+            onPlayNext={bulkPlayNext}
+            onSelectAll={() => selApi.selectAll(list.map((x) => String(x.id)))}
+            onClear={selApi.toggleSelMode}
+          />
+        )}
       </>
     );
   }

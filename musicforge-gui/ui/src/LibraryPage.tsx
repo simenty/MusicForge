@@ -9,6 +9,8 @@ import { fmtSizeGB } from "./lib/format";
 import { useWindowedTracks, TRACK_ROW_H } from "./hooks/useWindowedTracks";
 import { useLiked } from "./hooks/useLiked";
 import TrackRow from "./TrackRow";
+import SelectionBar from "./SelectionBar";
+import { useSelection } from "./hooks/useSelection";
 import AddToPlaylistDialog from "./AddToPlaylistDialog";
 
 export default function LibraryPage({
@@ -26,6 +28,8 @@ export default function LibraryPage({
   const { t } = useLang();
   const w = useWindowedTracks();
   const liked = useLiked();
+  // P6.19 批量操作（hook 须无条件调用，置于早返回之前）
+  const selApi = useSelection();
   /** P6.4：待加入歌单的曲目（null = 弹层关闭） */
   const [addTarget, setAddTarget] = useState<Track | null>(null);
   const [stats, setStats] = useState<LibraryStats | null>(null);
@@ -89,6 +93,18 @@ export default function LibraryPage({
     );
   }
 
+  // 可见列表（搜索态用结果，否则用虚拟化已加载快照）；全选覆盖该集合
+  const list = results ?? snapshot();
+  const selectedTracks = list.filter((x) => selApi.sel.has(String(x.id)));
+  const bulkQueue = async () => {
+    if (selectedTracks.length && onQueue) await onQueue(selectedTracks);
+    selApi.toggleSelMode();
+  };
+  const bulkPlayNext = async () => {
+    if (selectedTracks.length && onPlayNext) await onPlayNext(selectedTracks);
+    selApi.toggleSelMode();
+  };
+
   return (
     <>
       <div className="media-head">
@@ -119,6 +135,13 @@ export default function LibraryPage({
               aria-label={t.media.searchPlaceholder}
             />
           </label>
+          <button
+            className={"btn sm" + (selApi.selMode ? " on" : "")}
+            onClick={selApi.toggleSelMode}
+            disabled={w.total === 0}
+          >
+            {t.player.select}
+          </button>
         </div>
       </div>
 
@@ -150,6 +173,9 @@ export default function LibraryPage({
                   onAdd={() => setAddTarget(r)}
                   onQueue={onQueue ? () => void onQueue([r]) : undefined}
                   onPlayNext={onPlayNext ? () => void onPlayNext([r]) : undefined}
+                  selectable={selApi.selMode}
+                  selected={selApi.has(String(r.id))}
+                  onToggleSelect={() => selApi.toggle(String(r.id))}
                 />
               ))}
             </>
@@ -171,6 +197,9 @@ export default function LibraryPage({
                       onAdd={() => setAddTarget(tr)}
                       onQueue={onQueue ? () => void onQueue([tr]) : undefined}
                       onPlayNext={onPlayNext ? () => void onPlayNext([tr]) : undefined}
+                      selectable={selApi.selMode}
+                      selected={selApi.has(String(tr.id))}
+                      onToggleSelect={() => selApi.toggle(String(tr.id))}
                     />
                   ) : (
                     <div className="vt-row" key={`ph-${i}`}>
@@ -192,6 +221,16 @@ export default function LibraryPage({
         tracks={addTarget ? [addTarget] : null}
         onClose={() => setAddTarget(null)}
       />
+      {selApi.selMode && (
+        <SelectionBar
+          count={selApi.count}
+          total={list.length}
+          onAddToQueue={bulkQueue}
+          onPlayNext={bulkPlayNext}
+          onSelectAll={() => selApi.selectAll(list.map((x) => String(x.id)))}
+          onClear={selApi.toggleSelMode}
+        />
+      )}
     </>
   );
 }

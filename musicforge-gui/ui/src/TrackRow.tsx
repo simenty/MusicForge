@@ -23,6 +23,12 @@ export interface TrackRowProps {
   onQueue?: () => void;
   /** 「下一首播放」入口（提供时尾列渲染 ⏭ 按钮；P6.17） */
   onPlayNext?: () => void;
+  /** 选择模式（P6.19）：开启时第 1 列显示勾选框 */
+  selectable?: boolean;
+  /** 当前行是否被选中（选择模式下） */
+  selected?: boolean;
+  /** 切换选中（选择模式下） */
+  onToggleSelect?: () => void;
   /** 会话自定义的第 6 列（优先于 ＋/爱心；如统计页的播放次数） */
   trailing?: ReactNode;
   /** 透传到根 div 的属性（歌单页拖拽排序用：draggable/onDragStart/onDrop…） */
@@ -38,13 +44,45 @@ export default function TrackRow({
   onAdd,
   onQueue,
   onPlayNext,
+  selectable,
+  selected,
+  onToggleSelect,
   trailing,
   dragProps,
 }: TrackRowProps) {
   const { t } = useLang();
   return (
-    <div className="vt-row" onDoubleClick={onPlay} {...dragProps}>
-      <span className="vt-idx">{lead}</span>
+    <div className={"vt-row" + (selected ? " sel" : "")} onDoubleClick={onPlay} {...dragProps}>
+      {selectable ? (
+        <button
+          type="button"
+          className={"vt-check" + (selected ? " on" : "")}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleSelect?.();
+          }}
+          aria-pressed={!!selected}
+          aria-label={t.player.select}
+          title={t.player.select}
+        >
+          {selected && (
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M5 12l5 5L20 6" />
+            </svg>
+          )}
+        </button>
+      ) : (
+        <span className="vt-idx">{lead}</span>
+      )}
       <span className="vt-main">
         <b title={tr.title ?? undefined}>{tr.title ?? "—"}</b>
         <span>{tr.artist ?? "—"}</span>

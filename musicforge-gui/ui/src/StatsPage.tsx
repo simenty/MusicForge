@@ -5,6 +5,8 @@ import type { StatsOverview, Track } from "./api";
 import { useLang } from "./i18n";
 import { fmtHours, fmtSizeGB } from "./lib/format";
 import TrackRow from "./TrackRow";
+import SelectionBar from "./SelectionBar";
+import { useSelection } from "./hooks/useSelection";
 import { IconClock, IconDisc, IconMusic, IconUser } from "./icons";
 
 /** 近 7 天日期键（本地时区 `YYYY-MM-DD`，与后端 `date(...,'localtime')` 同口径） */
@@ -34,6 +36,19 @@ export default function StatsPage({
   const { t } = useLang();
   const [data, setData] = useState<StatsOverview | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  // P6.19 批量操作（hook 须无条件调用，置于早返回之前）
+  const selApi = useSelection();
+  const list = data?.top ?? [];
+  const selectedTracks = list.filter((x) => selApi.sel.has(String(x.id)));
+  const bulkQueue = async () => {
+    if (selectedTracks.length && onQueue) await onQueue(selectedTracks);
+    selApi.toggleSelMode();
+  };
+  const bulkPlayNext = async () => {
+    if (selectedTracks.length && onPlayNext) await onPlayNext(selectedTracks);
+    selApi.toggleSelMode();
+  };
 
   useEffect(() => {
     if (!IS_DESKTOP) return;
@@ -84,6 +99,15 @@ export default function StatsPage({
           <p className="sub">
             {t.media.statsSub} · {fmtSizeGB(data.totalSize)} · {fmtHours(data.totalDurationMs)}
           </p>
+        </div>
+        <div className="act">
+          <button
+            className={"btn sm" + (selApi.selMode ? " on" : "")}
+            onClick={selApi.toggleSelMode}
+            disabled={!data || data.top.length === 0}
+          >
+            {t.player.select}
+          </button>
         </div>
       </div>
 
@@ -177,11 +201,24 @@ export default function StatsPage({
                 onPlay={onPlay ? () => playTop(tr) : undefined}
                 onQueue={onQueue ? () => void onQueue([tr]) : undefined}
                 onPlayNext={onPlayNext ? () => void onPlayNext([tr]) : undefined}
+                selectable={selApi.selMode}
+                selected={selApi.has(String(tr.id))}
+                onToggleSelect={() => selApi.toggle(String(tr.id))}
               />
             ))
           )}
         </div>
       </section>
+      {selApi.selMode && (
+        <SelectionBar
+          count={selApi.count}
+          total={list.length}
+          onAddToQueue={bulkQueue}
+          onPlayNext={bulkPlayNext}
+          onSelectAll={() => selApi.selectAll(list.map((x) => String(x.id)))}
+          onClear={selApi.toggleSelMode}
+        />
+      )}
     </>
   );
 }
