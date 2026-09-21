@@ -175,6 +175,7 @@ fn main() {
             // P1 曲库体验：维度层读写 + 媒体源管理 + 索引构建
             library_stats,
             list_tracks,
+            count_tracks,
             list_artists,
             list_albums,
             search_tracks,

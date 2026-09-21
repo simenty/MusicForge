@@ -30,6 +30,13 @@ export const zh = {
     likedAt: "收藏时间",
     playedAt: "播放时间",
   },
+  // P6.25 列表文本筛选（服务端；标题 / 艺术家 / 专辑 / 路径）
+  // 注意：`filter`（单数）已被任务状态筛选占用（见 App.tsx `t.filter.all`）
+  listFilter: {
+    placeholder: "筛选标题、艺术家或专辑",
+    clear: "清除筛选",
+    noResult: "没有匹配的曲目",
+  },
   /** 标题栏语言切换（控件 aria 标签） */
   lang: {
     aria: "界面语言",

@@ -44,7 +44,7 @@ describe("useWindowedTracks", () => {
     const { result } = renderHook(() => useWindowedTracks(200));
 
     act(() => result.current.reset(500));
-    await waitFor(() => expect(mockList).toHaveBeenCalledWith(200, 0, undefined));
+    await waitFor(() => expect(mockList).toHaveBeenCalledWith(200, 0, undefined, undefined));
     await waitFor(() => expect(result.current.rowAt(0)?.title).toBe("t0"));
     expect(result.current.total).toBe(500);
     // 未加载页的行返回 undefined（渲染占位）
@@ -63,9 +63,23 @@ describe("useWindowedTracks", () => {
     act(() => result.current.onScroll(el));
 
     // 可视区间 ≈ 第 392..420 行 → 页 1（offset 200）与页 2（offset 400）
-    await waitFor(() => expect(mockList).toHaveBeenCalledWith(200, 200, undefined));
-    await waitFor(() => expect(mockList).toHaveBeenCalledWith(200, 400, undefined));
+    await waitFor(() => expect(mockList).toHaveBeenCalledWith(200, 200, undefined, undefined));
+    await waitFor(() => expect(mockList).toHaveBeenCalledWith(200, 400, undefined, undefined));
     // 页 0 早已拉取；未请求过的页（如 offset 600）不应出现
-    expect(mockList).not.toHaveBeenCalledWith(200, 600, undefined);
+    expect(mockList).not.toHaveBeenCalledWith(200, 600, undefined, undefined);
+  });
+
+  // P6.25：过滤词下推——同一 hook 需把 query 透传给服务端取页
+  it("query 变化时透传给 listTracks", async () => {
+    const { result, rerender } = renderHook(
+      ({ q }: { q?: string }) => useWindowedTracks(200, undefined, q),
+      { initialProps: {} }
+    );
+
+    act(() => result.current.reset(2));
+    await waitFor(() => expect(mockList).toHaveBeenCalledWith(200, 0, undefined, undefined));
+
+    act(() => rerender({ q: "晴天" }));
+    await waitFor(() => expect(mockList).toHaveBeenCalledWith(200, 0, undefined, "晴天"));
   });
 });

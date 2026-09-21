@@ -2,7 +2,7 @@
 // 搜索走 core 的 search_tracks（一次 ≤500，不走虚拟化）。
 // P2：双击行 → 以「已缓存行快照」为队列开始播放。
 import { useCallback, useEffect, useState } from "react";
-import { IS_DESKTOP, libraryStats, removeTracks, searchTracks } from "./api";
+import { IS_DESKTOP, countTracks, libraryStats, removeTracks } from "./api";
 import type { LibraryStats, Track } from "./api";
 import { useLang } from "./i18n";
 import { fmtSizeGB } from "./lib/format";
@@ -30,7 +30,10 @@ export default function LibraryPage({
 }) {
   const { t } = useLang();
   const [sort, setSort] = useSort("library", "default");
-  const w = useWindowedTracks(200, sort);
+  /** P6.25：输入框原文；`filter` 是防抖后真正下推到服务端的过滤词 */
+  const [rawQuery, setRawQuery] = useState("");
+  const [filter, setFilter] = useState("");
+  const w = useWindowedTracks(200, sort, filter || undefined);
   const liked = useLiked();
   // P6.19 批量操作（hook 须无条件调用，置于早返回之前）
   const selApi = useSelection();
@@ -38,9 +41,6 @@ export default function LibraryPage({
   const [addTarget, setAddTarget] = useState<Track | null>(null);
   const [stats, setStats] = useState<LibraryStats | null>(null);
   const [initErr, setInitErr] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<Track[] | null>(null);
-  const [searching, setSearching] = useState(false);
   // P6.22：批量从资料库移除的确认闸
   const [pendingRemove, setPendingRemove] = useState(false);
 
@@ -48,12 +48,24 @@ export default function LibraryPage({
   useEffect(() => {
     if (!IS_DESKTOP) return;
     libraryStats()
-      .then((s) => {
-        setStats(s);
-        reset(s.tracks);
-      })
+      .then(setStats)
       .catch((e: unknown) => setInitErr(String(e)));
-  }, [reset]);
+  }, []);
+
+  // P6.25：输入防抖 250ms → 下推服务端过滤（虚拟化列表因此不必一次性拉全量）
+  useEffect(() => {
+    const id = window.setTimeout(() => setFilter(rawQuery.trim()), 250);
+    return () => window.clearTimeout(id);
+  }, [rawQuery]);
+
+  // 过滤词/库内容变化 → 取**服务端过滤后的计数**并重设行数。
+  // 行数必须等于过滤结果集大小，否则虚拟滚动会请求越界的页。
+  useEffect(() => {
+    if (!IS_DESKTOP) return;
+    countTracks(filter || undefined)
+      .then(reset)
+      .catch(() => reset(0));
+  }, [filter, reset]);
 
   const playFrom = useCallback(
     (tr: Track) => {
@@ -65,24 +77,6 @@ export default function LibraryPage({
     },
     [onPlay, snapshot]
   );
-
-  // 搜索：250ms 防抖；空查询回退虚拟列表
-  useEffect(() => {
-    const q = query.trim();
-    if (!q) {
-      setResults(null);
-      setSearching(false);
-      return;
-    }
-    setSearching(true);
-    const id = window.setTimeout(() => {
-      searchTracks(q, 500)
-        .then(setResults)
-        .catch(() => setResults([]))
-        .finally(() => setSearching(false));
-    }, 250);
-    return () => window.clearTimeout(id);
-  }, [query]);
 
   if (!IS_DESKTOP) {
     return (
@@ -99,8 +93,9 @@ export default function LibraryPage({
     );
   }
 
-  // 可见列表（搜索态用结果，否则用虚拟化已加载快照）；全选覆盖该集合
-  const list = results ?? snapshot();
+  // 可见列表 = 虚拟化已加载快照（P6.25：过滤已下推到服务端，不再有独立的
+  // 「搜索结果」集合，因此不受原先 500 条上限约束）；全选覆盖该集合
+  const list = snapshot();
   const selectedTracks = list.filter((x) => selApi.sel.has(String(x.id)));
   const bulkQueue = async () => {
     if (selectedTracks.length && onQueue) await onQueue(selectedTracks);
@@ -119,9 +114,10 @@ export default function LibraryPage({
     }
     try {
       await removeTracks(ids);
-      const removed = ids.length;
-      setStats((prev) => (prev ? { ...prev, tracks: Math.max(0, prev.tracks - removed) } : prev));
-      reset(Math.max(0, (stats?.tracks ?? 0) - removed));
+      // 重取真相（当前过滤下的行数 + 全局统计），不做减法推算
+      const n = await countTracks(filter || undefined);
+      reset(n);
+      libraryStats().then(setStats).catch(() => {});
       selApi.toggleSelMode();
     } catch (e) {
       setInitErr(String(e));
@@ -166,8 +162,8 @@ export default function LibraryPage({
             </svg>
             <input
               type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              value={rawQuery}
+              onChange={(e) => setRawQuery(e.target.value)}
               placeholder={t.media.searchPlaceholder}
               aria-label={t.media.searchPlaceholder}
             />
@@ -191,32 +187,11 @@ export default function LibraryPage({
           <span style={{ textAlign: "right" }}>{t.media.colFormat}</span>
         </div>
 
-        {results !== null ? (
-          results.length === 0 ? (
-            <div className="media-empty">
-              <p>{searching ? t.media.loading : t.media.searchEmpty}</p>
-            </div>
-          ) : (
-            <>
-              <div className="vt-loading">{t.media.searchResult(results.length)}</div>
-              {results.map((r, i) => (
-                <TrackRow
-                  key={r.id}
-                  lead={i + 1}
-                  track={r}
-                  onPlay={onPlay ? () => playFrom(r) : undefined}
-                  liked={liked.isLiked(r.id)}
-                  onLike={() => void liked.toggle(r.id)}
-                  onAdd={() => setAddTarget(r)}
-                  onQueue={onQueue ? () => void onQueue([r]) : undefined}
-                  onPlayNext={onPlayNext ? () => void onPlayNext([r]) : undefined}
-                  selectable={selApi.selMode}
-                  selected={selApi.has(String(r.id))}
-                  onToggleSelect={() => selApi.toggle(String(r.id))}
-                />
-              ))}
-            </>
-          )
+        {/* P6.25：过滤下推服务端后恒走虚拟化；仅在有过滤却零命中时给空态 */}
+        {filter && w.total === 0 ? (
+          <div className="media-empty">
+            <p>{t.listFilter.noResult}</p>
+          </div>
         ) : (
           <div className="vt-scroll" onScroll={(e) => w.onScroll(e.currentTarget)}>
             <div style={{ height: w.total * TRACK_ROW_H, position: "relative" }}>

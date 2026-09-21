@@ -428,9 +428,28 @@ export async function libraryStats(): Promise<LibraryStats> {
 }
 
 /** 分页读取曲目（core 侧 limit 硬上限 500——分页是契约，不传全量）。
- *  P6.21：可选 `sort` 走服务端排序（虚拟化库须服务端排序才正确）。 */
-export async function listTracks(limit = 200, offset = 0, sort?: TrackSortField): Promise<Track[]> {
-  return invoke<Track[]>("list_tracks", { limit, offset, sort: sort ?? null });
+ *  P6.21：`sort` 服务端排序；P6.25：`query` 服务端文本过滤（标题/艺术家/专辑/路径）。
+ *  虚拟化库必须服务端过滤——否则只能对「全部数据」分页，结果集不对。 */
+export async function listTracks(
+  limit = 200,
+  offset = 0,
+  sort?: TrackSortField,
+  query?: string
+): Promise<Track[]> {
+  return invoke<Track[]>("list_tracks", {
+    limit,
+    offset,
+    sort: sort ?? null,
+    query: query && query.trim() ? query.trim() : null,
+  });
+}
+
+/** P6.25：曲目计数（`query` 非空 = 过滤后的结果集大小）。
+ *  虚拟化列表用它重设行数，避免过滤后滚动出现越界占位行。 */
+export async function countTracks(query?: string): Promise<number> {
+  return invoke<number>("count_tracks", {
+    query: query && query.trim() ? query.trim() : null,
+  });
 }
 
 /** 从资料库移除曲目（仅删索引行；不动文件）。P6.22：批量破坏性操作，调用方须确认。返回删除行数。 */
@@ -593,9 +612,17 @@ export async function likedIds(): Promise<number[]> {
   return invoke<number[]>("liked_ids");
 }
 
-/** 播放历史（倒序；Track 字段 + playedAt/msPlayed）。P6.21：可选 `sort`。 */
-export async function playHistory(limit = 200, sort?: TrackSortField): Promise<HistoryEntry[]> {
-  return invoke<HistoryEntry[]>("play_history", { limit, sort: sort ?? null });
+/** 播放历史（倒序；Track 字段 + playedAt/msPlayed）。P6.21：`sort`；P6.25：`query`。 */
+export async function playHistory(
+  limit = 200,
+  sort?: TrackSortField,
+  query?: string
+): Promise<HistoryEntry[]> {
+  return invoke<HistoryEntry[]>("play_history", {
+    limit,
+    sort: sort ?? null,
+    query: query && query.trim() ? query.trim() : null,
+  });
 }
 
 /** 清空播放历史（返回清空条数） */
@@ -607,9 +634,19 @@ export async function historyClear(): Promise<{ cleared: number }> {
 // 收藏与统计（P3）
 // ---------------------------------------------------------------------------
 
-/** 喜欢的曲目（分页；按收藏时间倒序）。P6.21：可选 `sort`。 */
-export async function likedTracks(limit = 200, offset = 0, sort?: TrackSortField): Promise<Track[]> {
-  return invoke<Track[]>("liked_tracks", { limit, offset, sort: sort ?? null });
+/** 喜欢的曲目（分页；按收藏时间倒序）。P6.21：`sort`；P6.25：`query`。 */
+export async function likedTracks(
+  limit = 200,
+  offset = 0,
+  sort?: TrackSortField,
+  query?: string
+): Promise<Track[]> {
+  return invoke<Track[]>("liked_tracks", {
+    limit,
+    offset,
+    sort: sort ?? null,
+    query: query && query.trim() ? query.trim() : null,
+  });
 }
 
 /** 统计总览（曲库规模 + 行为计数 + 近 7 天 + 最常播放 Top 10） */

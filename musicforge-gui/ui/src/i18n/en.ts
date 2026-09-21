@@ -27,6 +27,13 @@ export const en: typeof zh = {
     likedAt: "Date liked",
     playedAt: "Date played",
   },
+  // P6.25 list text filter (server-side; title / artist / album / path)
+  // NB: `filter` is taken by the task-status filter (see App.tsx `t.filter.all`)
+  listFilter: {
+    placeholder: "Filter by title, artist or album",
+    clear: "Clear filter",
+    noResult: "No matching tracks",
+  },
   lang: {
     aria: "Interface language",
   },

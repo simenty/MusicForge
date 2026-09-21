@@ -8,6 +8,7 @@ import TrackRow from "./TrackRow";
 import SelectionBar from "./SelectionBar";
 import { useSelection } from "./hooks/useSelection";
 import SortControl from "./SortControl";
+import FilterInput from "./FilterInput";
 import { useSort } from "./hooks/useSort";
 import ConfirmDialog from "./ConfirmDialog";
 
@@ -48,12 +49,21 @@ export default function HistoryPage({
   // P6.23：批量从资料库移除的确认闸
   const [pendingRemove, setPendingRemove] = useState(false);
   const [busyRemove, setBusyRemove] = useState(false);
+  /** P6.25：输入框原文；`filter` 为防抖后下推服务端的过滤词 */
+  const [rawQuery, setRawQuery] = useState("");
+  const [filter, setFilter] = useState("");
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setFilter(rawQuery.trim()), 250);
+    return () => window.clearTimeout(id);
+  }, [rawQuery]);
+
   const reload = useCallback(() => {
     if (!IS_DESKTOP) return;
-    playHistory(300, sort)
+    playHistory(300, sort, filter || undefined)
       .then(setRows)
       .catch(() => setRows([]));
-  }, [sort]);
+  }, [sort, filter]);
   useEffect(() => reload(), [reload]);
 
   const liked = useLiked();
@@ -170,6 +180,12 @@ export default function HistoryPage({
               { value: "duration", label: t.sort.duration },
               { value: "play_count", label: t.sort.playCount },
             ]}
+          />
+          <FilterInput
+            value={rawQuery}
+            onChange={setRawQuery}
+            placeholder={t.listFilter.placeholder}
+            clearLabel={t.listFilter.clear}
           />
           <button
             className="btn sm"

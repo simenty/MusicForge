@@ -81,12 +81,30 @@ pub fn list_tracks(
     limit: Option<i64>,
     offset: Option<i64>,
     sort: Option<String>,
+    query: Option<String>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let db = open_db()?;
+    let q = query.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let rows = db
-        .list_tracks_sorted(parse_track_sort(sort), limit.unwrap_or(200), offset.unwrap_or(0))
+        .list_tracks_with(
+            parse_track_sort(sort),
+            limit.unwrap_or(200),
+            offset.unwrap_or(0),
+            q,
+        )
         .map_err(|e| e.to_string())?;
     Ok(rows.iter().map(track_json).collect())
+}
+
+/// P6.25：曲目计数（`query` 非空时为**过滤后**的计数）。
+///
+/// 虚拟化列表用它对结果集分页——行索引必须映射到过滤结果，
+/// 否则滚动到底会出现越界占位行。
+#[tauri::command]
+pub fn count_tracks(query: Option<String>) -> Result<i64, String> {
+    let db = open_db()?;
+    let q = query.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    db.count_tracks_filtered(q).map_err(|e| e.to_string())
 }
 
 /// 艺术家聚合列表（按曲目数降序）。
@@ -291,10 +309,15 @@ pub fn remove_tracks(ids: Vec<i64>) -> Result<usize, String> {
 
 /// 播放历史（倒序；Track 字段 + playedAt / msPlayed）。
 #[tauri::command]
-pub fn play_history(limit: Option<i64>, sort: Option<String>) -> Result<Vec<serde_json::Value>, String> {
+pub fn play_history(
+    limit: Option<i64>,
+    sort: Option<String>,
+    query: Option<String>,
+) -> Result<Vec<serde_json::Value>, String> {
     let db = open_db()?;
+    let q = query.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let rows = db
-        .list_history_sorted(parse_track_sort(sort), limit.unwrap_or(200))
+        .list_history_with(parse_track_sort(sort), limit.unwrap_or(200), q)
         .map_err(|e| e.to_string())?;
     Ok(rows
         .iter()
@@ -323,10 +346,17 @@ pub fn liked_tracks(
     limit: Option<i64>,
     offset: Option<i64>,
     sort: Option<String>,
+    query: Option<String>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let db = open_db()?;
+    let q = query.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let rows = db
-        .list_liked_sorted(parse_track_sort(sort), limit.unwrap_or(200), offset.unwrap_or(0))
+        .list_liked_with(
+            parse_track_sort(sort),
+            limit.unwrap_or(200),
+            offset.unwrap_or(0),
+            q,
+        )
         .map_err(|e| e.to_string())?;
     Ok(rows.iter().map(track_json).collect())
 }

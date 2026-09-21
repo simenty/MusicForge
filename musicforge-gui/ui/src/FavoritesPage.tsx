@@ -11,6 +11,7 @@ import TrackRow from "./TrackRow";
 import SelectionBar from "./SelectionBar";
 import { useSelection } from "./hooks/useSelection";
 import SortControl from "./SortControl";
+import FilterInput from "./FilterInput";
 import { useSort } from "./hooks/useSort";
 import ConfirmDialog from "./ConfirmDialog";
 
@@ -32,13 +33,21 @@ export default function FavoritesPage({
   const [sort, setSort] = useSort("favorites", "default");
   // P6.23：批量取消喜欢的确认闸
   const [pendingUnlike, setPendingUnlike] = useState(false);
+  /** P6.25：输入框原文；`filter` 为防抖后下推服务端的过滤词 */
+  const [rawQuery, setRawQuery] = useState("");
+  const [filter, setFilter] = useState("");
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setFilter(rawQuery.trim()), 250);
+    return () => window.clearTimeout(id);
+  }, [rawQuery]);
 
   const reload = useCallback(() => {
     if (!IS_DESKTOP) return;
-    likedTracks(500, 0, sort)
+    likedTracks(500, 0, sort, filter || undefined)
       .then(setRows)
       .catch(() => setRows([]));
-  }, [sort]);
+  }, [sort, filter]);
   useEffect(() => reload(), [reload]);
 
   if (!IS_DESKTOP) {
@@ -88,6 +97,12 @@ export default function FavoritesPage({
           <p className="sub">{t.media.favSub(live?.length ?? 0)}</p>
         </div>
         <div className="act">
+          <FilterInput
+            value={rawQuery}
+            onChange={setRawQuery}
+            placeholder={t.listFilter.placeholder}
+            clearLabel={t.listFilter.clear}
+          />
           <SortControl
             value={sort}
             onChange={setSort}

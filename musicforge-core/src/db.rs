@@ -806,29 +806,58 @@ impl Db {
             .map_err(|e| NcmError::Db(e.to_string()))
     }
 
-    /// 分页读取曲目（P6.21：支持排序；`Default` = path 稳定序）。
+    /// 分页读取曲目（P6.21 排序 + P6.25 文本过滤）。
     ///
     /// `limit` 硬上限 500：IPC 层禁止全量序列化，分页是契约而非建议。
+    /// `query` 为空/None = 不过滤；否则按 标题 / 艺术家 / 专辑 / 路径 模糊匹配
+    /// （服务端过滤——虚拟化列表必须对**结果集**分页，不能前端切部分数据）。
+    pub fn list_tracks_with(
+        &self,
+        sort: TrackSort,
+        limit: i64,
+        offset: i64,
+        query: Option<&str>,
+    ) -> Result<Vec<TrackRow>, NcmError> {
+        let limit = limit.clamp(1, 500);
+        let offset = offset.max(0);
+        let (join, order_raw) = sort.clause();
+        let order = if order_raw.is_empty() { "t.path" } else { order_raw };
+        let pred = query.and_then(|q| track_filter_pred(q, 3));
+        let where_sql = match &pred {
+            Some((sql, _)) => format!(" WHERE {sql}"),
+            None => String::new(),
+        };
+        let sql = format!("{TRACK_SELECT} {join}{where_sql} ORDER BY {order} LIMIT ?1 OFFSET ?2");
+        let mut binds: Vec<Box<dyn rusqlite::types::ToSql>> =
+            vec![Box::new(limit), Box::new(offset)];
+        if let Some((_, pat)) = &pred {
+            binds.push(Box::new(pat.clone()));
+        }
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let rows = stmt
+            .query_map(
+                rusqlite::params_from_iter(binds.iter().map(|b| b.as_ref())),
+                map_track_row,
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| NcmError::Db(e.to_string()))?);
+        }
+        Ok(out)
+    }
+
+    /// 分页读取曲目（P6.21：支持排序；`Default` = path 稳定序，不过滤）。
     pub fn list_tracks_sorted(
         &self,
         sort: TrackSort,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<TrackRow>, NcmError> {
-        let limit = limit.clamp(1, 500);
-        let offset = offset.max(0);
-        let (join, order_raw) = sort.clause();
-        let order = if order_raw.is_empty() { "t.path" } else { order_raw };
-        let mut stmt = self
-            .conn
-            .prepare(&format!("{TRACK_SELECT} {join} ORDER BY {order} LIMIT ?1 OFFSET ?2"))
-            .map_err(|e| NcmError::Db(e.to_string()))?;
-        let rows = stmt
-            .query_map(params![limit, offset], map_track_row)
-            .map_err(|e| NcmError::Db(e.to_string()))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| NcmError::Db(e.to_string()))?;
-        Ok(rows)
+        self.list_tracks_with(sort, limit, offset, None)
     }
 
     /// 分页读取曲目（按 path 稳定排序；P6.21 委托给 [`list_tracks_sorted`]）。
@@ -1253,13 +1282,14 @@ impl Db {
         Ok(n > 0)
     }
 
-    /// 喜欢列表（P6.21：支持排序；`Default` = 收藏时间倒序）。
+    /// 喜欢列表（P6.21 排序 + P6.25 文本过滤）。
     /// 曲目已被移除的行自动消失——INNER JOIN。
-    pub fn list_liked_sorted(
+    pub fn list_liked_with(
         &self,
         sort: TrackSort,
         limit: i64,
         offset: i64,
+        query: Option<&str>,
     ) -> Result<Vec<TrackRow>, NcmError> {
         let limit = limit.clamp(1, 500);
         let offset = offset.max(0);
@@ -1269,22 +1299,49 @@ impl Db {
             (TrackSort::PlayedAt, _) | (_, true) => "lk.created_at DESC, t.id DESC",
             _ => order_raw,
         };
+        let pred = query.and_then(|q| track_filter_pred(q, 3));
+        let where_sql = match &pred {
+            Some((sql, _)) => format!(" WHERE {sql}"),
+            None => String::new(),
+        };
+        let sql = format!(
+            "{TRACK_SELECT}
+             JOIN likes lk ON lk.track_id = t.id
+             {join}
+             {where_sql}
+             ORDER BY {order}
+             LIMIT ?1 OFFSET ?2"
+        );
+        let mut binds: Vec<Box<dyn rusqlite::types::ToSql>> =
+            vec![Box::new(limit), Box::new(offset)];
+        if let Some((_, pat)) = &pred {
+            binds.push(Box::new(pat.clone()));
+        }
         let mut stmt = self
             .conn
-            .prepare(&format!(
-                "{TRACK_SELECT}
-                 JOIN likes lk ON lk.track_id = t.id
-                 {join}
-                 ORDER BY {order}
-                 LIMIT ?1 OFFSET ?2"
-            ))
+            .prepare(&sql)
             .map_err(|e| NcmError::Db(e.to_string()))?;
         let rows = stmt
-            .query_map(params![limit, offset], map_track_row)
-            .map_err(|e| NcmError::Db(e.to_string()))?
-            .collect::<Result<Vec<_>, _>>()
+            .query_map(
+                rusqlite::params_from_iter(binds.iter().map(|b| b.as_ref())),
+                map_track_row,
+            )
             .map_err(|e| NcmError::Db(e.to_string()))?;
-        Ok(rows)
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| NcmError::Db(e.to_string()))?);
+        }
+        Ok(out)
+    }
+
+    /// 喜欢列表（P6.21：支持排序；`Default` = 收藏时间倒序，不过滤）。
+    pub fn list_liked_sorted(
+        &self,
+        sort: TrackSort,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TrackRow>, NcmError> {
+        self.list_liked_with(sort, limit, offset, None)
     }
 
     /// 喜欢列表（按收藏时间倒序；P6.21 委托给 [`list_liked_sorted`]）。
@@ -1297,6 +1354,30 @@ impl Db {
         self.conn
             .query_row("SELECT COUNT(1) FROM likes", [], |r| r.get(0))
             .map_err(|e| NcmError::Db(e.to_string()))
+    }
+
+    /// 曲目总数（P6.25：`query` 非空时返回**过滤后**的计数——虚拟化列表的
+    /// 行索引必须映射到过滤结果集，否则会出现越界占位行）。
+    pub fn count_tracks_filtered(&self, query: Option<&str>) -> Result<i64, NcmError> {
+        let pred = query.and_then(|q| track_filter_pred(q, 1));
+        let n = match &pred {
+            Some((sql, pat)) => {
+                let full = format!(
+                    "SELECT COUNT(1) FROM tracks t \
+                     LEFT JOIN artists ar ON ar.id = t.artist_id \
+                     LEFT JOIN albums al ON al.id = t.album_id \
+                     WHERE {sql}"
+                );
+                let mut stmt = self
+                    .conn
+                    .prepare(&full)
+                    .map_err(|e| NcmError::Db(e.to_string()))?;
+                stmt.query_row([pat], |r| r.get::<_, i64>(0))
+                    .map_err(|e| NcmError::Db(e.to_string()))?
+            }
+            None => self.count_tracks()?,
+        };
+        Ok(n)
     }
 
     /// 全部已喜欢的曲目 id（前端一次性拉取做行状态判定——避免逐行查询）。
@@ -1332,8 +1413,13 @@ impl Db {
         Ok(())
     }
 
-    /// 播放历史（P6.21：支持排序；`Default` = 播放时间倒序；含曲目信息）。
-    pub fn list_history_sorted(&self, sort: TrackSort, limit: i64) -> Result<Vec<HistoryRow>, NcmError> {
+    /// 播放历史（P6.21 排序 + P6.25 文本过滤；`Default` = 播放时间倒序；含曲目信息）。
+    pub fn list_history_with(
+        &self,
+        sort: TrackSort,
+        limit: i64,
+        query: Option<&str>,
+    ) -> Result<Vec<HistoryRow>, NcmError> {
         let limit = limit.clamp(1, 500);
         let (join, order_raw) = sort.clause();
         // `LikedAt` 需要 likes JOIN（本查询未 JOIN），回退默认序。
@@ -1341,7 +1427,16 @@ impl Db {
             (TrackSort::LikedAt, _) | (_, true) => "h.played_at DESC, h.id DESC",
             _ => order_raw,
         };
+        let pred = query.and_then(|q| track_filter_pred(q, 2));
+        let where_sql = match &pred {
+            Some((sql, _)) => format!(" WHERE {sql}"),
+            None => String::new(),
+        };
         // 列序与 map_track_row 保持一一对应（0..13），14/15 为历史列。
+        let mut binds: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(limit)];
+        if let Some((_, pat)) = &pred {
+            binds.push(Box::new(pat.clone()));
+        }
         let mut stmt = self
             .conn
             .prepare(&format!(
@@ -1352,21 +1447,35 @@ impl Db {
                  JOIN tracks t ON t.id = h.track_id \
                  LEFT JOIN artists ar ON ar.id = t.artist_id \
                  LEFT JOIN albums  al ON al.id = t.album_id \
-                 {join} ORDER BY {order} LIMIT ?1"
+                 {join} {where_sql} ORDER BY {order} LIMIT ?1"
             ))
             .map_err(|e| NcmError::Db(e.to_string()))?;
         let rows = stmt
-            .query_map([limit], |r| {
-                Ok(HistoryRow {
-                    track: map_track_row(r)?,
-                    played_at: r.get(14)?,
-                    ms_played: r.get(15)?,
-                })
-            })
-            .map_err(|e| NcmError::Db(e.to_string()))?
-            .collect::<Result<Vec<_>, _>>()
+            .query_map(
+                rusqlite::params_from_iter(binds.iter().map(|b| b.as_ref())),
+                |r| {
+                    Ok(HistoryRow {
+                        track: map_track_row(r)?,
+                        played_at: r.get(14)?,
+                        ms_played: r.get(15)?,
+                    })
+                },
+            )
             .map_err(|e| NcmError::Db(e.to_string()))?;
-        Ok(rows)
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| NcmError::Db(e.to_string()))?);
+        }
+        Ok(out)
+    }
+
+    /// 播放历史（P6.21：支持排序；`Default` = 播放时间倒序，不过滤）。
+    pub fn list_history_sorted(
+        &self,
+        sort: TrackSort,
+        limit: i64,
+    ) -> Result<Vec<HistoryRow>, NcmError> {
+        self.list_history_with(sort, limit, None)
     }
 
     /// 播放历史（按时间倒序；P6.21 委托给 [`list_history_sorted`]）。
@@ -1910,6 +2019,32 @@ fn escape_like(s: &str) -> String {
     out
 }
 
+/// P6.25 列表文本过滤谓词：匹配 **标题 / 艺术家 / 专辑 / 路径**。
+///
+/// 返回 `Some((sql_fragment, pattern))`：
+/// - `sql_fragment` 可直接拼在 `WHERE` 之后，占位符统一用调用方给定的 `idx`
+///   （SQLite 允许同一个 `?N` 在一句中重复出现，四处只绑一次）；
+/// - `pattern` **必须以绑定参数传入**——`escape_like` 只处理 LIKE 元字符，
+///   **不做 SQL 字符串转义**；若把用户输入拼进 SQL 字面量会留下注入口子
+///   （单引号不受 `escape_like` 约束）。
+///
+/// 空的/纯空白查询 → `None`（调用方据此省略 WHERE，行为与不过滤一致）。
+fn track_filter_pred(query: &str, idx: usize) -> Option<(String, String)> {
+    let raw = query.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let pat = format!("%{}%", escape_like(raw));
+    let p = format!("?{idx}");
+    Some((
+        format!(
+            "(t.title LIKE {p} ESCAPE '\\' OR ar.name LIKE {p} ESCAPE '\\' \
+             OR al.title LIKE {p} ESCAPE '\\' OR t.path LIKE {p} ESCAPE '\\')"
+        ),
+        pat,
+    ))
+}
+
 #[cfg(test)]
 // 单元测试模块置于文件中部（紧邻 playlist 清理实现），用 allow 关闭
 // `items_after_test_module` 风格 lint——本库此前无单元测，集中放尾部会割裂
@@ -1994,6 +2129,60 @@ mod tests {
         };
         assert_eq!(positions, vec![0, 1, 2], "位置重排连续");
         assert_eq!(db.list_playlists().unwrap()[0].track_count, 3, "计数同步");
+    }
+
+    /// P6.25 文本过滤：按 标题 / 艺术家 / 专辑 / 路径 匹配，且行数随之收敛。
+    #[test]
+    fn tracks_filter_matches_title_artist_album_and_path() {
+        let db = Db::open_in_memory().unwrap();
+        let sid = db.upsert_source("/m", None).unwrap();
+        let mk = |path: &str, title: &str, artist: &str, album: &str| TrackInput {
+            source_id: sid,
+            path: path.to_string(),
+            size: 1024,
+            title: Some(title.to_string()),
+            artist: Some(artist.to_string()),
+            album: Some(album.to_string()),
+            ..Default::default()
+        };
+        db.upsert_tracks_batch(
+            &[
+                mk("/m/a.flac", "夜空中最亮的星", "逃跑计划", "世界"),
+                mk("/m/b.flac", "晴天", "周杰伦", "叶惠美"),
+                mk("/m/live/c.mp3", "晴天(Live)", "周杰伦", "演唱会"),
+            ],
+            1,
+        )
+        .unwrap();
+
+        assert_eq!(db.count_tracks_filtered(None).unwrap(), 3);
+
+        // 标题
+        assert_eq!(db.list_tracks_with(TrackSort::Default, 10, 0, Some("晴天")).unwrap().len(), 2);
+        // 艺术家
+        let by_artist = db
+            .list_tracks_with(TrackSort::Default, 10, 0, Some("逃跑计划"))
+            .unwrap();
+        assert_eq!(by_artist.len(), 1);
+        assert_eq!(by_artist[0].title.as_deref(), Some("夜空中最亮的星"));
+        // 专辑
+        assert_eq!(db.list_tracks_with(TrackSort::Default, 10, 0, Some("叶惠美")).unwrap().len(), 1);
+        // 路径（目录名）
+        assert_eq!(db.list_tracks_with(TrackSort::Default, 10, 0, Some("/m/live/")).unwrap().len(), 1);
+
+        // 计数与结果集必须一致——虚拟化列表的行数依赖它
+        assert_eq!(db.count_tracks_filtered(Some("晴天")).unwrap(), 2);
+        assert_eq!(db.count_tracks_filtered(Some("不存在")).unwrap(), 0);
+
+        // `%` 是字面量而非通配符（`escape_like` 保证）
+        assert_eq!(db.list_tracks_with(TrackSort::Default, 10, 0, Some("%")).unwrap().len(), 0);
+        // 空/空白 = 不过滤（与 None 等价）
+        assert_eq!(db.list_tracks_with(TrackSort::Default, 10, 0, Some("  ")).unwrap().len(), 3);
+        // 过滤 + 排序 + 分页 可组合
+        let paged = db
+            .list_tracks_with(TrackSort::Title, 1, 1, Some("晴天"))
+            .unwrap();
+        assert_eq!(paged.len(), 1, "第二页仍有一条");
     }
 
     /// 干净歌单：预览与执行均为零影响（幂等、不破坏顺序）。

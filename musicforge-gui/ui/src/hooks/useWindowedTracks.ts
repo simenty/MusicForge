@@ -37,7 +37,11 @@ export interface WindowedTracks {
   snapshot: () => Track[];
 }
 
-export function useWindowedTracks(pageSize = 200, sort?: TrackSortField): WindowedTracks {
+export function useWindowedTracks(
+  pageSize = 200,
+  sort?: TrackSortField,
+  query?: string
+): WindowedTracks {
   const [total, setTotal] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportH, setViewportH] = useState(560);
@@ -59,6 +63,17 @@ export function useWindowedTracks(pageSize = 200, sort?: TrackSortField): Window
       ? Math.min(total - 1, Math.ceil((scrollTop + viewportH) / TRACK_ROW_H) + OVERSCAN)
       : -1;
 
+  // sort / filter 改变 → 服务端结果集变了，已加载的分页全部失效。
+  //
+  // ⚠️ 本 effect **必须声明在取页 effect 之前**：React 按声明顺序执行 effect，
+  // 若放在后面，同一轮 commit 里取页会先命中旧的 `pages` 缓存而跳过请求，
+  // 结果是换了排序/过滤却仍显示上一份数据（只有再滚动一次才会重拉）。
+  useEffect(() => {
+    pages.current.clear();
+    inflight.current.clear();
+    setTick((v) => v + 1);
+  }, [sort, query]);
+
   useEffect(() => {
     if (total <= 0 || end < start) return;
     const p0 = Math.floor(start / pageSize);
@@ -66,7 +81,7 @@ export function useWindowedTracks(pageSize = 200, sort?: TrackSortField): Window
     for (let p = p0; p <= p1; p++) {
       if (pages.current.has(p) || inflight.current.has(p)) continue;
       inflight.current.add(p);
-      listTracks(pageSize, p * pageSize, sort)
+      listTracks(pageSize, p * pageSize, sort, query)
         .then((rows) => {
           pages.current.set(p, rows);
         })
@@ -78,14 +93,7 @@ export function useWindowedTracks(pageSize = 200, sort?: TrackSortField): Window
           setTick((v) => v + 1);
         });
     }
-  }, [start, end, total, pageSize, sort]);
-
-  // sort 改变 → 已加载的分页失效（服务端排序不同），清空后重拉
-  useEffect(() => {
-    pages.current.clear();
-    inflight.current.clear();
-    setTick((v) => v + 1);
-  }, [sort]);
+  }, [start, end, total, pageSize, sort, query]);
 
   const rowAt = useCallback(
     (i: number): Track | undefined => pages.current.get(Math.floor(i / pageSize))?.[i % pageSize],
