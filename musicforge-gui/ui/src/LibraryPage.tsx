@@ -60,12 +60,20 @@ export default function LibraryPage({
 
   // 过滤词/库内容变化 → 取**服务端过滤后的计数**并重设行数。
   // 行数必须等于过滤结果集大小，否则虚拟滚动会请求越界的页。
+  //
+  // P6.28：无筛选时**复用已拉取的全局统计**（`libraryStats` 已经在取曲目总数），
+  // 不再额外发一次全表 COUNT——两个数据源指同一个数字，重复取既多一次查询、
+  // 也可能在扫描进行中时给出与头部统计不一致的行数。
   useEffect(() => {
     if (!IS_DESKTOP) return;
-    countTracks(filter || undefined)
+    if (!filter) {
+      if (stats) reset(stats.tracks);
+      return;
+    }
+    countTracks(filter)
       .then(reset)
       .catch(() => reset(0));
-  }, [filter, reset]);
+  }, [filter, stats, reset]);
 
   const playFrom = useCallback(
     (tr: Track) => {
@@ -114,9 +122,12 @@ export default function LibraryPage({
     }
     try {
       await removeTracks(ids);
-      // 重取真相（当前过滤下的行数 + 全局统计），不做减法推算
-      const n = await countTracks(filter || undefined);
-      reset(n);
+      // 重取真相，不做减法推算：
+      // 有筛选 → 按筛选结果重新计数；无筛选 → 刷新统计，行数由上方 effect 复用 stats.tracks
+      if (filter) {
+        const n = await countTracks(filter);
+        reset(n);
+      }
       libraryStats().then(setStats).catch(() => {});
       selApi.toggleSelMode();
     } catch (e) {
@@ -187,10 +198,12 @@ export default function LibraryPage({
           <span style={{ textAlign: "right" }}>{t.media.colFormat}</span>
         </div>
 
-        {/* P6.25：过滤下推服务端后恒走虚拟化；仅在有过滤却零命中时给空态 */}
-        {filter && w.total === 0 ? (
+        {/* P6.25：过滤下推服务端后恒走虚拟化。
+            P6.28：空库此前渲染成 0 高度的空白面板（无任何提示），补空态区分两种零行：
+            有筛选词 = 没匹配到；无筛选词 = 曲库本身就是空的。 */}
+        {w.total === 0 ? (
           <div className="media-empty">
-            <p>{t.listFilter.noResult}</p>
+            <p>{filter ? t.listFilter.noResult : t.media.libEmpty}</p>
           </div>
         ) : (
           <div className="vt-scroll" onScroll={(e) => w.onScroll(e.currentTarget)}>

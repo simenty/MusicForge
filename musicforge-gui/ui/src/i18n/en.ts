@@ -165,6 +165,9 @@ export const en: typeof zh = {
     searchResult: (n: number) => `${n} result${n === 1 ? "" : "s"}`,
     searchEmpty: "No matching results",
     loading: "Loading…",
+    // P6.28: empty library (previously rendered a blank panel with no hint)
+    libEmpty:
+      "Library is empty — add a directory under Media sources and scan it to build the index",
     desktopOnly:
       "The media library needs the desktop build: the dimensional index is built on the desktop (current build is server mode).",
     artistsTitle: "Artists",

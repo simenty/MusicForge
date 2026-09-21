@@ -169,6 +169,8 @@ export const zh = {
     searchResult: (n: number) => `搜索到 ${n} 项`,
     searchEmpty: "没有匹配的结果",
     loading: "加载中…",
+    // P6.28：曲库为空（此前该状态渲染为空白面板，无任何提示）
+    libEmpty: "曲库为空——先在「媒体源」添加目录并扫描，即可建立维度索引",
     desktopOnly: "媒体库需要桌面版：曲库维度索引在桌面端建立（当前为服务端形态）。",
     artistsTitle: "艺术家",
     artistsSub: (n: number) => `共 ${n} 位`,
