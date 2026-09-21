@@ -265,6 +265,16 @@ export const zh = {
     psExport: "导出 M3U8",
     psExported: (n: number) => `已导出 ${n} 首到文件`,
     psDragHint: "拖拽行可调整顺序",
+    // P6.24 智能清理
+    psCleanup: "智能清理",
+    psCleanupTitle: "智能清理歌单",
+    psCleanupSummary: (dup: number, orphan: number) =>
+      `将移除 <b>${dup}</b> 个重复副本、<b>${orphan}</b> 个失效条目（曲库文件不受影响）：`,
+    psCleanupNone: "这个歌单很干净——没有重复或失效的条目",
+    psCleanupAck: "我了解：仅整理歌单条目，不触碰曲库文件",
+    psCleanupConfirm: "清理",
+    psCleanupDone: (dup: number, orphan: number) =>
+      `已清理：移除 ${dup} 个重复副本、${orphan} 个失效条目`,
   },
   /** P4 工具箱：CUE 分轨 */
   cue: {

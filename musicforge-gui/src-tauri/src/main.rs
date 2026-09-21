@@ -224,6 +224,8 @@ fn main() {
             playlist_move,
             playlist_export,
             playlists_covers,
+            playlist_cleanup_preview,
+            playlist_smart_cleanup,
             // P6.10 详情页
             artist_tracks,
             search_all,

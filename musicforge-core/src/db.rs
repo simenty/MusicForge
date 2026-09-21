@@ -1689,6 +1689,116 @@ impl Db {
         Ok(())
     }
 
+    /// 智能清理预览（P6.24）：返回 `(重复副本数, 失效条目数)`。
+    ///
+    /// - **重复副本**：同一 `track_id` 在歌单中出现多次时，除首条（最小 position）
+    ///   之外的多余份数之和（`SUM(count - 1)`）。
+    /// - **失效条目**：`track_id` 已不在 `tracks` 表中的条目（典型成因：重新索引
+    ///   源目录会产生**新** track id，旧条目即成为孤儿；INNER JOIN 仍会隐藏它们，
+    ///   但它们会虚增 `playlists.track_count`）。
+    ///
+    /// 只读，不修改数据。
+    pub fn playlist_cleanup_preview(
+        &self,
+        playlist_id: i64,
+    ) -> Result<(usize, usize), NcmError> {
+        let dup_extra: i64 = self
+            .conn
+            .query_row(
+                "SELECT COALESCE(SUM(c - 1), 0) FROM (
+                   SELECT COUNT(*) AS c
+                   FROM playlist_items
+                   WHERE playlist_id = ?1
+                   GROUP BY track_id
+                   HAVING COUNT(*) > 1
+                 )",
+                [playlist_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let orphans: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM playlist_items
+                 WHERE playlist_id = ?1 AND track_id NOT IN (SELECT id FROM tracks)",
+                [playlist_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok((dup_extra as usize, orphans as usize))
+    }
+
+    /// 智能清理执行（P6.24）：删除重复副本（保留每曲首条）+ 失效条目，
+    /// 并在单事务内把剩余条目位置重排为连续 0..n-1。
+    ///
+    /// 返回 `(实际移除的重复副本数, 实际移除的失效条目数)`。
+    pub fn playlist_smart_cleanup(
+        &self,
+        playlist_id: i64,
+    ) -> Result<(usize, usize), NcmError> {
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        // ① 重复副本：保留每 track_id 的最小 position，删除其余
+        let removed_dups = tx
+            .execute(
+                "DELETE FROM playlist_items
+                 WHERE playlist_id = ?1
+                   AND position NOT IN (
+                     SELECT MIN(position) FROM playlist_items
+                     WHERE playlist_id = ?1 GROUP BY track_id
+                   )
+                   AND track_id IN (
+                     SELECT track_id FROM playlist_items WHERE playlist_id = ?1
+                     GROUP BY track_id HAVING COUNT(*) > 1
+                   )",
+                [playlist_id],
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        // ② 失效条目：track_id 已不在 tracks 表
+        let removed_orphans = tx
+            .execute(
+                "DELETE FROM playlist_items
+                 WHERE playlist_id = ?1
+                   AND track_id NOT IN (SELECT id FROM tracks)",
+                [playlist_id],
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        // ③ 重排位置为 0..n-1：先整体抬到安全高位（+10_000_000）避免 PK 冲突，
+        //    再按 track_id（去重后唯一）逐行写回最终下标。
+        let ids: Vec<i64> = {
+            let mut stmt = tx
+                .prepare(
+                    "SELECT track_id FROM playlist_items WHERE playlist_id = ?1 ORDER BY position",
+                )
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+            let rows = stmt
+                .query_map([playlist_id], |r| r.get::<_, i64>(0))
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+            let mut out = Vec::new();
+            for r in rows {
+                out.push(r.map_err(|e| NcmError::Db(e.to_string()))?);
+            }
+            out
+        };
+        tx.execute(
+            "UPDATE playlist_items SET position = position + 10000000 WHERE playlist_id = ?1",
+            [playlist_id],
+        )
+        .map_err(|e| NcmError::Db(e.to_string()))?;
+        for (i, id) in ids.iter().enumerate() {
+            tx.execute(
+                "UPDATE playlist_items SET position = ?1
+                 WHERE playlist_id = ?2 AND track_id = ?3 AND position >= 10000000",
+                params![i as i64, playlist_id, id],
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        }
+        tx.commit().map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok((removed_dups, removed_orphans))
+    }
+
     /// 重命名歌单（名称 trim 后不得为空）。
     pub fn playlist_rename(&self, playlist_id: i64, name: &str) -> Result<(), NcmError> {
         let name = name.trim();
@@ -1798,6 +1908,102 @@ fn escape_like(s: &str) -> String {
         out.push(c);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 造一个干净的 3 曲歌单（a/b/c 各一次）。
+    fn seed_clean() -> (Db, i64, i64, i64, i64) {
+        let db = Db::open_in_memory().unwrap();
+        let sid = db.upsert_source("/m", None).unwrap();
+        let mk = |path: &str, title: &str| TrackInput {
+            source_id: sid,
+            path: path.to_string(),
+            size: 1024,
+            title: Some(title.to_string()),
+            artist: Some("A".to_string()),
+            ..Default::default()
+        };
+        db.upsert_tracks_batch(
+            &[mk("/m/a.flac", "a"), mk("/m/b.flac", "b"), mk("/m/c.flac", "c")],
+            1,
+        )
+        .unwrap();
+        let tracks = db.list_tracks(10, 0).unwrap();
+        let (id_a, id_b, id_c) = (tracks[0].id, tracks[1].id, tracks[2].id);
+        let pid = db.create_playlist("clean").unwrap();
+        db.playlist_add_tracks(pid, &[id_a, id_b, id_c]).unwrap();
+        (db, pid, id_a, id_b, id_c)
+    }
+
+    /// 智能清理：移除重复副本（保留首条）+ 失效条目，并连续重排位置。
+    #[test]
+    fn playlist_smart_cleanup_removes_duplicates_and_orphans() {
+        let (db, pid, id_a, _b, _c) = seed_clean();
+        // 注入：a 的重复副本（position 3）
+        db.conn
+            .execute(
+                "INSERT INTO playlist_items(playlist_id, track_id, position) VALUES (?1, ?2, 3)",
+                rusqlite::params![pid, id_a],
+            )
+            .unwrap();
+        // 注入失效条目（track_id 不存在）：活 FK 会拦截，故临时关闭以构造孤儿场景
+        // （真实成因：重新索引源产生新 track id；此处仅验证清理分支能正确移除）
+        db.conn
+            .execute("PRAGMA foreign_keys = OFF", [])
+            .unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO playlist_items(playlist_id, track_id, position) VALUES (?1, ?2, 4)",
+                rusqlite::params![pid, 999_999],
+            )
+            .unwrap();
+        db.conn.execute("PRAGMA foreign_keys = ON", []).unwrap();
+
+        assert_eq!(
+            db.playlist_cleanup_preview(pid).unwrap(),
+            (1, 1),
+            "预览：1 重复副本 + 1 失效条目"
+        );
+
+        let (dups, orphans) = db.playlist_smart_cleanup(pid).unwrap();
+        assert_eq!((dups, orphans), (1, 1), "执行：移除 1 重复 + 1 失效");
+
+        let items = db.playlist_tracks(pid).unwrap();
+        assert_eq!(items.len(), 3, "清理后仅剩 3 条有效曲目");
+        assert_eq!(items[0].id, id_a, "重复副本已去；首条保留");
+
+        // 位置重排为连续 0..n-1
+        let positions: Vec<i64> = {
+            let mut stmt = db
+                .conn
+                .prepare(
+                    "SELECT position FROM playlist_items WHERE playlist_id = ?1 ORDER BY position",
+                )
+                .unwrap();
+            stmt.query_map([pid], |r| r.get::<_, i64>(0))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        assert_eq!(positions, vec![0, 1, 2], "位置重排连续");
+        assert_eq!(db.list_playlists().unwrap()[0].track_count, 3, "计数同步");
+    }
+
+    /// 干净歌单：预览与执行均为零影响（幂等、不破坏顺序）。
+    #[test]
+    fn playlist_smart_cleanup_noop_on_clean_playlist() {
+        let (db, pid, _a, _b, _c) = seed_clean();
+        assert_eq!(db.playlist_cleanup_preview(pid).unwrap(), (0, 0));
+        assert_eq!(db.playlist_smart_cleanup(pid).unwrap(), (0, 0));
+        let items = db.playlist_tracks(pid).unwrap();
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0].id, _a);
+        assert_eq!(items[1].id, _b);
+        assert_eq!(items[2].id, _c);
+    }
 }
 
 /// 本地配置目录（Windows `%LOCALAPPDATA%\MusicForge`，

@@ -810,6 +810,27 @@ export async function playlistExport(
   return invoke<{ path: string; tracks: number } | null>("playlist_export", { playlistId });
 }
 
+/** 智能清理预览（P6.24）：返回 {duplicateCount, orphanCount}（只读） */
+export async function playlistCleanupPreview(
+  playlistId: number
+): Promise<{ duplicateCount: number; orphanCount: number }> {
+  return invoke<{ duplicateCount: number; orphanCount: number }>(
+    "playlist_cleanup_preview",
+    { playlistId }
+  );
+}
+
+/** 智能清理执行（P6.24）：删除重复副本 + 失效条目并重排位置。
+ *  返回 {removedDuplicates, removedOrphans} */
+export async function playlistSmartCleanup(
+  playlistId: number
+): Promise<{ removedDuplicates: number; removedOrphans: number }> {
+  return invoke<{ removedDuplicates: number; removedOrphans: number }>(
+    "playlist_smart_cleanup",
+    { playlistId }
+  );
+}
+
 // ---------------------------------------------------------------------------
 // 门面（facade）：对外契约 = 原 api.ts 的全部导出。
 // 组件与测试的 `import { ... } from "./api"` 不因拆分而改变。

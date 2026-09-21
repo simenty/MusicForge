@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   IS_DESKTOP,
+  playlistCleanupPreview,
   playlistCreate,
   playlistDelete,
   playlistExport,
   playlistMove,
   playlistRemove,
   playlistRename,
+  playlistSmartCleanup,
   playlistTracks,
   playlistsCovers,
   playlistsList,
@@ -52,6 +54,13 @@ export default function PlaylistsPage({
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   /** 操作反馈（导出成功等） */
   const [note, setNote] = useState<string | null>(null);
+  /** 智能清理（P6.24）：弹层 / 预览 / 执行中 */
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [cleanupPreview, setCleanupPreview] = useState<{
+    duplicateCount: number;
+    orphanCount: number;
+  } | null>(null);
+  const [cleanupBusy, setCleanupBusy] = useState(false);
 
   const reload = useCallback(() => {
     if (!IS_DESKTOP) return;
@@ -216,6 +225,51 @@ export default function PlaylistsPage({
       reload();
       selApi.toggleSelMode();
     };
+    /** 智能清理（P6.24）：先拉预览，无问题则直接提示、不弹确认层 */
+    const openCleanup = async () => {
+      if (!open) return;
+      setCleanupBusy(true);
+      try {
+        const p = await playlistCleanupPreview(open.id);
+        if (p.duplicateCount === 0 && p.orphanCount === 0) {
+          setNote(t.pl.psCleanupNone);
+          return;
+        }
+        setCleanupPreview(p);
+        setCleanupOpen(true);
+      } catch (e) {
+        setErr(String(e));
+      } finally {
+        setCleanupBusy(false);
+      }
+    };
+    const doCleanup = async () => {
+      if (!open) return;
+      setCleanupBusy(true);
+      try {
+        const r = await playlistSmartCleanup(open.id);
+        setNote(t.pl.psCleanupDone(r.removedDuplicates, r.removedOrphans));
+        setCleanupOpen(false);
+        setCleanupPreview(null);
+        const fresh = await playlistTracks(open.id).catch(() => []);
+        setItems(fresh);
+        reload();
+      } catch (e) {
+        setErr(String(e));
+      } finally {
+        setCleanupBusy(false);
+      }
+    };
+    /** 重复副本标题预览（来自当前显示列表；失效条目无名称，不单列） */
+    const dupIds = (items ?? []).map((x) => x.id);
+    const dupOnly: number[] = dupIds.filter((id, i) => dupIds.indexOf(id) !== i);
+    const uniqueDupCount = new Set(dupOnly).size;
+    const dupPreview: string[] = Array.from(new Set(dupOnly))
+      .slice(0, 5)
+      .map((id) => {
+        const tr = (items ?? []).find((x) => x.id === id);
+        return tr ? (tr.title ?? tr.path) : String(id);
+      });
     return (
       <>
         <div className="media-head">
@@ -265,6 +319,13 @@ export default function PlaylistsPage({
             </button>
             <button className="btn sm" onClick={() => void doExport()}>
               {t.pl.psExport}
+            </button>
+            <button
+              className="btn sm"
+              onClick={() => void openCleanup()}
+              disabled={!items || items.length === 0 || cleanupBusy}
+            >
+              {t.pl.psCleanup}
             </button>
             <button className="btn sm" onClick={() => setDelTarget(open)}>
               {t.pl.psDelete}
@@ -360,6 +421,29 @@ export default function PlaylistsPage({
           cancelLabel={t.confirm.cancel}
           onConfirm={() => void doDelete()}
           onCancel={() => setDelTarget(null)}
+        />
+        <ConfirmDialog
+          open={cleanupOpen}
+          title={t.pl.psCleanupTitle}
+          summary={
+            cleanupPreview
+              ? t.pl.psCleanupSummary(
+                  cleanupPreview.duplicateCount,
+                  cleanupPreview.orphanCount
+                )
+              : ""
+          }
+          items={dupPreview}
+          moreCount={Math.max(0, uniqueDupCount - dupPreview.length)}
+          ackLabel={t.pl.psCleanupAck}
+          confirmLabel={t.pl.psCleanupConfirm}
+          cancelLabel={t.confirm.cancel}
+          busy={cleanupBusy}
+          onConfirm={() => void doCleanup()}
+          onCancel={() => {
+            setCleanupOpen(false);
+            setCleanupPreview(null);
+          }}
         />
         {selApi.selMode && (
           <SelectionBar

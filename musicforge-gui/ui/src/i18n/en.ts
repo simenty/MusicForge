@@ -264,6 +264,16 @@ export const en: typeof zh = {
     psExport: "Export M3U8",
     psExported: (n: number) => `Exported ${n} track${n === 1 ? "" : "s"}`,
     psDragHint: "Drag rows to reorder",
+    // P6.24 smart cleanup
+    psCleanup: "Smart cleanup",
+    psCleanupTitle: "Smart cleanup playlist",
+    psCleanupSummary: (dup: number, orphan: number) =>
+      `This removes <b>${dup}</b> duplicate copies and <b>${orphan}</b> dead entries (your track files are untouched):`,
+    psCleanupNone: "This playlist is clean — no duplicates or dead entries",
+    psCleanupAck: "I understand: only tidies playlist entries, not your track files",
+    psCleanupConfirm: "Clean up",
+    psCleanupDone: (dup: number, orphan: number) =>
+      `Cleaned up: removed ${dup} duplicate copies and ${orphan} dead entries`,
   },
   /** P4 toolbox: CUE split */
   cue: {

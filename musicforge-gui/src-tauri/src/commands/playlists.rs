@@ -130,6 +130,27 @@ pub async fn playlist_export(
     })))
 }
 
+/// 智能清理预览（P6.24）：`{ duplicateCount, orphanCount }`（只读）。
+#[tauri::command]
+pub fn playlist_cleanup_preview(playlist_id: i64) -> Result<serde_json::Value, String> {
+    let db = open_db()?;
+    let (dup, orphan) = db
+        .playlist_cleanup_preview(playlist_id)
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "duplicateCount": dup, "orphanCount": orphan }))
+}
+
+/// 智能清理执行（P6.24）：删除重复副本（保留每曲首条）+ 失效条目，并重排位置。
+/// 返回 `{ removedDuplicates, removedOrphans }`。
+#[tauri::command]
+pub fn playlist_smart_cleanup(playlist_id: i64) -> Result<serde_json::Value, String> {
+    let db = open_db()?;
+    let (dup, orphan) = db
+        .playlist_smart_cleanup(playlist_id)
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "removedDuplicates": dup, "removedOrphans": orphan }))
+}
+
 /// 歌单封面拼贴（P6.12）：`{ "<playlist_id>": ["<cover_path>", ...] }`——
 /// 每单至多 4 张、按曲序去重；无封面/空歌单不出现在映射中。
 #[tauri::command]
