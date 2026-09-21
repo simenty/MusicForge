@@ -38,6 +38,7 @@ import type {
   PlannedItem,
   PlayerSnapshot,
   Playlist,
+  PlayMode,
   PluginsStatus,
   QueueItem,
   CueInspect,
@@ -554,6 +555,11 @@ export async function playerQueueClear(): Promise<void> {
 /** 插入到当前曲目之后（P6.17）：「下一首播放」 */
 export async function playerQueueInsertNext(items: QueueItem[]): Promise<void> {
   return invoke<void>("player_queue_insert_next", { items });
+}
+
+/** 设置播放模式（P6.18）：normal / shuffle / repeatOne / repeatAll */
+export async function playerSetMode(mode: PlayMode): Promise<void> {
+  return invoke<void>("player_set_mode", { mode });
 }
 
 /** 播放状态快照（含动态位置/欠载计数；前端轮询） */

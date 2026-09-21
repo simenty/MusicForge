@@ -2,7 +2,7 @@
 // （引擎在 crate::audio；本层只做 DTO 转换与 State 取用）。
 use tauri::State;
 
-use crate::audio::{PlayerHandle, PlayerSnapshot, QueueItem};
+use crate::audio::{PlayerHandle, PlayMode, PlayerSnapshot, QueueItem};
 
 /// 队列项 DTO（前端从曲目行构造，camelCase 对齐 TS 侧）。
 #[derive(serde::Deserialize)]
@@ -113,6 +113,12 @@ pub fn player_queue_clear(state: State<'_, PlayerHandle>) -> Result<(), String> 
 #[tauri::command]
 pub fn player_queue_insert_next(state: State<'_, PlayerHandle>, items: Vec<QueueItemDto>) -> Result<(), String> {
     state.queue_insert_next(items.into_iter().map(Into::into).collect())
+}
+
+/// 设置播放模式（P6.18）：normal / shuffle / repeatOne / repeatAll
+#[tauri::command]
+pub fn player_set_mode(state: State<'_, PlayerHandle>, mode: PlayMode) -> Result<(), String> {
+    state.set_mode(mode)
 }
 
 /// 播放状态快照（前端轮询：含动态位置/欠载计数）。

@@ -132,6 +132,19 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
 
       <div className="pb-ctrl">
         <button
+          className={"pb-btn" + (player.mode === "shuffle" ? " on" : "")}
+          onClick={() =>
+            void player.setMode(player.mode === "shuffle" ? "normal" : "shuffle")
+          }
+          aria-label={t.player.shuffle}
+          aria-pressed={player.mode === "shuffle"}
+          title={t.player.shuffle}
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 4h5v5h-2V7.4l-4.3 4.3-1.4-1.4L17.6 6H16zM3 6h4.5l3.2 3.2 1.4-1.4L8.9 4.6 7.5 6H3zm14 9.6V14h2v5h-5v-2h1.6l-4.3-4.3 1.4-1.4zM3 18h4.5l9.9-9.9 1.4 1.4L9.1 19.4 7.5 18H3z" />
+          </svg>
+        </button>
+        <button
           className="pb-btn"
           onClick={() => void player.prev()}
           disabled={!hasTrack}
@@ -168,6 +181,42 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
         >
           <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
             <path d="M15 6h2v12h-2zM4 6v12l9-6z" />
+          </svg>
+        </button>
+        <button
+          className={
+            "pb-btn" +
+            (player.mode === "repeatOne" || player.mode === "repeatAll" ? " on" : "")
+          }
+          onClick={() =>
+            void player.setMode(
+              player.mode === "repeatOne"
+                ? "repeatAll"
+                : player.mode === "repeatAll"
+                  ? "normal"
+                  : "repeatOne",
+            )
+          }
+          aria-label={
+            player.mode === "repeatOne"
+              ? t.player.repeatOne
+              : player.mode === "repeatAll"
+                ? t.player.repeatAll
+                : t.player.repeat
+          }
+          aria-pressed={
+            player.mode === "repeatOne" || player.mode === "repeatAll"
+          }
+          title={
+            player.mode === "repeatOne"
+              ? t.player.repeatOne
+              : player.mode === "repeatAll"
+                ? t.player.repeatAll
+                : t.player.repeat
+          }
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M7 7h10v3l4-4-4-4v3H5v6h2zM17 17H7v-3l-4 4 4 4v-3h12v-6h-2z" />
           </svg>
         </button>
         {/* P6：歌词（LRCLIB；打开且未缓存时联网一次） */}

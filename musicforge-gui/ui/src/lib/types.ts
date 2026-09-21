@@ -331,6 +331,9 @@ export interface IndexOutcome {
 
 // ===================================================== 播放（P2）
 
+/** 播放模式（P6.18）：normal | shuffle | repeatOne | repeatAll（与 Rust PlayMode 同形） */
+export type PlayMode = "normal" | "shuffle" | "repeatOne" | "repeatAll";
+
 /** 播放状态快照（player_status） */
 export interface PlayerSnapshot {
   state: "idle" | "playing" | "paused" | "error";
@@ -343,6 +346,8 @@ export interface PlayerSnapshot {
   channels: number | null;
   queueLen: number;
   queueIndex: number | null;
+  /** 播放模式（P6.18） */
+  playMode: PlayMode;
   volume: number;
   positionMs: number;
   underruns: number;

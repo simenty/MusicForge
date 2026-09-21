@@ -44,6 +44,21 @@ pub struct QueueItem {
     pub duration_ms: Option<i64>,
 }
 
+/// 播放模式（P6.18）：随机 / 单曲循环 / 列表循环。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum PlayMode {
+    /// 顺序（默认）
+    #[default]
+    Normal,
+    /// 随机
+    Shuffle,
+    /// 单曲循环
+    RepeatOne,
+    /// 列表循环
+    RepeatAll,
+}
+
 /// 播放状态快照（`position_ms` 由 [`PlayerHandle::status`] 动态计算填充）。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,6 +74,8 @@ pub struct PlayerSnapshot {
     pub channels: Option<u16>,
     pub queue_len: usize,
     pub queue_index: Option<usize>,
+    /// 播放模式（P6.18）：normal / shuffle / repeatOne / repeatAll
+    pub play_mode: PlayMode,
     pub volume: f32,
     pub position_ms: i64,
     pub underruns: u64,
@@ -77,6 +94,7 @@ impl Default for PlayerSnapshot {
             channels: None,
             queue_len: 0,
             queue_index: None,
+            play_mode: PlayMode::default(),
             volume: 1.0,
             position_ms: 0,
             underruns: 0,
@@ -106,6 +124,8 @@ enum Cmd {
     QueueClear,
     /// 插入到当前曲目之后（P6.17）：「下一首播放」，不改动当前项。
     QueueInsertNext { items: Vec<QueueItem> },
+    /// 设置播放模式（P6.18）：normal / shuffle / repeatOne / repeatAll
+    SetMode { mode: PlayMode },
 }
 
 /// 解码产出的样本块（带代际——seek 后旧块被回调丢弃）。
@@ -245,6 +265,11 @@ impl PlayerHandle {
         self.send(Cmd::QueueInsertNext { items })
     }
 
+    /// 设置播放模式（P6.18）。
+    pub fn set_mode(&self, mode: PlayMode) -> Result<(), String> {
+        self.send(Cmd::SetMode { mode })
+    }
+
     /// 状态快照（含动态位置；前端轮询此命令）。
     pub fn status(&self) -> PlayerSnapshot {
         let mut s = self.shared.lock_snapshot().clone();
@@ -280,6 +305,10 @@ struct Engine {
     sample_tx: Option<SyncSender<Chunk>>,
     decoder: Option<ActiveDecoder>,
     generation: u64,
+    /// 播放模式（P6.18）
+    mode: PlayMode,
+    /// 随机模式用的轻量 PRNG 种子（xorshift64；时间播种，仅供 shuffle，无需加密强度）
+    rng_seed: u64,
 }
 
 impl Engine {
@@ -295,6 +324,11 @@ impl Engine {
             sample_tx: None,
             decoder: None,
             generation: 1,
+            mode: PlayMode::Normal,
+            rng_seed: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(0x1234_5678_90AB_CDEF),
         }
     }
 
@@ -359,7 +393,11 @@ impl Engine {
             Cmd::QueueAppend { items } => self.append(items),
             Cmd::QueueClear => self.clear_queue(),
             Cmd::QueueInsertNext { items } => self.insert_next(items),
-        }
+            Cmd::SetMode { mode } => {
+                self.mode = mode;
+                self.shared.lock_snapshot().play_mode = mode;
+            }
+            }
     }
 
     /// 解码推进（背压内）。
@@ -383,8 +421,8 @@ impl Engine {
                 }
             }
             Ok(None) => {
-                // 曲终 → 自动下一首（队列尾则停止）
-                self.advance(1);
+                // 曲终 → 自动下一首（按当前模式：顺序停 / 随机 / 单曲重放 / 列表循环）
+                self.auto_advance();
             }
             Err(e) => self.fail(e),
         }
@@ -490,18 +528,82 @@ impl Engine {
         }
     }
 
-    /// 相对跳转（+1 下一首 / -1 上一首）；越界则停止。
+    /// 用户手动上一首/下一首（P6.18：按模式分派；单曲循环忽略、随机取随机项）。
     fn advance(&mut self, delta: i32) {
+        match self.mode {
+            PlayMode::Shuffle => self.goto_shuffle(),
+            _ => self.goto_sequential(delta),
+        }
+    }
+
+    /// 曲终自动推进（P6.18）：单曲循环重放当前；其余与手动一致。
+    fn auto_advance(&mut self) {
+        match self.mode {
+            PlayMode::RepeatOne => self.load_current(true),
+            PlayMode::Shuffle => self.goto_shuffle(),
+            _ => self.goto_sequential(1),
+        }
+    }
+
+    /// 顺序 / 列表循环：相对跳转；列表循环在越界处回卷，否则到尾停止。
+    fn goto_sequential(&mut self, delta: i32) {
+        let len = self.queue.len();
+        if len == 0 {
+            return;
+        }
         let next = self.index as i64 + delta as i64;
-        if next < 0 || next as usize >= self.queue.len() {
-            self.playing = false;
-            self.decoder = None;
-            self.flush_channel();
-            self.set_idle();
+        if next < 0 {
+            if self.mode == PlayMode::RepeatAll {
+                self.index = len - 1;
+                self.load_current(true);
+            }
+            return;
+        }
+        if next as usize >= len {
+            if self.mode == PlayMode::RepeatAll {
+                self.index = 0;
+                self.load_current(true);
+            } else {
+                self.playing = false;
+                self.decoder = None;
+                self.flush_channel();
+                self.set_idle();
+            }
             return;
         }
         self.index = next as usize;
         self.load_current(true);
+    }
+
+    /// 随机：选一个与当前不同的随机项（P6.18）。上一首/下一首在随机模式下皆随机。
+    fn goto_shuffle(&mut self) {
+        let len = self.queue.len();
+        if len == 0 {
+            return;
+        }
+        if len == 1 {
+            self.load_current(true);
+            return;
+        }
+        let mut cand = self.index;
+        while cand == self.index {
+            cand = self.next_random(len);
+        }
+        self.index = cand;
+        self.load_current(true);
+    }
+
+    /// 轻量 xorshift64 PRNG（P6.18）。
+    fn next_random(&mut self, n: usize) -> usize {
+        let mut x = self.rng_seed;
+        if x == 0 {
+            x = 0x9E37_79B9_7F4A_7C15;
+        }
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.rng_seed = x;
+        (x % n as u64) as usize
     }
 
     fn seek(&mut self, ms: i64) {
@@ -1266,6 +1368,70 @@ mod ffmpeg_tests {
             vec![1, 9, 2, 3, 8]
         );
         assert_eq!(e.index, 3, "最后一项后仍插在尾部，index 不变");
+    }
+
+    /// 播放模式（P6.18）：列表循环在越界处回卷，顺序模式在尾部停止。
+    #[test]
+    fn playback_mode_repeat_all_wraps() {
+        let mut e = Engine::new(PathBuf::from(":memory:"), Arc::new(Shared::new()));
+        let mk = |id: i64| QueueItem {
+            track_id: id,
+            path: format!("t{id}.flac"),
+            title: Some(format!("T{id}")),
+            artist: Some("a".into()),
+            duration_ms: Some(1000),
+        };
+        e.queue = vec![mk(1), mk(2), mk(3)];
+        e.mode = PlayMode::RepeatAll;
+        e.index = 2;
+        e.advance(1);
+        assert_eq!(e.index, 0, "末首→下一首包到首");
+        e.advance(-1); // 从 0 上一首包到尾
+        assert_eq!(e.index, 2, "首→上一首包到尾");
+        // 顺序模式：从末首下一首→停止（playing=false）
+        e.mode = PlayMode::Normal;
+        e.index = 2;
+        e.advance(1);
+        assert!(!e.playing, "顺序模式到尾停止");
+    }
+
+    /// 播放模式（P6.18）：单曲循环曲终自动重放当前（index 不变）。
+    #[test]
+    fn playback_mode_repeat_one_replays_same() {
+        let mut e = Engine::new(PathBuf::from(":memory:"), Arc::new(Shared::new()));
+        let mk = |id: i64| QueueItem {
+            track_id: id,
+            path: format!("t{id}.flac"),
+            title: Some(format!("T{id}")),
+            artist: Some("a".into()),
+            duration_ms: Some(1000),
+        };
+        e.queue = vec![mk(1), mk(2)];
+        e.mode = PlayMode::RepeatOne;
+        e.index = 1;
+        e.auto_advance(); // 曲终自动：仍是当前曲（路径无效只会 fail，index 不变）
+        assert_eq!(e.index, 1, "repeat-one：index 不变");
+    }
+
+    /// 播放模式（P6.18）：随机模式不会立即重复当前曲。
+    #[test]
+    fn playback_mode_shuffle_picks_different() {
+        let mut e = Engine::new(PathBuf::from(":memory:"), Arc::new(Shared::new()));
+        let mk = |id: i64| QueueItem {
+            track_id: id,
+            path: format!("t{id}.flac"),
+            title: Some(format!("T{id}")),
+            artist: Some("a".into()),
+            duration_ms: Some(1000),
+        };
+        e.queue = vec![mk(1), mk(2), mk(3)];
+        e.mode = PlayMode::Shuffle;
+        e.index = 0;
+        for _ in 0..8 {
+            e.advance(1);
+            assert_ne!(e.index, 0, "shuffle：不会立即重复当前曲");
+            e.index = 0; // 复位再验
+        }
     }
 
     /// 真机冒烟（需要 ffmpeg；找不到则**跳过不红**——CI 保持离线可过）。

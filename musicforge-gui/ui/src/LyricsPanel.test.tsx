@@ -27,6 +27,7 @@ function api(positionMs = 1000): PlayerApi {
       channels: 2,
       queueLen: 1,
       queueIndex: 0,
+      playMode: "normal",
       volume: 1,
       positionMs,
       underruns: 0,
@@ -49,6 +50,8 @@ function api(positionMs = 1000): PlayerApi {
     seek: vi.fn(async () => {}),
     setVolume: vi.fn(),
     stop: vi.fn(async () => {}),
+    mode: "normal",
+    setMode: vi.fn(async () => {}),
   };
 }
 

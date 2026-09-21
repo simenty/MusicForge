@@ -15,13 +15,14 @@ import {
   playerQueueMove,
   playerQueueRemove,
   playerSeek,
+  playerSetMode,
   playerSetVolume,
   playerStatus,
   playerStop,
   playerToggle,
 } from "../api";
 import { loadSession, saveSession, type SavedSession } from "../lib/session";
-import type { PlayerSnapshot, QueueItem, Track } from "../lib/types";
+import type { PlayMode, PlayerSnapshot, QueueItem, Track } from "../lib/types";
 
 const POLL_MS = 500;
 
@@ -59,6 +60,10 @@ export interface PlayerApi {
   /** 音量：本地立即生效 + 120ms 节流下发（拖动不刷后端） */
   setVolume: (v: number) => void;
   stop: () => Promise<void>;
+  /** 当前播放模式（P6.18）：normal / shuffle / repeatOne / repeatAll */
+  mode: PlayMode;
+  /** 设置播放模式（P6.18） */
+  setMode: (mode: PlayMode) => Promise<void>;
 }
 
 export function usePlayer(): PlayerApi {
@@ -251,6 +256,11 @@ export function usePlayer(): PlayerApi {
     await playerStop();
   }, []);
 
+  // P6.18 播放模式：直接下发引擎；UI 高亮由下次轮询的 status.playMode 回填。
+  const setMode = useCallback(async (mode: PlayMode) => {
+    await playerSetMode(mode);
+  }, []);
+
   /** 续播上次会话（P6.12）：重建引擎队列并回到保存位置；位置太靠前则不 seek。 */
   const resume = useCallback(async () => {
     const s = restored;
@@ -275,6 +285,8 @@ export function usePlayer(): PlayerApi {
     status,
     playing: status?.state === "playing",
     queue,
+    /** 播放模式（P6.18）：引擎快照回填，500ms 轮询内即时反映 */
+    mode: status?.playMode ?? "normal",
     restored,
     resume,
     playTracks,
@@ -291,5 +303,6 @@ export function usePlayer(): PlayerApi {
     seek,
     setVolume,
     stop,
+    setMode,
   };
 }

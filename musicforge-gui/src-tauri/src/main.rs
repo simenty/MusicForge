@@ -242,6 +242,7 @@ fn main() {
             player_queue_append,
             player_queue_clear,
             player_queue_insert_next,
+            player_set_mode,
             player_status
         ])
         .on_window_event(|window, event| {
