@@ -19,7 +19,7 @@ use lofty::tag::{ItemKey, Tag};
 
 use crate::db::{Db, TrackInput};
 use crate::error::NcmError;
-use crate::scan::{scan_library, Category, ScanItem, ScanOptions};
+use crate::scan::{scan_library, Category, ScanItem, ScanOptions, ScanReport};
 
 /// 格式级无损判定（容器本身无损；「真无损」由 `lossless` 检测另行判定）。
 ///
@@ -53,6 +53,17 @@ pub struct IndexOutcome {
 
 /// 单文件解析结果：`(入库行, 是否有标签, 是否读取失败)`。
 type Parsed = (TrackInput, bool, bool);
+
+/// 是否允许执行陈旧清理：仅当本次 run **完整覆盖**了源目录。
+///
+/// **B6 根因修复**。扫描对权限被拒的目录是**静默跳过**（P8 partial
+/// authorization 语义），此时「未出现在本次 run」**不等于**「文件已删除」——
+/// 照旧清理会把这些目录下的 likes / play_history（用户不可再生数据，见
+/// `db.rs` 顶部注释）永久删除。抽成纯函数以便单测：「权限被拒」在 CI 各平台
+/// 上难以稳定构造。
+fn should_purge_stale(report: &ScanReport) -> bool {
+    report.unauthorized_dirs.is_empty()
+}
 
 /// 索引一个媒体源目录：扫描 → 并行读标签 → 批量入库 → 清理陈旧行。
 ///
@@ -88,7 +99,11 @@ pub fn index_library(
     // 先入库（move 掉已统计的解析结果），再按 run 标记清陈旧行
     let inputs: Vec<TrackInput> = parsed.into_iter().map(|(t, _, _)| t).collect();
     let indexed = db.upsert_tracks_batch(&inputs, run_id)?;
-    let removed = db.remove_stale_tracks(source_id, run_id)?;
+    let removed = if should_purge_stale(&report) {
+        db.remove_stale_tracks(source_id, run_id)?
+    } else {
+        0
+    };
 
     Ok(IndexOutcome {
         scanned_files: report.scanned_files,
@@ -269,4 +284,27 @@ fn now_secs() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// B6 回归：扫描**不完整**（存在未授权目录）时必须放弃陈旧清理，否则会把
+    /// 这些目录下的 likes / play_history 判成「已删除」而永久清除。
+    #[test]
+    fn skip_stale_purge_when_scan_incomplete() {
+        assert!(
+            should_purge_stale(&ScanReport::default()),
+            "完整覆盖时应正常清理"
+        );
+        let partial = ScanReport {
+            unauthorized_dirs: vec![std::path::PathBuf::from("/music/locked")],
+            ..Default::default()
+        };
+        assert!(
+            !should_purge_stale(&partial),
+            "存在未授权目录时必须跳过清理（未扫到 ≠ 已删除）"
+        );
+    }
 }

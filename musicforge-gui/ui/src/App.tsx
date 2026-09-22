@@ -720,7 +720,14 @@ export default function App() {
             <button
               key={f}
               className={"fchip" + (filter === f ? " on" : "")}
-              onClick={() => setFilter(f)}
+              onClick={() => {
+                setFilter(f);
+                // 筛选后结果集骤减，若残留旧 scrollTop，虚拟化会算出 start > end
+                // → 列表全空；且内层高度可能小于视口（**无滚动条**）→ 永远等不到
+                // onScroll 自愈。与 useBatch 的 importPaths 同款复位。
+                setScrollTop(0);
+                if (viewRef.current) viewRef.current.scrollTop = 0;
+              }}
             >
               {filterLabel(f)}
               <span className="fnum">{filterCounts[f]}</span>

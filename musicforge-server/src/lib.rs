@@ -22,6 +22,7 @@ use axum::http::{Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post, Router};
+use axum::extract::DefaultBodyLimit;
 use serde_json::json;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -30,6 +31,16 @@ pub mod api;
 
 /// 默认绑定地址（R22：仅回环；B22——常量化供测试断言，测试不再读环境变量）
 pub const DEFAULT_BIND: &str = "127.0.0.1:8787";
+
+/// 请求体上限（B11 修复）。原先 32MB 只在**签名分支**里生效（`to_bytes`），
+/// 而 `auth_disabled` 分支在读 body 之前便 `return next.run(req)` → 无鉴权
+/// 形态（fnOS FPK 默认注入）下**完全无闸**。提到 Router 层后与鉴权解耦。
+pub const SERVER_BODY_LIMIT: usize = 32 * 1024 * 1024;
+
+/// 全局并发闸（B12 修复）。`/api/batch` 单次可在 `spawn_blocking` 内起到 10 个
+/// OS 线程，无闸时 N 个并发请求 = 最多 10N 线程且无界排队。超出配额的请求
+/// **排队**（tower `ConcurrencyLimitLayer` 语义）而非无界增长。
+pub const SERVER_MAX_CONCURRENCY: usize = 8;
 
 /// P1-2 可观测性：初始化结构化日志（此前 server 零日志，线上问题只能靠猜）。
 ///
@@ -558,6 +569,39 @@ impl ServerState {
     }
 }
 
+/// B12：在途 `/api` 请求计数（并发闸状态）。
+static API_INFLIGHT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// B12 并发闸：`/api/*` 最多同时放行 [`SERVER_MAX_CONCURRENCY`] 个请求，
+/// 超出者**立即 503**（而非排队——无上界的等待队列本身就是一个 DoS 面）。
+///
+/// 背景：`/api/batch` 单次可在 `spawn_blocking` 内起到 10 个 OS 线程，无闸时
+/// N 个并发请求 = 最多 10N 个线程 + 阻塞池排队。
+///
+/// **作用域**：只挂在 `/api` nest 上——`/api/health`（生命周期探测）与静态
+/// 资源在外层 Router，不参与计数，业务繁忙时不会误报“服务不可用”。
+/// 自实现计数而非引入 `tower::limit`，是为了不动依赖 feature。
+async fn concurrency_limit(req: Request<Body>, next: Next) -> Response {
+    use std::sync::atomic::Ordering;
+    // 配额用尽时**排队等待**而非拒绝：硬拒会凭空制造一种客户端必须处理的
+    // 新失败模式（随机 503），与既有行为不兼容（tower ConcurrencyLimit 亦
+    // 采用队列语义）。CAS 而非「load + fetch_add」，避免并发下略微超限。
+    loop {
+        let cur = API_INFLIGHT.load(Ordering::Acquire);
+        if cur < SERVER_MAX_CONCURRENCY
+            && API_INFLIGHT
+                .compare_exchange_weak(cur, cur + 1, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+        {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    let res = next.run(req).await;
+    API_INFLIGHT.fetch_sub(1, Ordering::AcqRel);
+    res
+}
+
 /// 构建路由（health 免鉴权；其余 /api/* 鉴权；非 /api → SPA）。
 pub fn build_router(state: ServerState) -> Router {
     let ui_dir = state.ui_dir.clone();
@@ -592,7 +636,9 @@ pub fn build_router(state: ServerState) -> Router {
                 .layer(middleware::from_fn_with_state(
                     state.clone(),
                     auth_middleware,
-                )),
+                ))
+                // B12：并发闸在 nest 最外层 → 无论鉴权开关如何都生效
+                .layer(middleware::from_fn(concurrency_limit)),
         )
         .fallback_service(spa_service(ui_dir))
         // 静态资源缓存策略（2026-09-12 真机问题根治）：`no-cache` = 每次协商（304 极廉价），
@@ -603,6 +649,10 @@ pub fn build_router(state: ServerState) -> Router {
             axum::http::header::CACHE_CONTROL,
             axum::http::HeaderValue::from_static("no-cache"),
         ))
+        // B11（P0）：体量闸提到 Router 层，与鉴权**解耦**——原先 32MB 上限只在
+        // 签名分支内生效（`to_bytes`），`auth_disabled` 分支在读 body 之前便
+        // `return next.run(req)` → fnOS 默认形态下完全无闸。
+        .layer(DefaultBodyLimit::max(SERVER_BODY_LIMIT))
         // P1-2：请求日志（method / path / status / 耗时）——只记路径，**不含
         // query 与 header**，因此 token 不会进入日志。
         .layer(
@@ -1093,6 +1143,37 @@ mod tests {
             res.status(),
             StatusCode::UNAUTHORIZED,
             "鉴权开启时，无 token 必须拒绝（安全默认不因新增开关而降级）"
+        );
+    }
+
+    // ------------------------------------------------- B11 / B12（P0 修复）--
+    /// 体量闸必须**独立于鉴权开关**生效：原先 32MB 上限只在签名分支内
+    /// （`to_bytes`），`auth_disabled`（fnOS 默认注入）分支在读 body 之前便
+    /// `return next.run(req)` → 该形态下完全没有体量闸。
+    #[tokio::test]
+    async fn body_limit_applies_even_when_auth_disabled() {
+        let mut st = test_state("tok-123");
+        st.auth_disabled = true;
+        let app = build_router(st);
+        let big = vec![0u8; SERVER_BODY_LIMIT + 1];
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    // 必须挑**必填 body** 的端点：`/api/scan` 用的是
+                    // `Option<Json<..>>`，它会吞掉 413 拒绝并退化成 None → 400，
+                    // 观察不到体量闸是否生效。
+                    .uri("/api/batch")
+                    .header("content-type", "application/json")
+                    .body(Body::from(big))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            res.status(),
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "无鉴权形态下，超过体量闸的请求也必须被拒"
         );
     }
 }
