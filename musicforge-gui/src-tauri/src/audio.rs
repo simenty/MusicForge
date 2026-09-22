@@ -378,7 +378,7 @@ impl Engine {
             Cmd::Stop => {
                 self.playing = false;
                 self.decoder = None;
-                self.flush_channel();
+                self.silence_output();
                 self.set_idle();
             }
             Cmd::Next => self.advance(1),
@@ -503,6 +503,8 @@ impl Engine {
     fn pause(&mut self) {
         if self.playing {
             self.playing = false;
+            // B7：停声（否则缓冲里最多还有 ~1.5s 继续响，且 underruns 持续累加）
+            self.silence_output();
             self.shared.lock_snapshot().state = "paused";
         }
     }
@@ -573,7 +575,7 @@ impl Engine {
             } else {
                 self.playing = false;
                 self.decoder = None;
-                self.flush_channel();
+                self.silence_output();
                 self.set_idle();
             }
             return;
@@ -633,13 +635,32 @@ impl Engine {
         }
     }
 
-    /// 清空未消费的样本（seek/切歌时；代际机制会兜底丢弃旧块，这里只是提前释放）。
+    /// 清空未消费的样本（seek / 切歌时）。
+    ///
+    /// **B8 根因修复**：注释原写「新增一代际并依赖回调丢弃」，但代码只有
+    /// `let _ = tx`——**代际从未被推进**。于是「记账已归零」与「块仍在通道里」
+    /// 同时成立：回调照常消费这些**同代际**的旧块并继续 `fetch_sub` → release
+    /// 下 `usize` 下溢回绕成天文数字 → `pump` 的 `in_flight > MAX_IN_FLIGHT`
+    /// 从此永真 → **解码被背压永久掐死**（用户侧症状：播着播着突然哑掉，无报错，
+    /// 直到下一次 load_current 复位才发现得了）。
+    ///
+    /// 推进代际后，回调对这些旧块走「丢弃且不减计数」分支，与归零后的账自洽。
     fn flush_channel(&mut self) {
-        if let Some(tx) = &self.sample_tx {
-            // 无法从发送端 drain——新增一代际并依赖回调丢弃；同时把在飞计数归零
-            let _ = tx;
-        }
+        self.shared.generation.fetch_add(1, Ordering::Relaxed);
+        self.generation = self.shared.generation.load(Ordering::Relaxed);
         self.shared.in_flight.store(0, Ordering::Relaxed);
+    }
+
+    /// 停止出声（B7）：作废残块 + 记账归零 + **暂停 cpal 流**。
+    ///
+    /// 只置 `playing = false` 是不够的：缓冲里最多还有约 1.5 秒（`MAX_IN_FLIGHT`）
+    /// 会继续播出，且其后每个回调（~10ms 一次）仍在累加 `underruns`、占着音频
+    /// 设备不放。
+    fn silence_output(&mut self) {
+        self.flush_channel();
+        if let Some(st) = &self.stream {
+            let _ = st.pause();
+        }
     }
 
     /// 队列内重排（P6.15）：保持「正在播放的曲目」仍为当前项，故播放进度不中断。
@@ -718,7 +739,7 @@ impl Engine {
         self.index = 0;
         self.playing = false;
         self.decoder = None;
-        self.flush_channel();
+        self.silence_output();
         self.set_idle();
     }
 
@@ -844,21 +865,37 @@ fn build_typed<T: SizedSample + FromSample<f32>>(
     Ok((stream, tx))
 }
 
-/// 实时回调：取块 → 拷贝（并乘音量）→ 统计。零锁零分配。
-fn make_callback<T: SizedSample + FromSample<f32>>(
-    shared: Arc<Shared>,
-    rx: Receiver<Chunk>,
-) -> impl FnMut(&mut [T], &cpal::OutputCallbackInfo) + Send + 'static {
-    let mut current: Option<CurrentChunk> = None;
-    move |data: &mut [T], _| {
+/// 回调内的取块状态。
+///
+/// 与 [`make_callback`] 拆开的原因：这里是多个 Bug 的策源地——**代际丢弃**与
+/// **在飞记账**全在这段逻辑里，而它原先被封在 cpal 的回调签名内（`&mut [T]`
+/// + `&OutputCallbackInfo`），无法在 CI 里构造，只能靠耳朵/播放器验证。
+struct ChunkConsumer {
+    current: Option<CurrentChunk>,
+}
+
+impl ChunkConsumer {
+    fn new() -> Self {
+        Self { current: None }
+    }
+
+    /// 取块 → 拷贝（并乘音量）→ 统计。零锁零分配（实时线程约束）。
+    fn fill<T: SizedSample + FromSample<f32>>(
+        &mut self,
+        data: &mut [T],
+        shared: &Shared,
+        rx: &Receiver<Chunk>,
+    ) {
         let generation = shared.generation.load(Ordering::Relaxed);
         let volume = f32::from_bits(shared.volume.load(Ordering::Relaxed));
         let n = data.len();
         let mut filled = 0usize;
         while filled < n {
-            if let Some(cur) = current.as_mut() {
+            if let Some(cur) = self.current.as_mut() {
                 if cur.generation != generation {
-                    current = None;
+                    // 过期块（seek / 切歌 / 暂停后产生的残块）：丢弃且**不推进
+                    // 位置、不减在飞计数**——配合 load_current 的归零才自洽。
+                    self.current = None;
                     continue;
                 }
                 let take = (cur.data.len() - cur.pos).min(n - filled);
@@ -867,17 +904,24 @@ fn make_callback<T: SizedSample + FromSample<f32>>(
                 }
                 cur.pos += take;
                 filled += take;
-                shared.in_flight.fetch_sub(take, Ordering::Relaxed);
+                // 饱和减（B8 兜底）：即便记账与产量因极端时序出现不一致，release
+                // 下裸 `fetch_sub` 下溢会回绕成天文数字 → `pump` 的
+                // `in_flight > MAX_IN_FLIGHT` 从此永真 → 解码被背压永久掐死。
+                let _ = shared.in_flight.fetch_update(
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                    |v| Some(v.saturating_sub(take)),
+                );
                 shared
                     .samples_played
                     .fetch_add(take as u64, Ordering::Relaxed);
                 if cur.pos >= cur.data.len() {
-                    current = None;
+                    self.current = None;
                 }
             } else {
                 match rx.try_recv() {
                     Ok(c) => {
-                        current = Some(CurrentChunk {
+                        self.current = Some(CurrentChunk {
                             generation: c.generation,
                             data: c.data,
                             pos: 0,
@@ -885,15 +929,33 @@ fn make_callback<T: SizedSample + FromSample<f32>>(
                     }
                     Err(_) => {
                         // 欠载：填静音（比循环等待更安全——实时线程不能阻塞）
+                        let silent = n - filled;
                         for d in &mut data[filled..] {
                             *d = T::from_sample(0.0f32);
                         }
                         shared.underruns.fetch_add(1, Ordering::Relaxed);
+                        // 这部分静音是**真实播出**的时间（单位与 seek / status 一致：
+                        // 样本数 = 帧 × 声道）。不推进会让进度系统性落后于真实输出，
+                        // 慢设备上累积漂移可达数秒（歌词、进度条对不上）。
+                        shared
+                            .samples_played
+                            .fetch_add(silent as u64, Ordering::Relaxed);
                         break;
                     }
                 }
             }
         }
+    }
+}
+
+/// 实时回调（cpal）：状态与逻辑委托给 [`ChunkConsumer`]。
+fn make_callback<T: SizedSample + FromSample<f32>>(
+    shared: Arc<Shared>,
+    rx: Receiver<Chunk>,
+) -> impl FnMut(&mut [T], &cpal::OutputCallbackInfo) + Send + 'static {
+    let mut consumer = ChunkConsumer::new();
+    move |data: &mut [T], _| {
+        consumer.fill(data, &shared, &rx);
     }
 }
 
@@ -1502,5 +1564,142 @@ mod ffmpeg_tests {
         );
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod audio_state_tests {
+    use super::*;
+
+    fn eng() -> Engine {
+        // 构造引擎但不启线程（run() 另需 Receiver）；flush/channel 逻辑与线程无关
+        Engine::new(PathBuf::from("noop.db"), Arc::new(Shared::new()))
+    }
+
+    fn sample_chan() -> (SyncSender<Chunk>, Receiver<Chunk>) {
+        std::sync::mpsc::sync_channel(CHANNEL_CAP)
+    }
+
+    /// **B8 根因回归**：`flush_channel` 必须**真的推进代际**。
+    ///
+    /// 修复前它只把 `in_flight` 归零、代际纹丝不动（注释却写着已抬代际）→
+    /// 「记账已归零」与「旧块仍在通道里」同时成立 → 回调照常消费并继续
+    /// `fetch_sub` → release 下 `usize` 下溢回绕成天文数字 → `pump` 的
+    /// `in_flight > MAX_IN_FLIGHT` 从此永真 → 解码被背压**永久掐死**（哑掉）。
+    #[test]
+    fn engine_flush_bumps_generation_and_zeroes_in_flight() {
+        let shared = Arc::new(Shared::new());
+        let mut e = Engine::new(PathBuf::from("noop.db"), Arc::clone(&shared));
+        let gen0 = shared.generation.load(Ordering::Relaxed);
+        shared.in_flight.store(1234, Ordering::Relaxed);
+
+        e.flush_channel();
+
+        assert_eq!(
+            shared.in_flight.load(Ordering::Relaxed),
+            0,
+            "flush 必须把在飞计数归零"
+        );
+        assert!(
+            shared.generation.load(Ordering::Relaxed) > gen0,
+            "flush 必须推进代际，否则通道里的旧块仍会被正常消费并继续减计数（B8）"
+        );
+        assert_eq!(
+            e.generation,
+            shared.generation.load(Ordering::Relaxed),
+            "引擎本地代际必须与共享代际同步，否则新产出的块会被回调判为过期"
+        );
+    }
+
+    /// 推进代际后，通道里的旧块必须：不播出 / 不推进位置 / 不减已归零的计数。
+    #[test]
+    fn stale_blocks_are_dropped_silently_after_flush() {
+        let shared = Arc::new(Shared::new());
+        let (tx, rx) = sample_chan();
+        let gen0 = shared.generation.load(Ordering::Relaxed);
+        tx.send(Chunk {
+            generation: gen0,
+            data: vec![1.0f32; 4],
+        })
+        .unwrap();
+        // 模拟修复后的 flush（见上一条用例保证 Engine 真的这么做）
+        shared.generation.store(gen0 + 1, Ordering::Relaxed);
+        shared.in_flight.store(0, Ordering::Relaxed);
+
+        let mut c = ChunkConsumer::new();
+        let mut buf = [0f32; 8];
+        c.fill(&mut buf, &shared, &rx);
+
+        assert_eq!(
+            shared.in_flight.load(Ordering::Relaxed),
+            0,
+            "旧块不得再减已归零的在飞计数（下溢会回绕并永久掐死解码）"
+        );
+        assert_eq!(
+            shared.underruns.load(Ordering::Relaxed),
+            1,
+            "通道里只剩过期块 → 必然走欠载填静音路径"
+        );
+        assert_eq!(
+            shared.samples_played.load(Ordering::Relaxed),
+            8,
+            "位置只能来自填充的静音（8 个样本），旧块本身贡献 0"
+        );
+        assert!(
+            buf.iter().all(|&s| s == 0.0),
+            "旧块的数据不得播出（其数据是 1.0，一旦播出 buffer 里必现 1.0）"
+        );
+    }
+
+    /// 对照：同代际的块仍须正常播出并正确记账（确认上述修复没有误伤正常播放）。
+    #[test]
+    fn current_generation_block_plays_and_accounts() {
+        let shared = Arc::new(Shared::new());
+        let (tx, rx) = sample_chan();
+        let gen = shared.generation.load(Ordering::Relaxed);
+        shared.in_flight.store(4, Ordering::Relaxed);
+        tx.send(Chunk {
+            generation: gen,
+            data: vec![0.5f32; 4],
+        })
+        .unwrap();
+
+        let mut c = ChunkConsumer::new();
+        let mut buf = [0f32; 4];
+        c.fill(&mut buf, &shared, &rx);
+
+        assert_eq!(shared.in_flight.load(Ordering::Relaxed), 0, "消费完毕应归零");
+        assert_eq!(shared.samples_played.load(Ordering::Relaxed), 4);
+        assert!(
+            buf.iter().all(|&s| (s - 0.5).abs() < 1e-6),
+            "音量 1.0 时应原样播出"
+        );
+    }
+
+    /// 欠载填充的静音是**真实播出**的时间：不计入位置会让进度系统性落后
+    /// （慢设备/大曲子上累积漂移可达数秒，歌词与进度条对不上）。
+    #[test]
+    fn underrun_silence_still_advances_position() {
+        let shared = Arc::new(Shared::new());
+        let (_tx, rx) = sample_chan();
+        let mut c = ChunkConsumer::new();
+        let mut buf = [0f32; 16];
+        c.fill(&mut buf, &shared, &rx);
+
+        assert_eq!(shared.underruns.load(Ordering::Relaxed), 1, "应记一次欠载");
+        assert_eq!(
+            shared.samples_played.load(Ordering::Relaxed),
+            16,
+            "欠载期间播出的静音必须计入位置"
+        );
+    }
+
+    /// `eng()` 兜底：确保上述用例依赖的构造路径始终可用（无音频设备也可构造）。
+    #[test]
+    fn engine_constructs_without_audio_device() {
+        let e = eng();
+        assert!(!e.playing);
+        assert!(e.queue.is_empty());
+        assert_eq!(e.index, 0);
     }
 }
