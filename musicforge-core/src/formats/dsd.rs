@@ -89,6 +89,12 @@ fn open_layout(path: &Path) -> Result<Layout, NcmError> {
     }
 }
 
+/// 文件内长度/计数字段的上界（硬约束 4）。声道数与块大小直接来自文件，
+/// 若不设上界，畸形文件会让下游 `vec![0u8; per_ch * channels]` 巨量分配
+/// → capacity overflow / OOM → release 的 panic=abort 直接终止进程。
+const MAX_CHANNELS: u32 = 8;
+const MAX_BLOCK_SIZE: u32 = 1 << 20;
+
 /// DSF：12 字节 chunk 头（"id " + 8B LE 长度，长度含头 12 字节）。
 fn parse_dsf<R: Read + Seek>(r: &mut R) -> Result<Layout, NcmError> {
     // 已读 magic（4/28 头的一部分）：跳到 28 开始遍历 chunk
@@ -129,10 +135,20 @@ fn parse_dsf<R: Read + Seek>(r: &mut R) -> Result<Layout, NcmError> {
         if &header[0..4] == b"data" {
             break; // data 之后不再需要（尾部 ID3 由标签层处理）
         }
-        r.seek(SeekFrom::Start(body + size - 12))?;
+        // saturating：size 只校验了下界，加法溢出在 debug 下 panic（release 下
+        // 静默回绕到错误偏移）。
+        r.seek(SeekFrom::Start(
+            body.saturating_add(size).saturating_sub(12),
+        ))?;
     }
     if channels == 0 || dsd_rate == 0 || block_size == 0 || data_bytes == 0 {
         return Err(bad("DSF 头不完整（fmt/data 缺失）".to_string()));
+    }
+    if channels > MAX_CHANNELS {
+        return Err(bad(format!("DSF 声道数超出上界: {channels}")));
+    }
+    if block_size > MAX_BLOCK_SIZE {
+        return Err(bad(format!("DSF block_size 超出上界: {block_size}")));
     }
     let per_ch = (data_bytes / channels as u64).min(bits_per_ch.div_ceil(8));
     Ok(Layout {
@@ -196,9 +212,11 @@ fn parse_dff<R: Read + Seek>(r: &mut R) -> Result<Layout, NcmError> {
                         }
                         _ => {}
                     }
-                    r.seek(SeekFrom::Start(b2 + sz2 + (sz2 & 1)))?;
+                    r.seek(SeekFrom::Start(
+                        b2.saturating_add(sz2).saturating_add(sz2 & 1),
+                    ))?;
                 }
-                r.seek(SeekFrom::Start(prop_end + (size & 1)))?;
+                r.seek(SeekFrom::Start(prop_end.saturating_add(size & 1)))?;
             }
             b"DSD " => {
                 data_start = body;
@@ -206,12 +224,17 @@ fn parse_dff<R: Read + Seek>(r: &mut R) -> Result<Layout, NcmError> {
                 break;
             }
             _ => {
-                r.seek(SeekFrom::Start(body + size + (size & 1)))?;
+                r.seek(SeekFrom::Start(
+                    body.saturating_add(size).saturating_add(size & 1),
+                ))?;
             }
         }
     }
     if channels == 0 || dsd_rate == 0 || data_bytes == 0 {
         return Err(bad("DFF 头不完整（FS/CHNL/DSD 缺失）".to_string()));
+    }
+    if channels > MAX_CHANNELS {
+        return Err(bad(format!("DFF 声道数超出上界: {channels}")));
     }
     Ok(Layout {
         kind: DsdKind::Dff,
@@ -602,6 +625,56 @@ mod tests {
         let p = dir.path().join("x.bin");
         std::fs::write(&p, b"RIFFxxxx").unwrap();
         assert!(probe_dsd(&p).is_err());
+    }
+
+    /// 回归（硬约束 4）：声道数 / block_size 直接来自文件，畸形值必须在解析期
+    /// 被拒——否则下游 `vec![0u8; per_ch * channels]` 会巨量分配，release 的
+    /// panic=abort 直接终止进程。
+    #[test]
+    fn rejects_out_of_range_channels_and_block_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("many.dsf");
+        write_dsf_channels(&p, 2_822_400, 512, 9, &[0xAAu8; 512]);
+        let e = probe_dsd(&p).unwrap_err();
+        assert!(format!("{e}").contains("声道数超出上界"), "实际错误: {e}");
+
+        let p2 = dir.path().join("big.dsf");
+        write_dsf_channels(&p2, 2_822_400, (1 << 20) + 1, 1, &[0xAAu8; 512]);
+        let e2 = probe_dsd(&p2).unwrap_err();
+        assert!(
+            format!("{e2}").contains("block_size 超出上界"),
+            "实际错误: {e2}"
+        );
+    }
+
+    /// 与 `write_min_dsf` 同构，但声道数可指定（供上界回归测试用）。
+    fn write_dsf_channels(
+        path: &std::path::Path,
+        dsd_rate: u32,
+        block_size: u32,
+        channels: u32,
+        data: &[u8],
+    ) {
+        use std::io::Write;
+        let mut f = std::fs::File::create(path).unwrap();
+        f.write_all(b"DSD ").unwrap();
+        f.write_all(&28u64.to_le_bytes()).unwrap();
+        f.write_all(&0u64.to_le_bytes()).unwrap(); // total file size
+        f.write_all(&0u64.to_le_bytes()).unwrap(); // metadata ptr
+        f.write_all(b"fmt ").unwrap();
+        f.write_all(&52u64.to_le_bytes()).unwrap();
+        f.write_all(&1u32.to_le_bytes()).unwrap(); // version
+        f.write_all(&0u32.to_le_bytes()).unwrap(); // format id = DSD raw
+        f.write_all(&1u32.to_le_bytes()).unwrap(); // channel type
+        f.write_all(&channels.to_le_bytes()).unwrap(); // ← 被校验的字段
+        f.write_all(&dsd_rate.to_le_bytes()).unwrap();
+        f.write_all(&1u32.to_le_bytes()).unwrap(); // bits per sample
+        f.write_all(&((data.len() as u64) * 8).to_le_bytes()).unwrap();
+        f.write_all(&block_size.to_le_bytes()).unwrap(); // ← 被校验的字段
+        f.write_all(&0u32.to_le_bytes()).unwrap(); // reserved
+        f.write_all(b"data").unwrap();
+        f.write_all(&(12 + data.len() as u64).to_le_bytes()).unwrap();
+        f.write_all(data).unwrap();
     }
 
     /// 0.1 秒 mono DSF 全长读取：帧数 = 0.1 × 88200 = 8820（EOF 精确 + 块粒度无损）。

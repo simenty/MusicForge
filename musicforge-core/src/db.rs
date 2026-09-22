@@ -821,7 +821,14 @@ impl Db {
         let limit = limit.clamp(1, 500);
         let offset = offset.max(0);
         let (join, order_raw) = sort.clause();
-        let order = if order_raw.is_empty() { "t.path" } else { order_raw };
+        // `PlayedAt`/`LikedAt` 的 ORDER BY 引用 `h.`/`lk.` 别名，但本查询的
+        // TRACK_SELECT 只 LEFT JOIN 了 ar/al，没 JOIN play_history/likes →
+        // 直接下发会 prepare 失败（no such column）。与 list_liked_with /
+        // list_history_with 同款回退到自然序，避免整条查询硬错。
+        let order = match (sort, order_raw.is_empty()) {
+            (TrackSort::PlayedAt, _) | (TrackSort::LikedAt, _) | (_, true) => "t.path",
+            _ => order_raw,
+        };
         let pred = query.and_then(|q| track_filter_pred(q, 3));
         let where_sql = match &pred {
             Some((sql, _)) => format!(" WHERE {sql}"),
@@ -2183,6 +2190,24 @@ mod tests {
             .list_tracks_with(TrackSort::Title, 1, 1, Some("晴天"))
             .unwrap();
         assert_eq!(paged.len(), 1, "第二页仍有一条");
+    }
+
+    /// 回归：`PlayedAt`/`LikedAt` 的 ORDER BY 引用 `h.`/`lk.` 别名，而
+    /// `list_tracks_with` 的 TRACK_SELECT 并未 JOIN 这两张表 → 不回退就会
+    /// prepare 失败（no such column），整条查询硬错。
+    #[test]
+    fn list_tracks_with_played_at_and_liked_at_do_not_break_query() {
+        let (db, _pid, _a, _b, _c) = seed_clean();
+        for s in [
+            TrackSort::PlayedAt,
+            TrackSort::LikedAt,
+            TrackSort::PlayCount,
+            TrackSort::Title,
+            TrackSort::Default,
+        ] {
+            let rows = db.list_tracks_with(s, 10, 0, None).unwrap();
+            assert_eq!(rows.len(), 3, "排序 {s:?} 不应让查询失败");
+        }
     }
 
     /// 干净歌单：预览与执行均为零影响（幂等、不破坏顺序）。

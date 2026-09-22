@@ -448,7 +448,13 @@ pub fn scan_library(root: &Path, options: &ScanOptions) -> Result<ScanReport, Nc
                 loop {
                     // 取任务（队列空且 remaining>0 → 等；remaining==0 → 退出）
                     let task = {
-                        let mut st = state.lock().unwrap();
+                        // 锁中毒恢复（与 library.rs 同口径）：worker 线程 panic 后
+                        // 不应让其它线程/主线程二次 panic——release 是 panic=abort，
+                        // 二次 panic 等于直接终止进程。
+                        let mut st = match state.lock() {
+                            Ok(g) => g,
+                            Err(p) => p.into_inner(),
+                        };
                         loop {
                             if let Some(t) = st.queue.pop_front() {
                                 break Some(t);
@@ -456,12 +462,18 @@ pub fn scan_library(root: &Path, options: &ScanOptions) -> Result<ScanReport, Nc
                             if st.remaining == 0 {
                                 break None;
                             }
-                            st = cv.wait(st).unwrap();
+                            st = match cv.wait(st) {
+                                Ok(g) => g,
+                                Err(p) => p.into_inner(),
+                            };
                         }
                     };
                     let Some((dir, depth)) = task else { break };
                     let outcome = scan_one_dir(dir.clone(), root, options);
-                    let mut st = state.lock().unwrap();
+                    let mut st = match state.lock() {
+                        Ok(g) => g,
+                        Err(p) => p.into_inner(),
+                    };
                     st.remaining -= 1;
                     if depth < options.max_depth && options.recursive {
                         for d in outcome.child_dirs.clone() {
@@ -476,7 +488,11 @@ pub fn scan_library(root: &Path, options: &ScanOptions) -> Result<ScanReport, Nc
         }
     });
 
-    let st = state.into_inner().unwrap();
+    // 锁中毒恢复：任一 worker panic 都会污染这把锁，此处再 unwrap 会二次 panic。
+    let st = match state.into_inner() {
+        Ok(s) => s,
+        Err(p) => p.into_inner(),
+    };
     let mut report = ScanReport::default();
     // dir path -> (audio stems set, has_audio)（孤儿歌词判定，跨目录合并）
     let mut dir_audio: HashMap<PathBuf, HashSet<String>> = HashMap::new();

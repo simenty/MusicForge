@@ -356,8 +356,15 @@ impl Engine {
     fn handle(&mut self, cmd: Cmd) {
         match cmd {
             Cmd::Play { items, index } => {
+                // 越界 index 会被静默滞留（`load_current` 用 `queue.get()` 兜住），
+                // 直到下一次 `insert_next` 用它算 splice 起点 → 越界 panic；
+                // release 是 panic=abort，等于整个应用退出。故入口即钳到合法范围。
                 self.queue = items;
-                self.index = index;
+                self.index = if self.queue.is_empty() {
+                    0
+                } else {
+                    index.min(self.queue.len() - 1)
+                };
                 self.load_current(true);
             }
             Cmd::Toggle => {
@@ -723,7 +730,9 @@ impl Engine {
         let at = if self.queue.is_empty() {
             0
         } else {
-            self.index + 1
+            // 同样钳到 len：`index` 可能来自越界 Jump/Play，splice 越界即 panic
+            // （saturating_add 防 usize::MAX 回绕）。
+            self.index.saturating_add(1).min(self.queue.len())
         };
         self.queue.splice(at..at, items);
         self.sync_queue_meta();

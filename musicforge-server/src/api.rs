@@ -43,28 +43,65 @@ fn ensure_allowed(state: &ServerState, p: &std::path::Path) -> Result<(), Respon
     if state.allowed_roots.is_empty() {
         return Ok(());
     }
-    let allowed = state
-        .allowed_roots
-        .iter()
-        .any(|root| p == root.as_path() || p.starts_with(root));
+    // 纯词法前缀比较可被 `../` 绕过：`/data/music/../../etc` 的 Components
+    // 前缀仍是 `/data/music`（白名单内的符号链接同理）。故先规范化再比较：
+    // 能 canonicalize 就用真实路径（顺带解析符号链接）；不能（路径尚不存在，
+    // 如新建目录）则退回词法规范化，并拒绝越过根的 `..`。
+    let norm = match std::fs::canonicalize(p)
+        .ok()
+        .or_else(|| normalize_lexical(p))
+    {
+        Some(n) => n,
+        None => return Err(path_rejected(state, p)),
+    };
+    let allowed = state.allowed_roots.iter().any(|root| {
+        let rn = std::fs::canonicalize(root)
+            .ok()
+            .or_else(|| normalize_lexical(root))
+            .unwrap_or_else(|| root.to_path_buf());
+        norm == rn || norm.starts_with(&rn)
+    });
     if allowed {
         Ok(())
     } else {
-        // P1-2：路径域拒绝 = 安全事件（可能是越权尝试或配置过窄）→ warn 留痕
-        tracing::warn!(
-            path = %p.display(),
-            roots = state.allowed_roots.len(),
-            "path rejected: outside MUSICFORGE_ALLOWED_ROOTS"
-        );
-        Err(err(
-            StatusCode::FORBIDDEN,
-            "MF-PATH-NOT-ALLOWED",
-            format!(
-                "路径不在允许根目录内: {}（已配置 MUSICFORGE_ALLOWED_ROOTS）",
-                p.display()
-            ),
-        ))
+        Err(path_rejected(state, p))
     }
+}
+
+/// 词法规范化：去掉 `.`、解析 `..`（用于 canonicalize 失败时的退回比较）。
+/// 出现越过根的 `..` → `None`（调用方按「不在白名单内」拒绝）。
+fn normalize_lexical(p: &std::path::Path) -> Option<std::path::PathBuf> {
+    use std::path::Component;
+    let mut out = std::path::PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    return None;
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    Some(out)
+}
+
+/// 路径域拒绝 = 安全事件（可能是越权尝试或配置过窄）→ warn 留痕。
+fn path_rejected(state: &ServerState, p: &std::path::Path) -> Response {
+    tracing::warn!(
+        path = %p.display(),
+        roots = state.allowed_roots.len(),
+        "path rejected: outside MUSICFORGE_ALLOWED_ROOTS"
+    );
+    err(
+        StatusCode::FORBIDDEN,
+        "MF-PATH-NOT-ALLOWED",
+        format!(
+            "路径不在允许根目录内: {}（已配置 MUSICFORGE_ALLOWED_ROOTS）",
+            p.display()
+        ),
+    )
 }
 
 /// `Category` → 稳定字符串（JSON 形态；不暴露枚举内部）。
@@ -1381,5 +1418,24 @@ mod tests {
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
         let v = body_json(res).await;
         assert_eq!(v["code"], "MF-API-BAD-REQUEST");
+    }
+
+    /// 回归：`ensure_allowed` 原先用**纯词法**前缀比较——`/data/music/../../etc`
+    /// 的 Components 前缀仍是 `/data/music` → 放行（路径穿越）。现在先规范化
+    /// 再比较，穿越路径必须落到 root 之外。
+    #[test]
+    fn normalize_lexical_resolves_parent_dir_and_rejects_escape() {
+        use std::path::Path;
+        let escaped = normalize_lexical(Path::new("/data/music/../../etc")).unwrap();
+        assert_eq!(escaped, Path::new("/etc"));
+        assert!(
+            !escaped.starts_with("/data/music"),
+            "穿越路径必须不再落在 root 内"
+        );
+        // 合法子路径不受影响
+        let ok = normalize_lexical(Path::new("/data/music/a/b.flac")).unwrap();
+        assert!(ok.starts_with("/data/music"));
+        // 越过文件系统根 → None（调用方按「不在白名单」拒绝）
+        assert!(normalize_lexical(Path::new("/../../etc")).is_none());
     }
 }
