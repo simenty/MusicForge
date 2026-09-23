@@ -467,6 +467,12 @@ mod startup_files_tests {
 mod tests {
     use super::*;
 
+    /// B10：扫描/收集类命令已改为 `async`（阻塞段走 `spawn_blocking`，不再占
+    /// UI 主线程）。同步 `#[test]` 用 `block_on` 驱动，**断言语义不变**。
+    fn block<T>(f: impl std::future::Future<Output = T>) -> T {
+        tauri::async_runtime::block_on(f)
+    }
+
     /// preview_template：两行 = 完整元数据 / 无元数据回退。
     /// 前端靠它实时预览输出文件名，行数或内容变化即破坏契约。
     #[test]
@@ -500,20 +506,26 @@ mod tests {
         std::fs::write(sub.join("c.ncm"), b"x").unwrap();
 
         // 非递归：只收 base 层，且不收 .txt
-        let flat = collect_files(vec![base.to_string_lossy().into_owned()], false);
+        let flat = block(collect_files(
+            vec![base.to_string_lossy().into_owned()],
+            false,
+        ));
         assert_eq!(flat.len(), 1, "非递归不得进入 sub，且必须过滤非 .ncm");
         assert!(flat[0].path.ends_with("a.ncm"), "应收集 a.ncm");
         assert!(flat[0].root.is_some(), "目录输入必须带 root");
 
         // 递归：a.ncm + sub/c.ncm
-        let rec = collect_files(vec![base.to_string_lossy().into_owned()], true);
+        let rec = block(collect_files(
+            vec![base.to_string_lossy().into_owned()],
+            true,
+        ));
         assert_eq!(rec.len(), 2, "递归应收集 sub 下的 .ncm");
 
         // 散文件输入：root 必须为 None（前端据此区分两种输入来源）
-        let single = collect_files(
+        let single = block(collect_files(
             vec![base.join("a.ncm").to_string_lossy().into_owned()],
             false,
-        );
+        ));
         assert_eq!(single.len(), 1);
         assert!(single[0].root.is_none(), "散文件输入 root 必须为 None");
 
@@ -530,7 +542,7 @@ mod tests {
         std::fs::write(base.join("a.flac"), b"fLaC").unwrap();
         std::fs::write(base.join("Thumbs.db"), b"x").unwrap();
 
-        let v = scan_library(base.to_string_lossy().into_owned(), true).unwrap();
+        let v = block(scan_library(base.to_string_lossy().into_owned(), true)).unwrap();
         assert_eq!(v["dir"], base.to_string_lossy().as_ref());
         assert_eq!(v["scannedFiles"], 2);
         assert_eq!(v["summary"]["audio"], 1);
@@ -553,7 +565,7 @@ mod tests {
         assert_eq!(junk["category"], "junk");
 
         // 错误路径：目录不存在必须显式 Err（前端可见），绝不返回空报告伪装成功
-        let err = scan_library("Z:/definitely/missing/dir".to_string(), true);
+        let err = block(scan_library("Z:/definitely/missing/dir".to_string(), true));
         assert!(err.is_err(), "不存在的目录必须报错");
 
         let _ = std::fs::remove_dir_all(&base);
@@ -569,7 +581,7 @@ mod tests {
         std::fs::write(base.join("b.flac"), b"dup-content").unwrap();
         std::fs::write(base.join("unique.flac"), b"unique").unwrap();
 
-        let v = dedupe_scan(base.to_string_lossy().into_owned()).unwrap();
+        let v = block(dedupe_scan(base.to_string_lossy().into_owned())).unwrap();
         let groups = v["groups"].as_array().unwrap();
         assert_eq!(groups.len(), 1, "应恰 1 个 exact 组: {v}");
         assert_eq!(groups[0]["all"].as_array().unwrap().len(), 2);

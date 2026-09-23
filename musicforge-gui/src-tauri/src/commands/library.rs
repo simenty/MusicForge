@@ -35,28 +35,45 @@ pub struct InputPair {
 /// 拖拽/选择的路径 → 过滤出 .ncm 文件（大小写不敏感；目录按 recursive 递归）。
 /// 返回 (path, root) 对——root 必须随行返回，前端 start_batch 原样回传。
 #[tauri::command]
-pub fn collect_files(inputs: Vec<String>, recursive: bool) -> Vec<InputPair> {
-    let paths: Vec<PathBuf> = inputs.iter().map(PathBuf::from).collect();
-    musicforge_cli::collect_inputs(&paths, recursive)
-        .into_iter()
-        .map(|(p, root)| InputPair {
-            path: p.to_string_lossy().into_owned(),
-            root: root.map(|r| r.to_string_lossy().into_owned()),
-        })
-        .collect()
+pub async fn collect_files(inputs: Vec<String>, recursive: bool) -> Vec<InputPair> {
+    // B10：拖放一整个音乐目录时会递归遍历上万条目——与 scan 同类的磁盘遍历，
+    // 必须在阻塞池执行，不能占 UI 主线程。
+    //
+    // 返回类型保持 `Vec`（非 Result）以维持既有 IPC 契约；`spawn_blocking` 的
+    // JoinError 只在异步运行时关闭时发生，此时退化为空集并交由上层提示。
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths: Vec<PathBuf> = inputs.iter().map(PathBuf::from).collect();
+        musicforge_cli::collect_inputs(&paths, recursive)
+            .into_iter()
+            .map(|(p, root)| InputPair {
+                path: p.to_string_lossy().into_owned(),
+                root: root.map(|r| r.to_string_lossy().into_owned()),
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    .unwrap_or_default()
 }
 
 /// 计划预览（dry-run 的前端形态）：只规划不执行，返回 [源 → 目标] 列表。
 /// 与 run_inner 共用 plan_one——预览与执行不可能分叉。
 #[tauri::command]
-pub fn plan_batch(args: BatchArgs) -> Result<Vec<serde_json::Value>, String> {
-    let inputs: Vec<PathBuf> = args.inputs.iter().map(|p| PathBuf::from(&p.path)).collect();
-    Ok(musicforge_cli::plan_only(
-        &inputs,
-        args.recursive,
-        &args.template,
-        args.out_dir.as_deref().map(Path::new),
-    )
+pub async fn plan_batch(args: BatchArgs) -> Result<Vec<serde_json::Value>, String> {
+    // B10：同上——`recursive` 会展开目录，属磁盘遍历。
+    let rows = tauri::async_runtime::spawn_blocking(move || {
+        let inputs: Vec<PathBuf> = args.inputs.iter().map(|p| PathBuf::from(&p.path)).collect();
+        Ok::<_, String>(
+            musicforge_cli::plan_only(
+                &inputs,
+                args.recursive,
+                &args.template,
+                args.out_dir.as_deref().map(Path::new),
+            ),
+        )
+    })
+    .await
+    .map_err(|e| format!("任务执行失败：{e}"))??;
+    Ok(rows
     .into_iter()
     .map(|i| {
         serde_json::json!({
@@ -81,18 +98,30 @@ pub fn plan_batch(args: BatchArgs) -> Result<Vec<serde_json::Value>, String> {
 /// - 二次刷新：size+mtime 命中的文件零读取（成本只剩元数据遍历）；
 /// - 唯一写入 = 状态库（可再生缓存），音乐文件只读。
 #[tauri::command]
-pub fn refresh_library(dir: String, state_db: Option<String>) -> Result<serde_json::Value, String> {
+pub async fn refresh_library(
+    dir: String,
+    state_db: Option<String>,
+) -> Result<serde_json::Value, String> {
     let db_path = match state_db.as_deref().map(str::trim) {
         Some(p) if !p.is_empty() => std::path::PathBuf::from(p),
         _ => musicforge_core::db::local_config_dir().join("library.db"),
     };
-    let db = musicforge_core::db::Db::open(&db_path).map_err(|e| e.to_string())?;
-    let r = musicforge_core::scan::refresh_library(
-        &db,
-        std::path::Path::new(&dir),
-        &musicforge_core::scan::ScanOptions::default(),
-    )
-    .map_err(|e| e.to_string())?;
+    // B10：全目录遍历 + 元数据读取 + 状态库写入是秒级~分钟级**阻塞**任务。
+    // 同步 `#[tauri::command]` 由 Tauri 在 **UI 主线程**执行 → 窗口冻结、
+    // 无法取消。改 async 并把阻塞段丢进阻塞池（与 `cue_split` 同范式）。
+    let task_dir = dir.clone();
+    let task_db = db_path.clone();
+    let r = tauri::async_runtime::spawn_blocking(move || {
+        let db = musicforge_core::db::Db::open(&task_db).map_err(|e| e.to_string())?;
+        musicforge_core::scan::refresh_library(
+            &db,
+            std::path::Path::new(&task_dir),
+            &musicforge_core::scan::ScanOptions::default(),
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("任务执行失败：{e}"))??;
     Ok(serde_json::json!({
         "dir": dir,
         "dbPath": db_path.display().to_string(),
@@ -108,15 +137,21 @@ pub fn refresh_library(dir: String, state_db: Option<String>) -> Result<serde_js
 /// 模板预览：给定模板 + 示例元数据 → 返回渲染后的文件名
 /// 预览与真实执行共用同一渲染器（P4 语义）——预览所见即所得。
 #[tauri::command]
-pub fn scan_library(dir: String, recursive: bool) -> Result<serde_json::Value, String> {
-    let report = musicforge_core::scan::scan_library(
-        Path::new(&dir),
-        &musicforge_core::scan::ScanOptions {
-            recursive,
-            ..Default::default()
-        },
-    )
-    .map_err(|e| e.to_string())?;
+pub async fn scan_library(dir: String, recursive: bool) -> Result<serde_json::Value, String> {
+    // B10：同 `refresh_library`——递归目录遍历必须离开 UI 主线程。
+    let task_dir = dir.clone();
+    let report = tauri::async_runtime::spawn_blocking(move || {
+        musicforge_core::scan::scan_library(
+            Path::new(&task_dir),
+            &musicforge_core::scan::ScanOptions {
+                recursive,
+                ..Default::default()
+            },
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("任务执行失败：{e}"))??;
     Ok(serde_json::json!({
         "dir": dir,
         "scannedFiles": report.scanned_files,
@@ -158,14 +193,20 @@ pub fn scan_library(dir: String, recursive: bool) -> Result<serde_json::Value, S
 /// 由前端高亮，「人工改选」由前端 radio 完成（改选结果经 `dedupe_apply`
 /// 提交，服务端强校验）。
 #[tauri::command]
-pub fn dedupe_scan(dir: String) -> Result<serde_json::Value, String> {
-    use musicforge_core::dedupe::{dedupe_scan, DedupeOptions};
-    let report = dedupe_scan(
-        Path::new(&dir),
-        &DedupeOptions::default(),
-        None, // GUI 扫描不接状态库（哈希即时计算；CLI 大库场景才用缓存）
-    )
-    .map_err(|e| e.to_string())?;
+pub async fn dedupe_scan(dir: String) -> Result<serde_json::Value, String> {
+    use musicforge_core::dedupe::{dedupe_scan as scan_duplicates, DedupeOptions};
+    // B10：去重扫描对候选文件做**全量 SHA256**（最慢的一个），必须在阻塞池跑。
+    let task_dir = dir.clone();
+    let report = tauri::async_runtime::spawn_blocking(move || {
+        scan_duplicates(
+            Path::new(&task_dir),
+            &DedupeOptions::default(),
+            None, // GUI 扫描不接状态库（哈希即时计算；CLI 大库场景才用缓存）
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("任务执行失败：{e}"))??;
     let groups: Vec<serde_json::Value> = report
         .groups
         .iter()

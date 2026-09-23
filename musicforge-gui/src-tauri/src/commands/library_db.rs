@@ -260,21 +260,26 @@ pub fn sources_remove(id: i64) -> Result<serde_json::Value, String> {
 
 /// 对已登记媒体源构建/刷新索引（扫描 → 读标签 → 入库 → 清理陈旧行）。
 #[tauri::command]
-pub fn index_source(source_id: i64) -> Result<serde_json::Value, String> {
-    let db = open_db()?;
-    let src = db
-        .list_sources()
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .find(|s| s.id == source_id)
-        .ok_or_else(|| format!("媒体源 {source_id} 不存在"))?;
-    let out = musicforge_core::library::index_library(
-        &db,
-        source_id,
-        std::path::Path::new(&src.path),
-        &musicforge_core::scan::ScanOptions::default(),
-    )
-    .map_err(|e| e.to_string())?;
+pub async fn index_source(source_id: i64) -> Result<serde_json::Value, String> {
+    // B10：扫描 + 读标签 + 批量入库是分钟级阻塞任务 → 走阻塞池，不占 UI 主线程。
+    let out = tauri::async_runtime::spawn_blocking(move || {
+        let db = open_db()?;
+        let src = db
+            .list_sources()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|s| s.id == source_id)
+            .ok_or_else(|| format!("媒体源 {source_id} 不存在"))?;
+        musicforge_core::library::index_library(
+            &db,
+            source_id,
+            std::path::Path::new(&src.path),
+            &musicforge_core::scan::ScanOptions::default(),
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("任务执行失败：{e}"))??;
     Ok(outcome_json(&out))
 }
 
@@ -413,21 +418,27 @@ pub fn recent_plays(limit: Option<i64>) -> Result<Vec<serde_json::Value>, String
 
 /// 添加媒体源并立即索引（首次向导一键完成）。
 #[tauri::command]
-pub fn sources_add_and_index(
+pub async fn sources_add_and_index(
     path: String,
     label: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let db = open_db()?;
-    let p = path.trim().to_string();
-    let id = db
-        .upsert_source(&p, label.as_deref())
+    // B10：首启向导「添加源并立即索引」= 一次完整索引，必须离开 UI 主线程。
+    let (id, out) = tauri::async_runtime::spawn_blocking(move || {
+        let db = open_db()?;
+        let p = path.trim().to_string();
+        let id = db
+            .upsert_source(&p, label.as_deref())
+            .map_err(|e| e.to_string())?;
+        let out = musicforge_core::library::index_library(
+            &db,
+            id,
+            std::path::Path::new(&p),
+            &musicforge_core::scan::ScanOptions::default(),
+        )
         .map_err(|e| e.to_string())?;
-    let out = musicforge_core::library::index_library(
-        &db,
-        id,
-        std::path::Path::new(&p),
-        &musicforge_core::scan::ScanOptions::default(),
-    )
-    .map_err(|e| e.to_string())?;
+        Ok::<_, String>((id, out))
+    })
+    .await
+    .map_err(|e| format!("任务执行失败：{e}"))??;
     Ok(serde_json::json!({ "id": id, "outcome": outcome_json(&out) }))
 }
