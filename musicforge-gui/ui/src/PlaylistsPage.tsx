@@ -20,6 +20,7 @@ import ConfirmDialog from "./ConfirmDialog";
 import TrackRow from "./TrackRow";
 import SelectionBar from "./SelectionBar";
 import { useSelection } from "./hooks/useSelection";
+import { useRequestGuard } from "./hooks/useRequestGuard";
 import { useLang } from "./i18n";
 import { assetUrl } from "./lib/asset";
 import { IconList, IconPlus } from "./icons";
@@ -73,14 +74,26 @@ export default function PlaylistsPage({
   }, []);
   useEffect(() => reload(), [reload]);
 
-  const openList = useCallback((p: Playlist) => {
-    setOpen(p);
-    setItems(null);
-    setErr(null);
-    playlistTracks(p.id)
-      .then(setItems)
-      .catch(() => setItems([]));
-  }, []);
+  /** stale response 守卫：连点不同歌单时，先发但**晚到**的请求不得覆盖后发的结果 */
+  const itemsGuard = useRequestGuard();
+
+  const openList = useCallback(
+    (p: Playlist) => {
+      setOpen(p);
+      setItems(null);
+      setErr(null);
+      itemsGuard.bump();
+      const token = itemsGuard.token();
+      playlistTracks(p.id)
+        .then((rows) => {
+          if (!itemsGuard.isStale(token)) setItems(rows);
+        })
+        .catch(() => {
+          if (!itemsGuard.isStale(token)) setItems([]);
+        });
+    },
+    [itemsGuard]
+  );
 
   // P6.14 搜索跳转：列表就绪后进入命中歌单（ref 标记已消费，避免反复重拉）
   const consumedFocus = useRef<number | null>(null);
@@ -91,10 +104,16 @@ export default function PlaylistsPage({
     consumedFocus.current = focusId;
     setOpen(hit);
     setItems(null);
+    itemsGuard.bump();
+    const token = itemsGuard.token();
     void playlistTracks(hit.id)
-      .then(setItems)
-      .catch(() => setItems([]));
-  }, [focusId, lists]);
+      .then((rows) => {
+        if (!itemsGuard.isStale(token)) setItems(rows);
+      })
+      .catch(() => {
+        if (!itemsGuard.isStale(token)) setItems([]);
+      });
+  }, [focusId, lists, itemsGuard]);
 
   if (!IS_DESKTOP) {
     return (
@@ -136,7 +155,7 @@ export default function PlaylistsPage({
     }
   };
 
-  /** 拖拽落位：本地乐观重排 + 后端持久化（失败仅提示，刷新即回到真相） */
+  /** 拖拽落位：本地乐观重排 + 后端持久化（失败**回滚**并提示） */
   const moveTo = async (toIdx: number) => {
     if (!open || dragIdx === null || !items || dragIdx === toIdx) {
       setDragIdx(null);
@@ -152,6 +171,9 @@ export default function PlaylistsPage({
       await playlistMove(open.id, moved.id, toIdx);
     } catch (e) {
       setErr(String(e));
+      // 回滚（与 useLiked.toggle 同范式）：原实现失败只提示不回滚，
+      // 前端顺序会与后端持续不一致，直到用户重进页面才纠正。
+      setItems(items);
     }
   };
 

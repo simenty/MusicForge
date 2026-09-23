@@ -13,6 +13,7 @@ import { useSelection } from "./hooks/useSelection";
 import SortControl from "./SortControl";
 import FilterInput from "./FilterInput";
 import { useSort } from "./hooks/useSort";
+import { useRequestGuard } from "./hooks/useRequestGuard";
 import ConfirmDialog from "./ConfirmDialog";
 
 export default function FavoritesPage({
@@ -42,13 +43,24 @@ export default function FavoritesPage({
     return () => window.clearTimeout(id);
   }, [rawQuery]);
 
+  /** stale response 守卫：连续改排序/筛选词时，旧响应不得覆写新结果 */
+  const reloadGuard = useRequestGuard();
+
   const reload = useCallback(() => {
     if (!IS_DESKTOP) return;
+    const token = reloadGuard.token();
     likedTracks(500, 0, sort, filter || undefined)
-      .then(setRows)
-      .catch(() => setRows([]));
-  }, [sort, filter]);
-  useEffect(() => reload(), [reload]);
+      .then((rows) => {
+        if (!reloadGuard.isStale(token)) setRows(rows);
+      })
+      .catch(() => {
+        if (!reloadGuard.isStale(token)) setRows([]);
+      });
+  }, [sort, filter, reloadGuard]);
+  useEffect(() => {
+    reloadGuard.bump(); // 参数已变 → 作废旧代（须在 reload 取令牌之前）
+    reload();
+  }, [reload, reloadGuard]);
 
   if (!IS_DESKTOP) {
     return (

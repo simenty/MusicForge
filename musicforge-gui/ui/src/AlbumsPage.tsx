@@ -19,6 +19,7 @@ import { useSelection } from "./hooks/useSelection";
 import SortControl from "./SortControl";
 import FilterInput from "./FilterInput";
 import { useSort } from "./hooks/useSort";
+import { useRequestGuard } from "./hooks/useRequestGuard";
 import { sortTracks } from "./lib/sortTracks";
 import { filterAlbums, filterTracks } from "./lib/filterTracks";
 import AddToPlaylistDialog from "./AddToPlaylistDialog";
@@ -64,13 +65,22 @@ export default function AlbumsPage({
       .catch(() => setRows([]));
   }, []);
 
+  /** stale response 守卫：连点不同专辑时，先发但**晚到**的请求不得覆盖后发的结果 */
+  const tracksGuard = useRequestGuard();
+
   const openAlbum = (a: Album) => {
     setSel(a);
     setTracks(null);
     setErr(null);
+    tracksGuard.bump();
+    const token = tracksGuard.token();
     albumTracks(a.id)
-      .then(setTracks)
-      .catch(() => setTracks([]));
+      .then((rows) => {
+        if (!tracksGuard.isStale(token)) setTracks(rows);
+      })
+      .catch(() => {
+        if (!tracksGuard.isStale(token)) setTracks([]);
+      });
   };
 
   // P6.14 搜索跳转：列表就绪后展开命中专辑（ref 标记已消费，避免反复重拉）
@@ -82,10 +92,16 @@ export default function AlbumsPage({
     consumedFocus.current = focusId;
     setSel(hit);
     setTracks(null);
+    tracksGuard.bump();
+    const token = tracksGuard.token();
     void albumTracks(hit.id)
-      .then(setTracks)
-      .catch(() => setTracks([]));
-  }, [focusId, rows]);
+      .then((rows) => {
+        if (!tracksGuard.isStale(token)) setTracks(rows);
+      })
+      .catch(() => {
+        if (!tracksGuard.isStale(token)) setTracks([]);
+      });
+  }, [focusId, rows, tracksGuard]);
 
   if (!IS_DESKTOP) {
     return (

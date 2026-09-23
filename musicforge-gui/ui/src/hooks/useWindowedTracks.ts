@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listTracks } from "../api";
 import type { Track, TrackSortField } from "../lib/types";
+import { useRequestGuard } from "./useRequestGuard";
 
 /** 行高（必须与 styles.css 的 `.vt-row` height 一致） */
 export const TRACK_ROW_H = 44;
@@ -48,6 +49,8 @@ export function useWindowedTracks(
   const [, setTick] = useState(0);
   const pages = useRef(new Map<number, Track[]>());
   const inflight = useRef(new Set<number>());
+  /** stale response 守卫：IPC 不保证响应顺序，旧条件的页不得写入新缓存 */
+  const guard = useRequestGuard();
 
   const reset = useCallback((n: number) => {
     pages.current.clear();
@@ -71,8 +74,10 @@ export function useWindowedTracks(
   useEffect(() => {
     pages.current.clear();
     inflight.current.clear();
+    // 作废旧代：仍在飞行的旧 sort/query 请求返回后不得写入刚清空的新缓存
+    guard.bump();
     setTick((v) => v + 1);
-  }, [sort, query]);
+  }, [sort, query, guard]);
 
   useEffect(() => {
     if (total <= 0 || end < start) return;
@@ -81,8 +86,10 @@ export function useWindowedTracks(
     for (let p = p0; p <= p1; p++) {
       if (pages.current.has(p) || inflight.current.has(p)) continue;
       inflight.current.add(p);
+      const token = guard.token();
       listTracks(pageSize, p * pageSize, sort, query)
         .then((rows) => {
+          if (guard.isStale(token)) return; // 旧代际/已卸载 → 丢弃
           pages.current.set(p, rows);
         })
         .catch(() => {
@@ -90,10 +97,10 @@ export function useWindowedTracks(
         })
         .finally(() => {
           inflight.current.delete(p);
-          setTick((v) => v + 1);
+          if (guard.isMounted()) setTick((v) => v + 1);
         });
     }
-  }, [start, end, total, pageSize, sort, query]);
+  }, [start, end, total, pageSize, sort, query, guard]);
 
   const rowAt = useCallback(
     (i: number): Track | undefined => pages.current.get(Math.floor(i / pageSize))?.[i % pageSize],

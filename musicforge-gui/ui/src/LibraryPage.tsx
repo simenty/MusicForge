@@ -15,6 +15,7 @@ import AddToPlaylistDialog from "./AddToPlaylistDialog";
 import ConfirmDialog from "./ConfirmDialog";
 import SortControl from "./SortControl";
 import { useSort } from "./hooks/useSort";
+import { useRequestGuard } from "./hooks/useRequestGuard";
 
 export default function LibraryPage({
   onPlay,
@@ -64,16 +65,26 @@ export default function LibraryPage({
   // P6.28：无筛选时**复用已拉取的全局统计**（`libraryStats` 已经在取曲目总数），
   // 不再额外发一次全表 COUNT——两个数据源指同一个数字，重复取既多一次查询、
   // 也可能在扫描进行中时给出与头部统计不一致的行数。
+  // stale response 守卫：连续改筛选词时，旧计数的响应**不得**覆写新计数——
+  // 虚拟化行数一旦与真实结果集错位，就会出现空白行或漏数据。
+  const countGuard = useRequestGuard();
   useEffect(() => {
     if (!IS_DESKTOP) return;
     if (!filter) {
       if (stats) reset(stats.tracks);
+      countGuard.bump();
       return;
     }
+    countGuard.bump();
+    const token = countGuard.token();
     countTracks(filter)
-      .then(reset)
-      .catch(() => reset(0));
-  }, [filter, stats, reset]);
+      .then((n) => {
+        if (!countGuard.isStale(token)) reset(n);
+      })
+      .catch(() => {
+        if (!countGuard.isStale(token)) reset(0);
+      });
+  }, [filter, stats, reset, countGuard]);
 
   const playFrom = useCallback(
     (tr: Track) => {

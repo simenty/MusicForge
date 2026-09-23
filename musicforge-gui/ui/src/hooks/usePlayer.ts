@@ -69,6 +69,9 @@ export interface PlayerApi {
 export function usePlayer(): PlayerApi {
   const [status, setStatus] = useState<PlayerSnapshot | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
+  // 队列旧值镜像（乐观更新失败回滚需要；与下方 statusRef 同写法）
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
   const alive = useRef(true);
   const volTimer = useRef<number | null>(null);
 
@@ -179,29 +182,38 @@ export function usePlayer(): PlayerApi {
 
   // P6.15 队列编辑：前端副本与引擎同步重排；两端 splice 算法一致（to>from → 前移一格），
   // 故引擎侧「正在播放的曲目」保持当前项、进度不中断。
-  const queueMove = useCallback(
-    async (from: number, to: number) => {
-      const items = [...queue];
-      if (
-        to < 0 ||
-        to >= items.length ||
-        from < 0 ||
-        from >= items.length ||
-        from === to
-      ) {
-        return;
-      }
-      const [m] = items.splice(from, 1);
-      items.splice(to > from ? to - 1 : to, 0, m);
-      setQueue(items);
+  const queueMove = useCallback(async (from: number, to: number) => {
+    const items = [...queueRef.current];
+    if (
+      to < 0 ||
+      to >= items.length ||
+      from < 0 ||
+      from >= items.length ||
+      from === to
+    ) {
+      return;
+    }
+    const [m] = items.splice(from, 1);
+    items.splice(to > from ? to - 1 : to, 0, m);
+    const prev = queueRef.current;
+    setQueue(items);
+    try {
       await playerQueueMove(from, to);
-    },
-    [queue],
-  );
+    } catch {
+      // 乐观更新失败必须回滚（与 `useLiked.toggle` 同范式）：否则前端队列与
+      // 引擎队列**永久失同步**——用户看到的顺序是假的，且没有任何提示。
+      setQueue(prev);
+    }
+  }, []);
 
   const queueRemove = useCallback(async (index: number) => {
+    const prev = queueRef.current;
     setQueue((q) => q.filter((_, i) => i !== index));
-    await playerQueueRemove(index);
+    try {
+      await playerQueueRemove(index);
+    } catch {
+      setQueue(prev); // 同上：失败回滚
+    }
   }, []);
 
   // P6.16 加入队列：前端副本追加 + 引擎队尾追加（两端都 append，保持同步）。
