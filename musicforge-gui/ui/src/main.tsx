@@ -6,11 +6,15 @@ import App from "./App";
 //   应用一直是「无样式」运行的，而「进程活着」类验证查不出来。）
 import "./styles.css";
 import { I18nProvider } from "./i18n";
+// 根错误边界：兜住 App 内所有分区边界之外的渲染异常（否则整页白屏）
+import RootBoundary from "./RootBoundary";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <I18nProvider>
-      <App />
+      <RootBoundary>
+        <App />
+      </RootBoundary>
     </I18nProvider>
   </React.StrictMode>
 );

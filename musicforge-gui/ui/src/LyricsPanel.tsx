@@ -59,7 +59,15 @@ export default function LyricsPanel({
       setOffset(0);
       return;
     }
-    const n = Number(localStorage.getItem(offKey(trackId)));
+    // localStorage 在极少数 WebView2 配置下被禁用（项目其它持久化处均已包
+    // try/catch，见 settings.ts / lib/session.ts）。本面板位于**所有错误边界
+    // 之外**，异常一旦冒出就是整页白屏——读不到按 0 处理即可。
+    let n = 0;
+    try {
+      n = Number(localStorage.getItem(offKey(trackId)));
+    } catch {
+      n = 0;
+    }
     setOffset(Number.isFinite(n) ? n : 0);
   }, [trackId]);
 
@@ -74,12 +82,24 @@ export default function LyricsPanel({
   const applyOffset = (delta: number) => {
     const next = offset + delta;
     setOffset(next);
-    if (trackId !== null) localStorage.setItem(offKey(trackId), String(next));
+    if (trackId !== null) {
+      try {
+        localStorage.setItem(offKey(trackId), String(next));
+      } catch {
+        /* 存储不可用：偏移量是装饰能力，不影响播放，静默降级 */
+      }
+    }
   };
 
   const resetOffset = () => {
     setOffset(0);
-    if (trackId !== null) localStorage.removeItem(offKey(trackId));
+    if (trackId !== null) {
+      try {
+        localStorage.removeItem(offKey(trackId));
+      } catch {
+        /* 同上：存储不可用不影响播放 */
+      }
+    }
   };
 
   // 自动滚动：当前行进视野中部

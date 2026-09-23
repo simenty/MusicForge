@@ -138,9 +138,18 @@ pub fn parse_blob(blob: &[u8]) -> Result<Header, NcmError> {
     need(o, 4, "coverLen2")?;
     let cover_len2 = u32le(&blob[o as usize..o as usize + 4]) as u64;
     o += 4;
+    // B18：原先「记录但不硬失败」是错的。下面 `o += cover_len1` 在 L1 < L2 时
+    // 前进量**小于**已消费的封面字节数（封面实际取 L2 字节），于是 audio_offset
+    // 落进**封面数据区**；而 CRC 只覆盖到 crc_pos（在封面之前）照样通过 →
+    // 解码器把封面字节当加密音频，**产出损坏音频却返回 Ok**。
+    // L2 ≤ L1 是格式不变式（L2 = 图片长度，L1 = 图片 + padding），反例即畸形
+    // 文件，必须显式失败（硬约束 9：绝不静默产出损坏数据）。
     if cover_len2 > cover_len1 {
-        // 观测恒等；出现反例则记录（前向兼容），不做硬失败
-        // （Go 版多出的 Seek(L1-L2) 在 L1<L2 时求负偏移会被本库上界校验拦截——修 F5）
+        return Err(NcmError::LengthOutOfRange {
+            at: "coverLen1",
+            value: cover_len1,
+            max: cover_len2,
+        });
     }
     if o + cover_len2 > file_len {
         return Err(NcmError::LengthOutOfRange {
@@ -235,7 +244,18 @@ pub fn parse_stream<R: Read + Seek>(reader: &mut R) -> Result<Header, NcmError> 
     if cover_len2 > 0 {
         reader.read_exact(&mut cover)?;
     }
-    let skip = cover_len1.wrapping_sub(cover_len2);
+    // B18：`cover_len1/2` 是 usize（64 位），L1 < L2 时 `wrapping_sub` 得到
+    // 2^64-(L2-L1)，`as i64` 变成**负偏移** → 回退进封面数据区。此时
+    // audio_offset 既不大于 file_len、也不等于 file_len，下方两道守卫
+    // （245/252）都拦不住，CRC 也照过 → 静默产出损坏音频。必须在 seek 前拒绝。
+    if cover_len2 > cover_len1 {
+        return Err(NcmError::LengthOutOfRange {
+            at: "coverLen1",
+            value: cover_len1 as u64,
+            max: cover_len2 as u64,
+        });
+    }
+    let skip = cover_len1.saturating_sub(cover_len2);
     reader.seek(SeekFrom::Current(skip as i64))?;
 
     // CRC 校验：回读 [0, 当前 audio_offset)
@@ -298,4 +318,115 @@ pub fn parse_stream<R: Read + Seek>(reader: &mut R) -> Result<Header, NcmError> 
         audio_offset,
         audio_len,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    /// 测试用 AES-128-ECB **加密** + PKCS7（本模块只提供解密；造样本需要反向操作）。
+    fn aes_enc(key: &[u8; 16], data: &[u8]) -> Vec<u8> {
+        use aes::cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit};
+        use aes::Aes128;
+        let pad = 16 - (data.len() % 16);
+        let mut buf = data.to_vec();
+        buf.extend(vec![pad as u8; pad]);
+        let cipher = Aes128::new(GenericArray::from_slice(key));
+        for chunk in buf.as_chunks_mut::<16>().0 {
+            cipher.encrypt_block(GenericArray::from_mut_slice(chunk));
+        }
+        buf
+    }
+
+    /// 构造一个能通过 CRC 与密钥校验的最小 NCM 头（meta 段留空）。
+    fn build_blob(cover_len1: u32, cover_len2: u32) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(&MAGIC);
+        b.extend_from_slice(&[0x01, 0x70]); // version/gap（不校验）
+        // 密钥块
+        let rc4_key: Vec<u8> = (0..16u8).map(|i| i.wrapping_mul(7).wrapping_add(3)).collect();
+        let mut key_plain = NETEASE_PREFIX.to_vec();
+        key_plain.extend_from_slice(&rc4_key);
+        let enc = aes_enc(&CORE_KEY, &key_plain);
+        b.extend_from_slice(&(enc.len() as u32).to_le_bytes());
+        b.extend(enc.iter().map(|x| x ^ 0x64));
+        // 元数据段（空 → metadata = None）
+        b.extend_from_slice(&0u32.to_le_bytes());
+        // CRC（覆盖 [0, 此处偏移)）
+        let crc_pos = b.len();
+        b.extend_from_slice(&0u32.to_le_bytes());
+        let crc = crc32fast::hash(&b[..crc_pos]);
+        b[crc_pos..crc_pos + 4].copy_from_slice(&crc.to_le_bytes());
+        // 封面帧
+        b.push(0x01);
+        b.extend_from_slice(&cover_len1.to_le_bytes());
+        b.extend_from_slice(&cover_len2.to_le_bytes());
+        for i in 0..cover_len2 {
+            b.push((i % 251) as u8);
+        }
+        // padding（L1 - L2 字节）
+        let pad = cover_len1.saturating_sub(cover_len2) as usize;
+        b.resize(b.len() + pad, 0);
+        // 音频区
+        b.extend_from_slice(&[0xAAu8; 32]);
+        b
+    }
+
+    /// 对照：L1 == L2（正常文件）必须解析成功，且音频起点落在音频区。
+    #[test]
+    fn equal_cover_lengths_parse_normally() {
+        let b = build_blob(32, 32);
+        let h = parse_blob(&b).expect("合法头应解析成功");
+        assert_eq!(h.cover.len(), 32);
+        assert_eq!(
+            h.audio_offset as usize,
+            b.len() - 32,
+            "音频起点必须落在音频区（而非封面区）"
+        );
+    }
+
+    /// **B18 回归**：L2 > L1 必须显式失败。
+    ///
+    /// 修复前 `o += cover_len1` 的前进量小于已消费的封面字节（封面实取 L2 字节），
+    /// audio_offset 落进**封面数据区**；而 CRC 只覆盖到封面之前照样通过 →
+    /// 解码器把封面字节当加密音频，**产出损坏音频却返回 Ok**。
+    #[test]
+    fn cover_len2_greater_than_cover_len1_is_rejected() {
+        let b = build_blob(8, 64);
+        // 用 `.err()` 而非 `expect_err`：后者要求 Ok 侧实现 Debug（Header 没有）
+        let e = parse_blob(&b)
+            .err()
+            .expect("L2 > L1 是畸形头，必须显式失败");
+        assert!(
+            matches!(e, NcmError::LengthOutOfRange { .. }),
+            "应是长度越界错误，实际: {e}"
+        );
+    }
+
+    /// **B18 回归（流式路径）**：`wrapping_sub` 在 L1 < L2 时得到 2^64-(L2-L1)，
+    /// `as i64` 变成**负偏移** → 回退进封面区，而两道守卫（> / == file_len）都拦不住。
+    #[test]
+    fn parse_stream_rejects_negative_cover_skip() {
+        let b = build_blob(8, 64);
+        let mut cur = Cursor::new(b);
+        let e = parse_stream(&mut cur)
+            .err()
+            .expect("流式路径同样必须拒绝负偏移");
+        assert!(
+            matches!(e, NcmError::LengthOutOfRange { .. }),
+            "应是长度越界错误，实际: {e}"
+        );
+    }
+
+    /// 对照：流式路径在 L1 == L2 时正常工作（确认修复没有误伤）。
+    #[test]
+    fn parse_stream_equal_cover_lengths_ok() {
+        let b = build_blob(16, 16);
+        let total = b.len();
+        let mut cur = Cursor::new(b);
+        let h = parse_stream(&mut cur).expect("合法头应解析成功");
+        assert_eq!(h.cover.len(), 16);
+        assert_eq!(h.audio_offset as usize, total - 32);
+    }
 }
