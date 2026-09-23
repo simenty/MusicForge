@@ -90,6 +90,68 @@ fn root_shim() -> std::path::PathBuf {
     p
 }
 
+/// **B13 回归**：声明三禁位权限（`delete_source_file` / `move_source_file` /
+/// `upload_audio`）的插件必须在**加载路径**被拒。
+///
+/// 此前 `permissions.has_forbidden()` 全仓**只被测试调用**，生产加载从未检查 →
+/// 写在 PLUGIN_POLICY.md / threat-model.md 的「三禁位 ⇒ 拒载」从未生效。
+#[test]
+fn forbidden_permissions_are_rejected_on_load() {
+    let shim = forbidden_shim();
+    let err = PluginProcess::spawn(shim.as_path(), ">=1,<2", &wd()).unwrap_err();
+    assert!(
+        matches!(err, PluginHostError::Handshake(_)),
+        "三禁位插件必须在握手阶段被拒: {err}"
+    );
+    assert!(
+        format!("{err}").contains("被禁权限"),
+        "错误信息必须点明原因: {err}"
+    );
+}
+
+/// **B16 回归**：主产物 `output_path` 的出站边界判定。
+///
+/// 此前 `format_migrate` 只校验 `artifacts`，主产物**原样返回**给调用方——
+/// 插件可回任意绝对路径（X41 出站边界形同虚设）。
+#[test]
+fn output_path_egress_boundary() {
+    use musicforge_plugin_host::PluginProcess;
+    let wd = wd();
+    let inside = wd.join("output");
+    std::fs::write(&inside, b"x").unwrap();
+    // ① 目录内已存在的产物 → 放行
+    assert!(PluginProcess::output_within_work_dir(&inside, &wd));
+    // ② 目录外（绝对路径）→ 拒绝
+    let outside = std::env::temp_dir().join("mf-e2e-outside.txt");
+    std::fs::write(&outside, b"x").unwrap();
+    assert!(!PluginProcess::output_within_work_dir(&outside, &wd));
+    // ③ 目录内但尚未落盘（无法 canonicalize）→ 仍放行（合法：Host 会先建目录）
+    assert!(PluginProcess::output_within_work_dir(
+        &wd.join("not-yet.flac"),
+        &wd
+    ));
+    // ④ 无法 canonicalize 且含 `..` → **必须拒绝**
+    //    （词法 starts_with 对 `wd/../evil` 恰好会放行，是本函数最容易写错的一处）
+    assert!(!PluginProcess::output_within_work_dir(
+        &wd.join("..").join("evil.flac"),
+        &wd
+    ));
+}
+
+/// 平台无关 shim：注入 MOCK_FORBIDDEN=1 后转发到 mock 二进制。
+#[cfg(windows)]
+fn forbidden_shim() -> std::path::PathBuf {
+    write_shim(".cmd", "@echo off\r\nset MOCK_FORBIDDEN=1\r\n")
+}
+
+#[cfg(not(windows))]
+fn forbidden_shim() -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let p = write_shim(".sh", "#!/bin/sh\nexport MOCK_FORBIDDEN=1\n");
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    p
+}
+
 fn write_shim(ext: &str, body: &str) -> std::path::PathBuf {
     use std::sync::atomic::{AtomicU32, Ordering};
     static SEQ: AtomicU32 = AtomicU32::new(0);

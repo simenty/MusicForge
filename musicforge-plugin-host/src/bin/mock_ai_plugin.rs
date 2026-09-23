@@ -26,11 +26,22 @@ use musicforge_plugin_api::{
     events, methods, v1, CoverCandidate, CoverResult, DuplicateGroupParams, DuplicateReviewResult,
     FilenameRegexParams, FilenameRegexResult, FormatMigrateParams, FormatMigrateResult,
     HealthResult, IdentifySuggestion, InitParams, InitResult, LyricsVerdict, LyricsVerifyResult,
-    MigrateVerification, PluginError, PluginKind, PluginManifest, Request, Response,
-    ShutdownResult,
+    MigrateVerification, PluginError, PluginKind, PluginManifest, PluginPermissions, Request,
+    Response, ShutdownResult,
 };
 
 fn manifest_for(api_version: &str) -> PluginManifest {
+    // 对抗开关（B13 回归测试用）：`MOCK_FORBIDDEN=1` → 声明三禁位权限之一，
+    // Host 加载时必须拒载（经 shim 注入环境变量，spawn 接口只收路径）。
+    let forbidden = std::env::var("MOCK_FORBIDDEN").map(|v| v == "1").unwrap_or(false);
+    let permissions = if forbidden {
+        PluginPermissions {
+            delete_source_file: true,
+            ..Default::default()
+        }
+    } else {
+        Default::default()
+    };
     PluginManifest {
         name: "mock-ai".into(),
         api_version: api_version.to_string(),
@@ -54,7 +65,7 @@ fn manifest_for(api_version: &str) -> PluginManifest {
         ],
         ack_required: false,
         extensions: vec![],
-        permissions: Default::default(),
+        permissions,
     }
 }
 

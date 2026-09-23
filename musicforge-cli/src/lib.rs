@@ -1179,7 +1179,8 @@ pub mod plugins {
     }
 
     /// 读取单个插件目录的 plugin.json（serde_json 手工解析——默认构建不链接协议 crate）。
-    fn manifest_value(dir: &Path) -> Option<serde_json::Value> {
+    /// B14：桥接层需要在 **spawn 之前**读到清单（判断高风险/ACK），故提升为 pub。
+    pub fn manifest_value(dir: &Path) -> Option<serde_json::Value> {
         let text = std::fs::read_to_string(dir.join("plugin.json")).ok()?;
         let v: serde_json::Value = serde_json::from_str(&text).ok()?;
         v.get("name")?.as_str()?;
@@ -1584,6 +1585,26 @@ pub fn format_migrate(
             "并发插件进程已达上限（2）：请等待运行中的迁移完成后再试".to_string(),
         )
     })?;
+    // B14（稳定审计修复）：ACK 闸**前移**到 spawn 之前。
+    //
+    // 原实现注释写着「ACK 闸先行：未经确认的高风险插件在 spawn 前即拒绝」，但
+    // 实际是在 spawn 之后才取 `p.manifest.ack_required` 再闸——此时插件进程
+    // **已经启动并完成 init 握手**，即未经用户确认的高风险插件也已经执行过一次
+    // 任意代码（注释与实现不符，属安全承诺落空）。
+    //
+    // 改为从白名单目录的 plugin.json 直接读清单做前置判定；读不到（老插件无
+    // plugin.json）时，保留 spawn 后的那道闸作为兜底。
+    if let Some(dir) = exe.parent() {
+        if let Some(v) = plugins::manifest_value(dir) {
+            let ack_required = v
+                .get("ack_required")
+                .and_then(|x| x.as_bool())
+                .unwrap_or(false);
+            let name = v.get("name").and_then(|x| x.as_str()).unwrap_or(plugin);
+            plugins::ack_gate(ack_required, name, &cfg.plugins.acked)?;
+        }
+    }
+
     // P6a-R（v0.1）：work_dir = 插件唯一可写目录（X41 边界）——单文件迁移
     // 无暂存树，用 `<output_dir>/.musicforge/work/<plugin>/` 隔离
     let work_dir = Path::new(output_dir)
@@ -1624,6 +1645,21 @@ pub fn format_migrate(
             p.resolve_artifact(a)
                 .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
         }
+    }
+    // B16（稳定审计修复）：主产物 `output_path` 此前**原样返回**——只校验了
+    // `artifacts`，主产物没有任何出站边界，插件可回任意绝对路径（如 `/etc/x`、
+    // 或用户音乐库其它位置）并由 Host 交给调用方，违反 X41 出站边界
+    // （threat-model.md §出站资源）。要求其必须落在 work_dir 内。
+    if p.protocol == musicforge_plugin_host::ProtocolMode::V1
+        && !musicforge_plugin_host::PluginProcess::output_within_work_dir(
+            std::path::Path::new(&result.output_path),
+            &work_dir,
+        )
+    {
+        return Err(musicforge_core::NcmError::PluginNotFound(format!(
+            "插件返回的主产物路径逃出 work_dir（X41 出站边界）: {}",
+            result.output_path
+        )));
     }
     Ok(result.output_path)
 }

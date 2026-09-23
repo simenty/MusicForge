@@ -375,6 +375,21 @@ impl PluginProcess {
                 return Err(e);
             }
         };
+        // B13（稳定审计修复）：§4.10 三禁位准入**接线**。`permissions.has_forbidden()`
+        // 此前全仓**只被测试调用**，生产加载路径从未检查 →「delete / move / upload
+        // 权限 ⇒ 拒载」这条写在 PLUGIN_POLICY.md、architecture.md、threat-model.md
+        // 的安全承诺从未生效（SECURITY.md 亦将其列在漏洞范围内）。
+        //
+        // 时序限制：走到这里插件**已经执行过**一次（spawn + init 握手），因此本闸
+        // 只能做到「拿到清单立即 kill 并拒绝后续调用」。真正的「执行前拒载」需要
+        // B14（把 ACK / 高风险闸位前移到 spawn 之前）配合。
+        if manifest.permissions.has_forbidden() {
+            proc.kill();
+            return Err(PluginHostError::Handshake(format!(
+                "插件 {} 申请了被禁权限（delete_source_file / move_source_file / upload_audio），已拒绝加载",
+                manifest.name
+            )));
+        }
         Self::note_success(program);
         proc.manifest = manifest;
         Ok(proc)
@@ -622,6 +637,39 @@ impl PluginProcess {
             )));
         }
         Ok(canon)
+    }
+
+    /// B16（稳定审计修复）：主产物 `output_path` 的出站边界判定。
+    ///
+    /// 与 [`Self::resolve_artifact_in`] 同源——规范化后必须落在 `work_dir` 内。
+    /// 抽成可单测形态：`format_migrate` 那条路径需要真实子进程才走得到。
+    ///
+    /// 无法 canonicalize（产物尚未落盘）时退化为词法前缀比较，且**不解析 `..`**
+    /// ——此时消除 `..` 会与真实落点不一致；按 X41，出站判定失败即拒绝（安全默认值）。
+    pub fn output_within_work_dir(out: &Path, work_dir: &Path) -> bool {
+        use std::path::Component;
+        let wd = work_dir
+            .canonicalize()
+            .unwrap_or_else(|_| work_dir.to_path_buf());
+        match out.canonicalize() {
+            Ok(abs) => abs.starts_with(&wd),
+            Err(_) => {
+                // 无法规范化（产物尚未落盘）：退化为词法比较，但
+                // ① **必须拒绝任何含 `..` 的路径**——此时消除 `..` 会与真实落点
+                //    不一致，而词法 `starts_with` 对 `a/b/../evil` 恰好放行
+                //    （前缀匹配到 `b` 即为真）。按 X41，无法确认落点即拒绝。
+                // ② 相对路径按 work_dir 解析成绝对路径再比；
+                // ③ Windows 下 `canonicalize` 返回 `\\?\` 前缀，与未规范化的
+                //    `work_dir` 字面量不等，故两个基准都要比一次。
+                let abs = if out.is_absolute() {
+                    out.to_path_buf()
+                } else {
+                    work_dir.join(out)
+                };
+                !abs.components().any(|c| c == Component::ParentDir)
+                    && (abs.starts_with(&wd) || abs.starts_with(work_dir))
+            }
+        }
     }
 
     /// §4.2：连续崩溃计数（Handshake/Timeout/Protocol/Gone 记一次；成功清零）。
