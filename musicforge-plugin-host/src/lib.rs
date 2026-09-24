@@ -27,6 +27,8 @@ use musicforge_plugin_api::{
 };
 use sha2::{Digest, Sha256};
 
+mod os_sandbox;
+
 // ---------------------------------------------------------------- 限制三件套 --
 
 /// P6a 限制三件套（handover §6.9）：超时 10–30s / 并发 1–2 / 降级完整性。
@@ -211,6 +213,9 @@ impl PluginProcess {
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| PluginHostError::Spawn(e.to_string()))?;
+        // B15（OS 级沙箱）：子进程纳入 Job Object（kill-on-job-close），
+        // 宿主退出即随作业终止，杜绝孤儿/逃逸；失败仅告警、不阻断（非 Windows 空操作）。
+        crate::os_sandbox::attach(child.id());
 
         let stdin = child
             .stdin
