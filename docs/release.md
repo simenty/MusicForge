@@ -91,3 +91,41 @@ Actions → Release (multi-platform) → Run workflow → 填 `version`。
   免签名密钥；自动更新仍以 Windows 先行（见第 0/3 节）
 - Linux 构建依赖：`libwebkit2gtk-4.1-dev`、`libappindicator3-dev`、`librsvg2-dev`、`patchelf`、`libasound2-dev`
 - macOS 正式签名（公证）为后续项
+
+## 7. 来源可验证性（minisign）
+
+`SHA256SUMS.txt` 只防**传输损坏**、不防**篡改**：能替换二进制的人可以同时替换校验和。
+因此两条发布线都对产物做 **minisign（ed25519）签名**——签名与校验和分离，
+校验和本身也被签名覆盖。
+
+**签名范围**（`scripts/sign-artifacts.sh`，幂等、跳过已有 `.minisig`）：
+
+| 发布线 | 签什么 | 何时签 |
+|:--|:--|:--|
+| `release-fpk.yml` | `fpk-out/*`（fpk + `SHA256SUMS-fpk.txt`） | fpk 构建后 |
+| `release-installer.yml` | `assets/*`（全平台安装包 + `SBOM` + **`SHA256SUMS.txt`**） | 展平 + 生成校验和后 |
+
+**用户验证**（拿到 Release 里的 `minisign.pub` 与 `*.minisig`）：
+
+```bash
+# 1) 先确认 SHA256SUMS.txt 本身的签名（防校验和被替换）
+minisign -Vm SHA256SUMS.txt -p minisign.pub
+# 2) 再校验实际下载到的文件
+sha256sum -c SHA256SUMS.txt
+# 单个产物也可单独验：minisign -Vm musicforge-v1.0.0-x86_64-unknown-linux-musl.tar.gz -p minisign.pub
+```
+
+**当前状态（如实标注）**：仓库**尚未提交 `minisign.pub`，也未配置 `MINISIGN_SECRET_KEY`**
+→ 两条线的签名步骤都会打印配置指引并**跳过**，产物未签名但**发布不受影响**
+（脚本 `exit 0`，绝不因签名基础设施缺失拦停交付）。
+
+**启用步骤**（主理人执行，一次性）：
+
+1. `minisign -G`（口令**留空**——CI 无法交互输入；私钥由 GitHub encrypted secret 保管）
+   → 产出 `minisign.key`（私钥，**绝不入库**）与 `minisign.pub`（公钥，可公开）；
+2. 把 `minisign.pub` 提交到**仓库根**（发布流程会自动复制进产物并随 Release 分发）；
+3. GitHub → Settings → Secrets → 新增 `MINISIGN_SECRET_KEY`，值 = `minisign.key` 全文；
+4. 下一个 tag 起，产物自动附 `*.minisig`。
+
+> Windows 安装包的**自动更新签名**是另一套（`TAURI_SIGNING_PRIVATE_KEY`，见第 0/3 节）——
+> 它只服务于 updater 通道，与本节的「下载产物来源可验证」互补，不互相替代。

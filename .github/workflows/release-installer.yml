@@ -396,6 +396,28 @@ jobs:
           sha256sum MusicForge-*.exe *.zip *.tar.gz *.deb *.AppImage *.dmg SBOM.cdx.json > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
+      # P9 / D6：来源可验证性——桌面线此前只签 updater 安装包（TAURI_SIGNING_PRIVATE_KEY），
+      # 而 D26「唯一事实源」SHA256SUMS.txt **未签名**：替换二进制者可一并替换校验和，
+      # 校验和不具备抗篡改能力。复用 fpk 线同一个脚本对 assets/ 全量签名（含 SHA256SUMS.txt）。
+      # 未配置密钥 / 未装 minisign → 脚本跳过并 exit 0，**绝不阻断发布**（与 fpk 线一致）。
+      - name: Sign release artifacts (minisign)
+        shell: bash
+        run: |
+          if [ -n "$MINISIGN_KEY" ]; then
+            printf '%s' "$MINISIGN_KEY" > "$RUNNER_TEMP/minisign.key"
+            chmod 600 "$RUNNER_TEMP/minisign.key"
+            export MINISIGN_SECRET_KEY="$RUNNER_TEMP/minisign.key"
+            # 只在确实有密钥时才装 minisign：未配置密钥的发布不该为此付出 apt 开销
+            command -v minisign >/dev/null 2>&1 || {
+              sudo apt-get update -qq && sudo apt-get install -y -qq minisign
+            }
+          fi
+          # 公钥随产物分发（同 fpk 线约定）：仓库根 minisign.pub 存在时一并上传
+          if [ -f minisign.pub ]; then cp minisign.pub assets/minisign.pub; fi
+          bash scripts/sign-artifacts.sh assets
+        env:
+          MINISIGN_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+
       - name: Create/Update GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
@@ -414,6 +436,8 @@ jobs:
             assets/musicforge-v${{ steps.ver.outputs.version }}-macos-aarch64.dmg
             assets/SHA256SUMS.txt
             assets/SBOM.cdx.json
+            assets/*.minisig
+            assets/minisign.pub
 
   # ---- P6：updater 元数据（latest.json）----
   # 安装器统一（P5.5 遗留修复）：latest.json 指向 **nsis job 的同一个自定义安装包**
