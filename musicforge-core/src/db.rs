@@ -28,6 +28,12 @@ use crate::error::NcmError;
 ///   删库即丢失，属于「本地偏好」而非缓存——这也是它留在本地库的理由）。
 pub const SCHEMA_VERSION: u32 = 3;
 
+/// SQLite 单语句 host 参数上限（rusqlite bundled 默认 `SQLITE_MAX_VARIABLE_NUMBER`
+/// = 999；见 2026-09-12 设计备忘：十万 path 直接撞上限）。`IN (?,?,...)` 由用户
+/// 传入的 `Vec<i64>` 拼占位符时，**每批不得超过此值**——留 99 余量防边界波动。
+/// 超过即在 [`Db::remove_tracks`] / [`Db::unlike_tracks`] 内拆批执行。
+const MAX_SQL_VARS: usize = 900;
+
 /// 默认文件名。
 pub const DB_FILE_NAME: &str = "library.db";
 
@@ -599,30 +605,37 @@ impl Db {
     /// 必须由近及远在单事务内连带清理行为行，否则 `FOREIGN KEY constraint failed`。
     ///
     /// 返回被删除的曲目行数；空切片直接返回 0（不开启事务）。
+    ///
+    /// **SQLite 变量上限**：`ids` 可能远超 999（用户批量勾选上千首），`IN (?,..)`
+    /// 占位符数 = `ids.len()` 会触发 `too many SQL variables`。按 [`MAX_SQL_VARS`]
+    /// 拆批，每批一个独立 `IN` 子句，仍在**同一个事务**内（原子性不变）。
     pub fn remove_tracks(&self, ids: &[i64]) -> Result<usize, NcmError> {
         if ids.is_empty() {
             return Ok(0);
         }
-        let placeholders = vec!["?"; ids.len()].join(",");
         let tx = self
             .conn
             .unchecked_transaction()
             .map_err(|e| NcmError::Db(e.to_string()))?;
-        for table in ["play_history", "likes", "playlist_items"] {
-            tx.execute(
-                &format!("DELETE FROM {table} WHERE track_id IN ({placeholders})"),
-                rusqlite::params_from_iter(ids.iter()),
-            )
-            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let mut deleted = 0usize;
+        for chunk in ids.chunks(MAX_SQL_VARS) {
+            let placeholders = vec!["?"; chunk.len()].join(",");
+            for table in ["play_history", "likes", "playlist_items"] {
+                tx.execute(
+                    &format!("DELETE FROM {table} WHERE track_id IN ({placeholders})"),
+                    rusqlite::params_from_iter(chunk.iter()),
+                )
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+            }
+            deleted += tx
+                .execute(
+                    &format!("DELETE FROM tracks WHERE id IN ({placeholders})"),
+                    rusqlite::params_from_iter(chunk.iter()),
+                )
+                .map_err(|e| NcmError::Db(e.to_string()))?;
         }
-        let n = tx
-            .execute(
-                &format!("DELETE FROM tracks WHERE id IN ({placeholders})"),
-                rusqlite::params_from_iter(ids.iter()),
-            )
-            .map_err(|e| NcmError::Db(e.to_string()))?;
         tx.commit().map_err(|e| NcmError::Db(e.to_string()))?;
-        Ok(n)
+        Ok(deleted)
     }
 
     /// 批量写入曲目（单事务）。
@@ -1263,17 +1276,25 @@ impl Db {
 
     /// 批量取消喜欢（仅删 `likes` 行；不动曲目/文件）。返回被取消的条数；
     /// 空切片直接返回 0（不开启事务）。P6.23 收藏页批量清理用。
+    ///
+    /// **SQLite 变量上限**：`ids` 可能远超 999（收藏页批量勾选上千首），
+    /// 按 [`MAX_SQL_VARS`] 拆批执行，避免 `too many SQL variables`。
     pub fn unlike_tracks(&self, ids: &[i64]) -> Result<usize, NcmError> {
         if ids.is_empty() {
             return Ok(0);
         }
-        let placeholders = vec!["?"; ids.len()].join(",");
-        self.conn
-            .execute(
-                &format!("DELETE FROM likes WHERE track_id IN ({placeholders})"),
-                rusqlite::params_from_iter(ids.iter()),
-            )
-            .map_err(|e| NcmError::Db(e.to_string()))
+        let mut total = 0usize;
+        for chunk in ids.chunks(MAX_SQL_VARS) {
+            let placeholders = vec!["?"; chunk.len()].join(",");
+            total += self
+                .conn
+                .execute(
+                    &format!("DELETE FROM likes WHERE track_id IN ({placeholders})"),
+                    rusqlite::params_from_iter(chunk.iter()),
+                )
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+        }
+        Ok(total)
     }
 
     /// 是否已喜欢。
@@ -1357,9 +1378,20 @@ impl Db {
     }
 
     /// 喜欢总数。
+    ///
+    /// **计数口径（审计修复）**：只统计仍能关联到现存曲目的喜欢行——
+    /// `list_liked_with` 用 `INNER JOIN tracks` 只展示存在曲目的喜欢，UI 计数
+    /// 必须与列表自洽（孤儿行不计入）。曲目被移除时行为行由
+    /// [`Db::remove_tracks`]/[`Db::remove_source`] 级联清理，但 FK 关闭或
+    /// 「永不删除 likes」策略下可能残留孤儿，此处用 `EXISTS` 兜底过滤。
     pub fn liked_count(&self) -> Result<i64, NcmError> {
         self.conn
-            .query_row("SELECT COUNT(1) FROM likes", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(1) FROM likes lk \
+                 WHERE EXISTS (SELECT 1 FROM tracks t WHERE t.id = lk.track_id)",
+                [],
+                |r| r.get(0),
+            )
             .map_err(|e| NcmError::Db(e.to_string()))
     }
 
@@ -1532,10 +1564,16 @@ impl Db {
     }
 
     /// 播放总览：`(总播放次数, 去重曲目数)`。
+    /// 播放历史总量：`(总播放次数, 去重曲目数)`。
+    ///
+    /// **计数口径（审计修复）**：只统计仍能关联到现存曲目的播放记录——
+    /// 与 [`Db::liked_count`] 同理，孤儿记录（曲目已删、FK 关闭或「永不删除
+    /// 播放历史」策略下残留）不计入，避免统计数虚高、与可导航的历史视图脱节。
     pub fn history_totals(&self) -> Result<(i64, i64), NcmError> {
         self.conn
             .query_row(
-                "SELECT COUNT(1), COUNT(DISTINCT track_id) FROM play_history",
+                "SELECT COUNT(1), COUNT(DISTINCT track_id) FROM play_history ph \
+                 WHERE EXISTS (SELECT 1 FROM tracks t WHERE t.id = ph.track_id)",
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
@@ -2221,6 +2259,130 @@ mod tests {
         assert_eq!(items[0].id, _a);
         assert_eq!(items[1].id, _b);
         assert_eq!(items[2].id, _c);
+    }
+
+    // ---- db.rs 审计修复回归（占位符上限 + 计数口径）----
+
+    /// 造 `n` 首曲目并返回其 id 列表（分批插入，避开 upsert 内部潜在大语句）。
+    fn seed_n_tracks(n: usize) -> (Db, Vec<i64>) {
+        let db = Db::open_in_memory().unwrap();
+        let sid = db.upsert_source("/m", None).unwrap();
+        for batch in (0..n).collect::<Vec<_>>().chunks(200) {
+            let inputs: Vec<TrackInput> = batch
+                .iter()
+                .map(|i| TrackInput {
+                    source_id: sid,
+                    path: format!("/m/track_{i}.flac"),
+                    size: 1024,
+                    title: Some(format!("t{i}")),
+                    artist: Some("A".to_string()),
+                    ..Default::default()
+                })
+                .collect();
+            db.upsert_tracks_batch(&inputs, 1).unwrap();
+        }
+        let ids = {
+            let mut stmt = db.conn.prepare("SELECT id FROM tracks ORDER BY id").unwrap();
+            stmt.query_map([], |r| r.get::<_, i64>(0))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        (db, ids)
+    }
+
+    /// 审计修复：用户批量勾选上千首时 `IN (?,..)` 占位符数 = id 数会撞 SQLite
+    /// 变量上限（999）。`remove_tracks` 必须按 [`MAX_SQL_VARS`] 拆批，绝不
+    /// `too many SQL variables`。
+    #[test]
+    fn remove_tracks_with_more_than_999_ids_succeeds() {
+        let (db, ids) = seed_n_tracks(1200);
+        assert_eq!(ids.len(), 1200);
+        let n = db.remove_tracks(&ids).unwrap();
+        assert_eq!(n, 1200, "拆批后整批删除必须完整生效");
+        assert_eq!(db.count_tracks_filtered(None).unwrap(), 0);
+    }
+
+    /// 同上，`unlike_tracks` 也必须拆批。
+    #[test]
+    fn unlike_tracks_with_more_than_999_ids_succeeds() {
+        let (db, ids) = seed_n_tracks(1200);
+        for &id in &ids {
+            db.set_like(id, true).unwrap();
+        }
+        assert_eq!(db.liked_count().unwrap(), 1200);
+        let n = db.unlike_tracks(&ids).unwrap();
+        assert_eq!(n, 1200, "拆批后整批取消喜欢必须完整生效");
+        assert_eq!(db.liked_count().unwrap(), 0);
+    }
+
+    /// 审计修复：孤儿喜欢（曲目已删 / FK 关闭残留）不得计入 `liked_count`——
+    /// 必须与 `list_liked_with`（INNER JOIN tracks）口径自洽。
+    #[test]
+    fn liked_count_excludes_orphan_rows() {
+        let db = Db::open_in_memory().unwrap();
+        let sid = db.upsert_source("/m", None).unwrap();
+        db.upsert_tracks_batch(
+            &[TrackInput {
+                source_id: sid,
+                path: "/m/x.flac".into(),
+                size: 1024,
+                title: Some("x".into()),
+                artist: Some("A".into()),
+                ..Default::default()
+            }],
+            1,
+        )
+        .unwrap();
+        let tid = db.list_tracks(10, 0).unwrap()[0].id;
+        db.set_like(tid, true).unwrap();
+        // 注入孤儿喜欢（track_id 不存在）：活 FK 会拦截，临时关闭以构造孤儿场景
+        db.conn.execute("PRAGMA foreign_keys = OFF", []).unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO likes(track_id, created_at) VALUES (?1, 0)",
+                rusqlite::params![999_999],
+            )
+            .unwrap();
+        db.conn.execute("PRAGMA foreign_keys = ON", []).unwrap();
+
+        assert_eq!(db.liked_count().unwrap(), 1, "孤儿喜欢不得计入总数");
+        db.set_like(tid, false).unwrap();
+        assert_eq!(db.liked_count().unwrap(), 0, "真实喜欢取消后归零；孤儿仍不计入");
+    }
+
+    /// 审计修复：孤儿播放记录不得计入 `history_totals`（与可导航历史视图口径自洽）。
+    #[test]
+    fn history_totals_excludes_orphan_rows() {
+        let db = Db::open_in_memory().unwrap();
+        let sid = db.upsert_source("/m", None).unwrap();
+        db.upsert_tracks_batch(
+            &[TrackInput {
+                source_id: sid,
+                path: "/m/x.flac".into(),
+                size: 1024,
+                title: Some("x".into()),
+                artist: Some("A".into()),
+                ..Default::default()
+            }],
+            1,
+        )
+        .unwrap();
+        let tid = db.list_tracks(10, 0).unwrap()[0].id;
+        db.record_play(tid, 1000, 100).unwrap();
+        // 注入孤儿播放记录（track_id 不存在）
+        db.conn.execute("PRAGMA foreign_keys = OFF", []).unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO play_history(track_id, played_at) VALUES (?1, 0)",
+                rusqlite::params![999_999],
+            )
+            .unwrap();
+        db.conn.execute("PRAGMA foreign_keys = ON", []).unwrap();
+
+        let (plays, played_tracks) = db.history_totals().unwrap();
+        assert_eq!(plays, 1, "孤儿播放不计入总次数");
+        assert_eq!(played_tracks, 1, "孤儿播放不计入去重曲目数");
     }
 }
 
