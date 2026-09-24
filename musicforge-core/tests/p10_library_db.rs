@@ -72,7 +72,7 @@ fn source_upsert_idempotent_and_remove_cascades() {
     db.upsert_tracks_batch(&[t], 1).unwrap();
     assert_eq!(db.count_tracks().unwrap(), 1);
 
-    let removed = db.remove_source(id1).unwrap();
+    let removed = db.remove_source(id1, false).unwrap();
     assert_eq!(removed, 1, "remove_source 应报告连带清理的曲目数");
     assert_eq!(db.count_tracks().unwrap(), 0);
     assert!(db.list_sources().unwrap().is_empty());
@@ -202,7 +202,7 @@ fn remove_tracks_cascades_behavior_rows() {
     db.record_play(id1, 1_700_000_000_000, 120_000).unwrap();
     db.toggle_like(id1).unwrap();
 
-    let removed = db.remove_tracks(&[id1]).unwrap();
+    let removed = db.remove_tracks(&[id1], false).unwrap();
     assert_eq!(removed, 1);
     assert_eq!(db.count_tracks().unwrap(), 1);
     assert_eq!(db.list_history(10).unwrap().len(), 0, "播放历史须级联清理");

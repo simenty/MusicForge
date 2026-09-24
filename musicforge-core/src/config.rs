@@ -35,6 +35,14 @@ pub struct PluginsConfig {
 pub struct AppConfig {
     pub schema_version: u32,
     pub plugins: PluginsConfig,
+    /// 数据保留策略（2026-09-24 审计待拍板项落地）：移除曲目/音源时是否**保留**
+    /// `likes` 与 `play_history` 行为行（不级联删除）。
+    ///
+    /// 默认 `false` = 维持现状（级联清理）——**不静默改变数据策略**；用户需在
+    /// config.json 显式置 `true` 才启用「永不删除喜欢/播放历史」。开启后
+    /// `liked_count`/`history_totals` 的孤儿行过滤（`EXISTS tracks`）仍保证计数
+    /// 与实际可导航视图一致。
+    pub retain_likes_history: bool,
 }
 
 impl Default for AppConfig {
@@ -42,6 +50,7 @@ impl Default for AppConfig {
         Self {
             schema_version: CONFIG_SCHEMA_VERSION,
             plugins: PluginsConfig::default(),
+            retain_likes_history: false,
         }
     }
 }
@@ -55,6 +64,7 @@ impl AppConfig {
                 "enabled": self.plugins.enabled,
                 "acked": self.plugins.acked,
             },
+            "retain_likes_history": self.retain_likes_history,
         })
     }
 
@@ -88,6 +98,10 @@ impl AppConfig {
                 enabled: list("enabled"),
                 acked: list("acked"),
             },
+            retain_likes_history: v
+                .get("retain_likes_history")
+                .and_then(|x| x.as_bool())
+                .unwrap_or(false),
         })
     }
 

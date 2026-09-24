@@ -576,29 +576,52 @@ impl Db {
     ///
     /// 语义：曲目行消失即行为行消失（重扫同一目录会产生新 track id，
     /// 旧行为本就无法再关联；留着只会成为孤儿）。
-    pub fn remove_source(&self, id: i64) -> Result<usize, NcmError> {
-        let tx = self
-            .conn
-            .unchecked_transaction()
-            .map_err(|e| NcmError::Db(e.to_string()))?;
-        for sql in [
-            "DELETE FROM play_history WHERE track_id IN \
-             (SELECT id FROM tracks WHERE source_id = ?1)",
-            "DELETE FROM likes WHERE track_id IN \
-             (SELECT id FROM tracks WHERE source_id = ?1)",
-            "DELETE FROM playlist_items WHERE track_id IN \
-             (SELECT id FROM tracks WHERE source_id = ?1)",
-        ] {
-            tx.execute(sql, [id])
+    /// 从资料库移除整个音源（级联清行为行）。`retain` 为 `true` 时**保留**
+    /// `likes` / `play_history`（数据保留策略，见 [`crate::config::AppConfig::retain_likes_history`]），
+    /// 仅清 `playlist_items` 与曲目/音源自身。
+    pub fn remove_source(&self, id: i64, retain: bool) -> Result<usize, NcmError> {
+        // 保留策略与活 FK 冲突：保留 likes/play_history 却删曲目会
+        // `FOREIGN KEY constraint failed`。仅在此显式 opt-in 路径临时关闭 FK
+        // （必须在事务**外**，SQLite 不允许事务内改 foreign_keys），操作后恢复。
+        if retain {
+            self.conn
+                .execute("PRAGMA foreign_keys = OFF", [])
                 .map_err(|e| NcmError::Db(e.to_string()))?;
         }
-        let n = tx
-            .execute("DELETE FROM tracks WHERE source_id = ?1", [id])
+        let outcome = (|| -> Result<usize, NcmError> {
+            let tx = self
+                .conn
+                .unchecked_transaction()
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+            if !retain {
+                for sql in [
+                    "DELETE FROM play_history WHERE track_id IN \
+                     (SELECT id FROM tracks WHERE source_id = ?1)",
+                    "DELETE FROM likes WHERE track_id IN \
+                     (SELECT id FROM tracks WHERE source_id = ?1)",
+                ] {
+                    tx.execute(sql, [id])
+                        .map_err(|e| NcmError::Db(e.to_string()))?;
+                }
+            }
+            tx.execute(
+                "DELETE FROM playlist_items WHERE track_id IN \
+                 (SELECT id FROM tracks WHERE source_id = ?1)",
+                [id],
+            )
             .map_err(|e| NcmError::Db(e.to_string()))?;
-        tx.execute("DELETE FROM sources WHERE id = ?1", [id])
-            .map_err(|e| NcmError::Db(e.to_string()))?;
-        tx.commit().map_err(|e| NcmError::Db(e.to_string()))?;
-        Ok(n)
+            let n = tx
+                .execute("DELETE FROM tracks WHERE source_id = ?1", [id])
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+            tx.execute("DELETE FROM sources WHERE id = ?1", [id])
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+            tx.commit().map_err(|e| NcmError::Db(e.to_string()))?;
+            Ok(n)
+        })();
+        if retain {
+            let _ = self.conn.execute("PRAGMA foreign_keys = ON", []);
+        }
+        outcome
     }
 
     /// 从资料库移除指定曲目（仅删索引行，不动文件）。FK 是活的（P2 实测），
@@ -609,33 +632,53 @@ impl Db {
     /// **SQLite 变量上限**：`ids` 可能远超 999（用户批量勾选上千首），`IN (?,..)`
     /// 占位符数 = `ids.len()` 会触发 `too many SQL variables`。按 [`MAX_SQL_VARS`]
     /// 拆批，每批一个独立 `IN` 子句，仍在**同一个事务**内（原子性不变）。
-    pub fn remove_tracks(&self, ids: &[i64]) -> Result<usize, NcmError> {
+    pub fn remove_tracks(&self, ids: &[i64], retain: bool) -> Result<usize, NcmError> {
         if ids.is_empty() {
             return Ok(0);
         }
-        let tx = self
-            .conn
-            .unchecked_transaction()
-            .map_err(|e| NcmError::Db(e.to_string()))?;
-        let mut deleted = 0usize;
-        for chunk in ids.chunks(MAX_SQL_VARS) {
-            let placeholders = vec!["?"; chunk.len()].join(",");
-            for table in ["play_history", "likes", "playlist_items"] {
-                tx.execute(
-                    &format!("DELETE FROM {table} WHERE track_id IN ({placeholders})"),
-                    rusqlite::params_from_iter(chunk.iter()),
-                )
-                .map_err(|e| NcmError::Db(e.to_string()))?;
-            }
-            deleted += tx
-                .execute(
-                    &format!("DELETE FROM tracks WHERE id IN ({placeholders})"),
-                    rusqlite::params_from_iter(chunk.iter()),
-                )
+        // 保留策略与活 FK 冲突：保留 likes/play_history 却删曲目会
+        // `FOREIGN KEY constraint failed`。仅在此显式 opt-in 路径临时关闭 FK
+        // （必须在事务**外**），操作后恢复；默认路径（retain=false）FK 始终活。
+        if retain {
+            self.conn
+                .execute("PRAGMA foreign_keys = OFF", [])
                 .map_err(|e| NcmError::Db(e.to_string()))?;
         }
-        tx.commit().map_err(|e| NcmError::Db(e.to_string()))?;
-        Ok(deleted)
+        let outcome = (|| -> Result<usize, NcmError> {
+            let tx = self
+                .conn
+                .unchecked_transaction()
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+            let mut deleted = 0usize;
+            // retain = true → 跳过 likes / play_history，仅清 playlist_items
+            let behavior_tables: &[&str] = if retain {
+                &["playlist_items"]
+            } else {
+                &["play_history", "likes", "playlist_items"]
+            };
+            for chunk in ids.chunks(MAX_SQL_VARS) {
+                let placeholders = vec!["?"; chunk.len()].join(",");
+                for table in behavior_tables {
+                    tx.execute(
+                        &format!("DELETE FROM {table} WHERE track_id IN ({placeholders})"),
+                        rusqlite::params_from_iter(chunk.iter()),
+                    )
+                    .map_err(|e| NcmError::Db(e.to_string()))?;
+                }
+                deleted += tx
+                    .execute(
+                        &format!("DELETE FROM tracks WHERE id IN ({placeholders})"),
+                        rusqlite::params_from_iter(chunk.iter()),
+                    )
+                    .map_err(|e| NcmError::Db(e.to_string()))?;
+            }
+            tx.commit().map_err(|e| NcmError::Db(e.to_string()))?;
+            Ok(deleted)
+        })();
+        if retain {
+            let _ = self.conn.execute("PRAGMA foreign_keys = ON", []);
+        }
+        outcome
     }
 
     /// 批量写入曲目（单事务）。
@@ -2298,7 +2341,7 @@ mod tests {
     fn remove_tracks_with_more_than_999_ids_succeeds() {
         let (db, ids) = seed_n_tracks(1200);
         assert_eq!(ids.len(), 1200);
-        let n = db.remove_tracks(&ids).unwrap();
+        let n = db.remove_tracks(&ids, false).unwrap();
         assert_eq!(n, 1200, "拆批后整批删除必须完整生效");
         assert_eq!(db.count_tracks_filtered(None).unwrap(), 0);
     }
@@ -2383,6 +2426,78 @@ mod tests {
         let (plays, played_tracks) = db.history_totals().unwrap();
         assert_eq!(plays, 1, "孤儿播放不计入总次数");
         assert_eq!(played_tracks, 1, "孤儿播放不计入去重曲目数");
+    }
+
+    /// 保留策略（retain=true）：`remove_tracks` 物理删除曲目行，但**保留** likes /
+    /// play_history 行为行；`liked_count`/`history_totals` 经 `EXISTS` 过滤孤儿，
+    /// 计数口径仍与可导航视图一致。
+    #[test]
+    fn retain_likes_history_keeps_behavior_rows() {
+        let db = Db::open_in_memory().unwrap();
+        let sid = db.upsert_source("/m", None).unwrap();
+        db.upsert_tracks_batch(
+            &[TrackInput {
+                source_id: sid,
+                path: "/m/x.flac".into(),
+                size: 1024,
+                title: Some("x".into()),
+                artist: Some("A".into()),
+                ..Default::default()
+            }],
+            1,
+        )
+        .unwrap();
+        let tid = db.list_tracks(10, 0).unwrap()[0].id;
+        db.set_like(tid, true).unwrap();
+        db.record_play(tid, 1000, 100).unwrap();
+
+        let n = db.remove_tracks(&[tid], true).unwrap();
+        assert_eq!(n, 1, "曲目行仍被删");
+        // 计数视图过滤孤儿 → 0（与可导航视图一致）
+        assert_eq!(db.liked_count().unwrap(), 0);
+        assert_eq!(db.history_totals().unwrap(), (0, 0));
+        // 但原始行为行物理保留（保留策略生效）
+        let raw_likes: i64 = db.conn.query_row("SELECT COUNT(1) FROM likes", [], |r| r.get(0)).unwrap();
+        let raw_hist: i64 = db
+            .conn
+            .query_row("SELECT COUNT(1) FROM play_history", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(raw_likes, 1, "retain 下 likes 行物理保留");
+        assert_eq!(raw_hist, 1, "retain 下 play_history 行物理保留");
+    }
+
+    /// 保留策略（retain=true）：`remove_source` 同理保留 likes / play_history。
+    #[test]
+    fn retain_on_remove_source_keeps_behavior_rows() {
+        let db = Db::open_in_memory().unwrap();
+        let sid = db.upsert_source("/m", None).unwrap();
+        db.upsert_tracks_batch(
+            &[TrackInput {
+                source_id: sid,
+                path: "/m/x.flac".into(),
+                size: 1024,
+                title: Some("x".into()),
+                artist: Some("A".into()),
+                ..Default::default()
+            }],
+            1,
+        )
+        .unwrap();
+        let tid = db.list_tracks(10, 0).unwrap()[0].id;
+        db.set_like(tid, true).unwrap();
+        db.record_play(tid, 1000, 100).unwrap();
+
+        db.remove_source(sid, true).unwrap();
+        let raw_likes: i64 = db.conn.query_row("SELECT COUNT(1) FROM likes", [], |r| r.get(0)).unwrap();
+        let raw_hist: i64 = db
+            .conn
+            .query_row("SELECT COUNT(1) FROM play_history", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(raw_likes, 1, "retain 下 remove_source 保留 likes");
+        assert_eq!(raw_hist, 1, "retain 下 remove_source 保留 play_history");
+        // playlist_items 与曲目/音源仍被清
+        let raw_tracks: i64 = db.conn.query_row("SELECT COUNT(1) FROM tracks", [], |r| r.get(0)).unwrap();
+        assert_eq!(raw_tracks, 0);
     }
 }
 

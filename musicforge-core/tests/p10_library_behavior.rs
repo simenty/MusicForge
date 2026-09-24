@@ -120,7 +120,7 @@ fn history_cleaned_when_tracks_removed() {
     db.record_play(id, 100, 0).unwrap();
     assert_eq!(db.list_history(10).unwrap().len(), 1);
 
-    db.remove_source(sid).unwrap();
+    db.remove_source(sid, false).unwrap();
     assert!(
         db.list_history(10).unwrap().is_empty(),
         "曲目移除后历史不可见（INNER JOIN 隐藏，而非显示无数据行）"

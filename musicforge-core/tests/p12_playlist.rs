@@ -166,7 +166,7 @@ fn source_removal_cleans_playlist_items() {
     db.playlist_add_tracks(pid, &[id_a]).unwrap();
     assert_eq!(db.playlist_tracks(pid).unwrap().len(), 1);
 
-    db.remove_source(sid).unwrap();
+    db.remove_source(sid, false).unwrap();
     assert!(
         db.playlist_tracks(pid).unwrap().is_empty(),
         "源删除后歌单条目自动消失（不显示无数据行）"

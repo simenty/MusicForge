@@ -254,7 +254,10 @@ pub fn sources_add(path: String, label: Option<String>) -> Result<serde_json::Va
 #[tauri::command]
 pub fn sources_remove(id: i64) -> Result<serde_json::Value, String> {
     let db = open_db()?;
-    let removed = db.remove_source(id).map_err(|e| e.to_string())?;
+    let retain = musicforge_core::config::AppConfig::load(&musicforge_core::config::AppConfig::default_path())
+        .map_err(|e| e.to_string())?
+        .retain_likes_history;
+    let removed = db.remove_source(id, retain).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({ "removedTracks": removed }))
 }
 
@@ -309,7 +312,10 @@ pub fn unlike_tracks(ids: Vec<i64>) -> Result<usize, String> {
 /// P6.22：从资料库移除指定曲目（仅删索引行；不动文件）。破坏性，调用方须确认。
 pub fn remove_tracks(ids: Vec<i64>) -> Result<usize, String> {
     let db = open_db()?;
-    db.remove_tracks(&ids).map_err(|e| e.to_string())
+    let retain = musicforge_core::config::AppConfig::load(&musicforge_core::config::AppConfig::default_path())
+        .map_err(|e| e.to_string())?
+        .retain_likes_history;
+    db.remove_tracks(&ids, retain).map_err(|e| e.to_string())
 }
 
 /// 播放历史（倒序；Track 字段 + playedAt / msPlayed）。

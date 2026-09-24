@@ -185,49 +185,24 @@ impl PluginProcess {
     /// 属版本问题不计；成功 spawn 清零——`is_disabled()` 供宿主调用方闸门。
     ///
     /// B10（第三轮审计）：并发槽位在**桥接层**接线（try 语义），本函数不管并发。
+    ///
+    /// `trust_store`：主机受控信任表路径（位于 `local_config_dir/plugins_trust.json`，
+    /// **插件不可写**）。提供时，其中对某插件的 `pin` 为**权威**期望哈希，覆盖
+    /// plugin.json 自声明哈希；缺失则回落自声明。详见 [`verify_plugin_integrity`]。
     pub fn spawn(
         program: &Path,
         host_range: &str,
         work_dir: &Path,
+        trust_store: Option<&Path>,
     ) -> Result<Self, PluginHostError> {
-        // B15（稳定审计修复）：加载期完整性闸门。
+        // B15（稳定审计修复）+ 信任锚点：加载期完整性闸门。
         //
-        // 在 **执行二进制之前**（任何 spawn / create_dir 之前）计算 `program` 的
-        // SHA-256，与同目录 plugin.json 声明的 `hash_sha256` 比对：
-        // - 声明且一致 → 放行；
-        // - 声明且不一致（或被篡改导致二进制不可读）→ 拒绝，**绝不运行**该二进制；
-        // - 未声明 → 加载但告警（遗留插件兼容，逐步推广 pin）。
-        //
-        // 注：plugin.json 与二进制同目录属「自声明」pin（攻击者可同时改两者）。
-        // 真正的可信锚点（签名校验 / 受控信任表）属架构级后续项；本闸已能挡住
-        // 「仅替换二进制、plugin.json 未同步」这一类最常见的本地篡改。
-        if let Some(dir) = program.parent() {
-            match plugin_json_expected_hash(dir) {
-                Some(declared) => match Self::sha256_of(program) {
-                    Ok(actual) if actual.eq_ignore_ascii_case(&declared) => {}
-                    Ok(actual) => {
-                        return Err(PluginHostError::Integrity {
-                            name: program.display().to_string(),
-                            expected: declared,
-                            actual,
-                        });
-                    }
-                    Err(e) => {
-                        return Err(PluginHostError::Integrity {
-                            name: program.display().to_string(),
-                            expected: declared,
-                            actual: format!("(二进制不可读: {e})"),
-                        });
-                    }
-                },
-                None => {
-                    tracing::warn!(
-                        plugin = %program.display(),
-                        "插件未声明 hash_sha256，跳过加载期完整性校验（建议为插件 pin 哈希）"
-                    );
-                }
-            }
-        }
+        // 在 **执行二进制之前**（任何 spawn / create_dir 之前）校验：
+        // 1. 主机受控信任表存在该插件 pin → 权威，必须与二进制 SHA-256 一致，否则拒载
+        //    （攻击者即便同时改了 plugin.json 也无法绕过——信任表不在插件目录）；
+        // 2. 无信任 pin → 回落 plugin.json 自声明 `hash_sha256`（一致放行，不一致拒载）；
+        // 3. 二者皆无 → 加载但告警（遗留兼容）。
+        verify_plugin_integrity(program, trust_store)?;
         std::fs::create_dir_all(work_dir)
             .map_err(|e| PluginHostError::Spawn(format!("work_dir 创建失败: {e}")))?;
         let mut child = Command::new(program)
@@ -848,16 +823,87 @@ impl PluginProcess {
     }
 }
 
-/// B15：从插件目录的 plugin.json 读取声明的 `hash_sha256`。
+/// B15 信任锚点：读取同目录 plugin.json 的 `(name, hash_sha256)`。
 ///
-/// 缺文件 / 解析失败 / 缺字段 → `None`（调用方据此走「未 pin」兼容分支）。
-/// 与 [`crate::plugins`]（默认构建不链接协议 crate）无关——此处只取单字段。
-fn plugin_json_expected_hash(dir: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(dir.join("plugin.json")).ok()?;
+/// 缺文件 / 解析失败 → `(None, None)`（后续走「未 pin」兼容分支）。
+fn read_plugin_json_meta(dir: &Path) -> (Option<String>, Option<String>) {
+    // 返回元组（非 Option），故错误用 `if let` 短路，不能用 `?`
+    let Ok(text) = std::fs::read_to_string(dir.join("plugin.json")) else {
+        return (None, None);
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return (None, None);
+    };
+    let name = v.get("name").and_then(|n| n.as_str()).map(String::from);
+    let hash = v.get("hash_sha256").and_then(|h| h.as_str()).map(String::from);
+    (name, hash)
+}
+
+/// B15 信任锚点：从主机受控信任表（插件不可写）取某插件的**权威**期望哈希。
+///
+/// 文件格式：`{"pins": {"<plugin-name>": "<sha256-hex>"}}`。
+/// 文件缺失 / 解析失败 / 无此插件 → `None`（回落自声明或告警）。
+fn load_trust_pin(store: &Path, name: &str) -> Option<String> {
+    let text = std::fs::read_to_string(store).ok()?;
     let v: serde_json::Value = serde_json::from_str(&text).ok()?;
-    v.get("hash_sha256")
-        .and_then(|h| h.as_str())
-        .map(|s| s.to_string())
+    v.get("pins")?.get(name)?.as_str().map(|s| s.to_string())
+}
+
+/// B15 + 信任锚点：加载期二进制完整性校验。
+///
+/// 优先级：主机受控信任表 pin（权威）> plugin.json 自声明哈希 > 告警放行。
+/// 全部在 spawn **之前**完成，绝不运行被篡改/替换的二进制。
+fn verify_plugin_integrity(
+    program: &Path,
+    trust_store: Option<&Path>,
+) -> Result<(), PluginHostError> {
+    let Some(dir) = program.parent() else {
+        return Ok(());
+    };
+    let (name, self_hash) = read_plugin_json_meta(dir);
+    // 1) 主机受控信任表优先（权威）
+    if let (Some(store), Some(name)) = (trust_store, name.as_deref()) {
+        if let Some(pin) = load_trust_pin(store, name) {
+            return match PluginProcess::sha256_of(program) {
+                Ok(actual) if actual.eq_ignore_ascii_case(&pin) => Ok(()),
+                Ok(actual) => Err(PluginHostError::Integrity {
+                    name: name.to_string(),
+                    expected: pin,
+                    actual,
+                }),
+                Err(e) => Err(PluginHostError::Integrity {
+                    name: name.to_string(),
+                    expected: pin,
+                    actual: format!("(二进制不可读: {e})"),
+                }),
+            };
+        }
+    }
+    // 注：此处 `?` 不可用——`PluginHostError` 未实现 `From<io::Error>`，
+    // 故下方两处均用 `match` 显式展开（与旧 spawn 闸门一致）。
+    // 2) 回落 plugin.json 自声明哈希
+    match self_hash {
+        Some(declared) => match PluginProcess::sha256_of(program) {
+            Ok(actual) if actual.eq_ignore_ascii_case(&declared) => Ok(()),
+            Ok(actual) => Err(PluginHostError::Integrity {
+                name: program.display().to_string(),
+                expected: declared,
+                actual,
+            }),
+            Err(e) => Err(PluginHostError::Integrity {
+                name: program.display().to_string(),
+                expected: declared,
+                actual: format!("(二进制不可读: {e})"),
+            }),
+        },
+        None => {
+            tracing::warn!(
+                plugin = %program.display(),
+                "插件未声明 hash_sha256 且无信任表 pin，跳过加载期完整性校验（建议 pin）"
+            );
+            Ok(())
+        }
+    }
 }
 
 impl std::fmt::Debug for PluginProcess {
