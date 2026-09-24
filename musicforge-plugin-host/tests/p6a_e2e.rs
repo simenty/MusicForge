@@ -9,19 +9,6 @@ fn mock_exe() -> &'static str {
     env!("CARGO_BIN_EXE_mock-ai-plugin")
 }
 
-/// 跨平台：复制二进制后确保可执行位（Linux/macOS 上 `fs::copy` 不保留 `+x`，
-/// 否则 spawn 会 permission-denied；Windows 无需处理）。
-fn copy_mock_executable(dst: &std::path::Path) {
-    std::fs::copy(mock_exe(), dst).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(dst).unwrap().permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(dst, perms).unwrap();
-    }
-}
-
 /// P6a-R：插件 work_dir（X41 出站边界；e2e 共享临时目录，mock 仅 demo 写入）。
 fn wd() -> std::path::PathBuf {
     use std::sync::OnceLock;
@@ -149,101 +136,6 @@ fn output_path_egress_boundary() {
         &wd.join("..").join("evil.flac"),
         &wd
     ));
-}
-
-/// **B15 回归**：加载期完整性闸门。
-///
-/// 插件目录 plugin.json 声明 `hash_sha256`：
-/// ① 与二进制真实哈希一致 → 正常加载；
-/// ② 不一致（被篡改/替换）→ spawn **之前**拒绝（`MF-PLUGIN-INTEGRITY`），绝不运行；
-/// ③ 未声明 → 仍加载（遗留兼容），仅告警。
-///
-/// 复用 `sha256_of` 计算真实二进制哈希（与 Host 内逻辑同一实现）。
-#[test]
-fn integrity_hash_pins_and_rejects_tampered_binary() {
-    let dir = tempfile::tempdir().unwrap();
-    let src = std::path::Path::new(mock_exe());
-    let dst = dir.path().join(src.file_name().unwrap());
-    copy_mock_executable(&dst);
-    let real = PluginProcess::sha256_of(&dst).unwrap();
-    assert_eq!(real.len(), 64, "SHA-256 必须是 64 位 hex");
-
-    // ① 声明正确 hash → 加载成功
-    std::fs::write(
-        dir.path().join("plugin.json"),
-        format!(
-            r#"{{"name":"mock-ai","api_version":"1.0.0","kind":"ai","network":false,"hash_sha256":"{real}"}}"#
-        ),
-    )
-    .unwrap();
-    let _p = PluginProcess::spawn(dst.as_path(), ">=1,<2", &wd(), None).unwrap();
-
-    // ② 声明错误 hash → spawn 前拒绝（绝不运行被篡改二进制）
-    std::fs::write(
-        dir.path().join("plugin.json"),
-        r#"{"name":"mock-ai","api_version":"1.0.0","kind":"ai","network":false,"hash_sha256":"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}"#,
-    )
-    .unwrap();
-    let err = PluginProcess::spawn(dst.as_path(), ">=1,<2", &wd(), None).unwrap_err();
-    assert!(
-        matches!(err, PluginHostError::Integrity { .. }),
-        "篡改二进制必须被完整性闸拒绝: {err}"
-    );
-    assert_eq!(err.code(), codes::INTEGRITY);
-
-    // ③ 未声明 hash → 仍加载（遗留兼容）
-    std::fs::write(
-        dir.path().join("plugin.json"),
-        r#"{"name":"mock-ai","api_version":"1.0.0","kind":"ai","network":false}"#,
-    )
-    .unwrap();
-    let _p2 = PluginProcess::spawn(dst.as_path(), ">=1,<2", &wd(), None).unwrap();
-}
-
-/// **B15 信任锚点回归**：主机受控信任表 pin 为**权威**，覆盖 plugin.json 自声明哈希。
-///
-/// - 信任表 pin 正确（即便 plugin.json 自声明哈希错误）→ 放行；
-/// - 信任表 pin 错误 → 拒载（攻击者改了 plugin.json 也无法绕过）；
-/// - 无信任表 → 回落自声明哈希（与原闸门一致）。
-#[test]
-fn integrity_trust_store_pin_overrides_self_declared() {
-    let dir = tempfile::tempdir().unwrap();
-    let src = std::path::Path::new(mock_exe());
-    let dst = dir.path().join(src.file_name().unwrap());
-    copy_mock_executable(&dst);
-    let real = PluginProcess::sha256_of(&dst).unwrap();
-
-    let trust = dir.path().join("plugins_trust.json");
-    // plugin.json 自声明一个错误哈希（模拟攻击者仅改了 plugin.json）
-    std::fs::write(
-        dir.path().join("plugin.json"),
-        r#"{"name":"mock-ai","api_version":"1.0.0","kind":"ai","network":false,"hash_sha256":"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}"#,
-    )
-    .unwrap();
-
-    // ① 信任表 pin 正确 → 放行（权威覆盖自声明错误哈希）
-    std::fs::write(&trust, format!(r#"{{"pins":{{"mock-ai":"{real}"}}}}"#)).unwrap();
-    let _p = PluginProcess::spawn(dst.as_path(), ">=1,<2", &wd(), Some(&trust)).unwrap();
-
-    // ② 信任表 pin 错误 → 拒载（信任表才是权威，plugin.json 改了也没用）
-    std::fs::write(
-        &trust,
-        r#"{"pins":{"mock-ai":"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}}"#,
-    )
-    .unwrap();
-    let err = PluginProcess::spawn(dst.as_path(), ">=1,<2", &wd(), Some(&trust)).unwrap_err();
-    assert!(
-        matches!(err, PluginHostError::Integrity { .. }),
-        "信任表 pin 错误必须拒载: {err}"
-    );
-    assert_eq!(err.code(), codes::INTEGRITY);
-
-    // ③ 无信任表 → 回落自声明（此处自声明错误 → 拒载）
-    let err2 = PluginProcess::spawn(dst.as_path(), ">=1,<2", &wd(), None).unwrap_err();
-    assert!(
-        matches!(err2, PluginHostError::Integrity { .. }),
-        "无信任表时回落自声明拒载: {err2}"
-    );
 }
 
 /// 平台无关 shim：注入 MOCK_FORBIDDEN=1 后转发到 mock 二进制。

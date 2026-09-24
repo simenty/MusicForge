@@ -970,6 +970,91 @@ mod tests {
         assert!(ha.chars().all(|c| c.is_ascii_hexdigit()));
     }
 
+    /// B15 回归（单元）：加载期完整性闸门 `verify_plugin_integrity` 全分支。
+    /// 直接测闸门逻辑（不 spawn 二进制），覆盖自声明 / 信任表 / 缺失三态。
+    #[test]
+    fn verify_integrity_self_declared_correct_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("plugin");
+        std::fs::write(&bin, b"musicforge-binary").unwrap();
+        let real = PluginProcess::sha256_of(&bin).unwrap();
+        std::fs::write(
+            dir.path().join("plugin.json"),
+            format!(
+                r#"{{"name":"p","api_version":"1.0.0","kind":"ai","network":false,"hash_sha256":"{real}"}}"#
+            ),
+        )
+        .unwrap();
+        assert!(verify_plugin_integrity(&bin, None).is_ok());
+    }
+
+    #[test]
+    fn verify_integrity_self_declared_wrong_rejects() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("plugin");
+        std::fs::write(&bin, b"musicforge-binary").unwrap();
+        std::fs::write(
+            dir.path().join("plugin.json"),
+            r#"{"name":"p","api_version":"1.0.0","kind":"ai","network":false,"hash_sha256":"deadbeef"}"#,
+        )
+        .unwrap();
+        let err = verify_plugin_integrity(&bin, None).unwrap_err();
+        assert!(matches!(err, PluginHostError::Integrity { .. }));
+    }
+
+    #[test]
+    fn verify_integrity_no_hash_warns_and_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("plugin");
+        std::fs::write(&bin, b"musicforge-binary").unwrap();
+        std::fs::write(
+            dir.path().join("plugin.json"),
+            r#"{"name":"p","api_version":"1.0.0","kind":"ai","network":false}"#,
+        )
+        .unwrap();
+        assert!(verify_plugin_integrity(&bin, None).is_ok());
+    }
+
+    /// B15 信任锚点回归（单元）：信任表 pin 为权威，覆盖自声明；无信任表回落自声明。
+    #[test]
+    fn verify_integrity_trust_pin_overrides_self_declared() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("plugin");
+        std::fs::write(&bin, b"musicforge-binary").unwrap();
+        let real = PluginProcess::sha256_of(&bin).unwrap();
+        // 自声明错误哈希，模拟攻击者仅改了 plugin.json
+        std::fs::write(
+            dir.path().join("plugin.json"),
+            r#"{"name":"p","api_version":"1.0.0","kind":"ai","network":false,"hash_sha256":"deadbeef"}"#,
+        )
+        .unwrap();
+        let trust = dir.path().join("plugins_trust.json");
+        // ① 信任表 pin 正确 → 放行（权威覆盖自声明错误哈希）
+        std::fs::write(&trust, format!(r#"{{"pins":{{"p":"{real}"}}}}"#)).unwrap();
+        assert!(verify_plugin_integrity(&bin, Some(&trust)).is_ok());
+        // ② 信任表 pin 错误 → 拒载（信任表才是权威）
+        std::fs::write(
+            &trust,
+            r#"{"pins":{"p":"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}}"#,
+        )
+        .unwrap();
+        let err = verify_plugin_integrity(&bin, Some(&trust)).unwrap_err();
+        assert!(matches!(err, PluginHostError::Integrity { .. }));
+        assert_eq!(err.code(), codes::INTEGRITY);
+        // ③ 无信任表 → 回落自声明（此处自声明错误 → 拒载）
+        let err2 = verify_plugin_integrity(&bin, None).unwrap_err();
+        assert!(matches!(err2, PluginHostError::Integrity { .. }));
+    }
+
+    #[test]
+    fn verify_integrity_no_plugin_json_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("plugin");
+        std::fs::write(&bin, b"musicforge-binary").unwrap();
+        // 无 plugin.json → 无 pin 无自声明 → 放行（遗留兼容）
+        assert!(verify_plugin_integrity(&bin, None).is_ok());
+    }
+
     /// 稳定审计 C14 回归：不存在路径的**符号链接祖先**逃逸被拒（TOCTOU）。
     /// Unix 直接建 symlink；Windows 建目录 symlink 需特权——创建失败则跳过
     /// （守卫逻辑已由组件级 + canonical 祖先校验覆盖）。
