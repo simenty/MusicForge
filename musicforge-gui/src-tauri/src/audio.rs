@@ -128,6 +128,31 @@ enum Cmd {
     SetMode { mode: PlayMode },
 }
 
+/// 引擎 → 解码线程的消息（解码 I/O 移出引擎/命令线程，避免阻塞 pause/seek/stop——B9）。
+enum DecodeMsg {
+    /// 加载并打开新曲目（阻塞 I/O 在解码线程内）；`autoplay` 决定就绪后是否立即产块。
+    Load { path: String, autoplay: bool },
+    /// 跳转到绝对毫秒（解码线程内 seek，丢弃缓冲）。
+    Seek { ms: i64 },
+    /// 暂停产块（流仍由引擎控制播放/暂停）。
+    Pause,
+    /// 恢复产块。
+    Resume,
+    /// 丢弃当前解码器（停止/清队列）。
+    Stop,
+}
+
+/// 解码线程 → 引擎的事件。
+#[derive(Debug)]
+enum WorkerEvent {
+    /// 解码器就绪（已确定采样率/声道）——引擎据此建/重建 cpal 流。
+    Ready { spec: (u32, u16) },
+    /// 当前曲目解码到尾——引擎据模式推进下一首。
+    Ended,
+    /// 解码/打开失败。
+    Error(String),
+}
+
 /// 解码产出的样本块（带代际——seek 后旧块被回调丢弃）。
 struct Chunk {
     generation: u64,
@@ -302,8 +327,12 @@ struct Engine {
     /// 当前输出流对应的 (采样率, 声道)——切换不同参数的曲目时重建
     stream_spec: Option<(u32, u16)>,
     stream: Option<cpal::Stream>,
-    sample_tx: Option<SyncSender<Chunk>>,
-    decoder: Option<ActiveDecoder>,
+    /// 解码线程产块的目标通道（随 cpal 流重建而更新；引擎与解码线程共享）。
+    out_tx: Arc<Mutex<Option<SyncSender<Chunk>>>>,
+    /// 引擎 → 解码线程命令（B9：解码 I/O 移出引擎线程）。
+    decode_tx: Sender<DecodeMsg>,
+    /// 解码线程 → 引擎事件。
+    decode_event_rx: Receiver<WorkerEvent>,
     generation: u64,
     /// 播放模式（P6.18）
     mode: PlayMode,
@@ -313,6 +342,20 @@ struct Engine {
 
 impl Engine {
     fn new(db_path: PathBuf, shared: Arc<Shared>) -> Self {
+        let (decode_tx, decode_rx) = channel::<DecodeMsg>();
+        let (event_tx, event_rx) = channel::<WorkerEvent>();
+        let out_tx = Arc::new(Mutex::new(None::<SyncSender<Chunk>>));
+        // B9：解码线程独立拥有解码器与阻塞 I/O（含 ffmpeg 管道读），
+        // 引擎线程只处理命令 + 持有 cpal 流——pause/seek/stop 永不被解码读卡住。
+        let worker = DecodeWorker {
+            rx: decode_rx,
+            event_tx,
+            out_tx: Arc::clone(&out_tx),
+            shared: Arc::clone(&shared),
+        };
+        let _ = std::thread::Builder::new()
+            .name("mf-audio-decode".into())
+            .spawn(move || worker.run());
         Self {
             db_path,
             shared,
@@ -321,8 +364,9 @@ impl Engine {
             playing: false,
             stream_spec: None,
             stream: None,
-            sample_tx: None,
-            decoder: None,
+            out_tx,
+            decode_tx,
+            decode_event_rx: event_rx,
             generation: 1,
             mode: PlayMode::Normal,
             rng_seed: SystemTime::now()
@@ -334,22 +378,24 @@ impl Engine {
 
     fn run(mut self, rx: Receiver<Cmd>) {
         loop {
-            let mut idle = true;
+            // 命令优先：即使解码线程在产块，命令处理也不被阻塞（B9）
             loop {
                 match rx.try_recv() {
-                    Ok(cmd) => {
-                        idle = false;
-                        self.handle(cmd);
-                    }
+                    Ok(cmd) => self.handle(cmd),
                     Err(TryRecvError::Empty) => break,
                     // 句柄已全部释放（应用退出路径）：结束线程，Stream 随之 drop
                     Err(TryRecvError::Disconnected) => return,
                 }
             }
-            self.pump();
-            if idle {
-                std::thread::sleep(Duration::from_millis(4));
+            // 解码线程事件（Ready → 建流；Ended → 推进；Error → 失败态）
+            loop {
+                match self.decode_event_rx.try_recv() {
+                    Ok(ev) => self.on_worker_event(ev),
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => return,
+                }
             }
+            std::thread::sleep(Duration::from_millis(4));
         }
     }
 
@@ -377,7 +423,8 @@ impl Engine {
             Cmd::Pause => self.pause(),
             Cmd::Stop => {
                 self.playing = false;
-                self.decoder = None;
+                let _ = self.decode_tx.send(DecodeMsg::Stop);
+                self.stream_spec = None;
                 self.silence_output();
                 self.set_idle();
             }
@@ -407,81 +454,60 @@ impl Engine {
             }
     }
 
-    /// 解码推进（背压内）。
-    fn pump(&mut self) {
-        if !self.playing {
-            return;
-        }
-        if self.shared.in_flight.load(Ordering::Relaxed) > MAX_IN_FLIGHT {
-            return;
-        }
-        let Some(dec) = self.decoder.as_mut() else { return };
-        match dec.next_chunk() {
-            Ok(Some(data)) => {
-                let n = data.len();
-                if let Some(tx) = &self.sample_tx {
-                    let chunk = Chunk { generation: self.generation, data };
-                    // 通道满（背压已在上方控制）：本块丢弃且位置不前移
-                    if tx.try_send(chunk).is_ok() {
-                        self.shared.in_flight.fetch_add(n, Ordering::Relaxed);
-                    }
-                }
-            }
-            Ok(None) => {
-                // 曲终 → 自动下一首（按当前模式：顺序停 / 随机 / 单曲重放 / 列表循环）
-                self.auto_advance();
-            }
-            Err(e) => self.fail(e),
-        }
-    }
+    // 解码已移至独立解码线程（`DecodeWorker`），引擎线程不再 `pump`——
+    // 否则阻塞的 ffmpeg/文件读会卡住 pause/seek/stop（B9）。引擎线程只管命令 + cpal 流。
 
     fn load_current(&mut self, autoplay: bool) {
-        self.decoder = None;
         self.flush_channel();
         let Some(item) = self.queue.get(self.index).cloned() else {
             self.set_idle();
             return;
         };
-        match ActiveDecoder::open(Path::new(&item.path)) {
-            Ok(dec) => {
-                let spec = (dec.sample_rate(), dec.channels());
-                // 断流状态下加载新曲：强制重建（复用会拿到已死的流）
-                if self.shared.stream_broken.swap(false, Ordering::Relaxed) {
-                    self.stream = None;
-                    self.sample_tx = None;
-                    self.stream_spec = None;
-                }
-                if let Err(e) = self.ensure_stream(spec) {
-                    self.fail(e);
-                    return;
-                }
-                self.shared.generation.fetch_add(1, Ordering::Relaxed);
-                self.generation = self.shared.generation.load(Ordering::Relaxed);
-                self.shared.samples_played.store(0, Ordering::Relaxed);
-                self.shared.in_flight.store(0, Ordering::Relaxed);
-                self.shared.underruns.store(0, Ordering::Relaxed);
-                self.decoder = Some(dec);
-                self.playing = autoplay;
-                {
-                    let mut s = self.shared.lock_snapshot();
-                    s.state = if autoplay { "playing" } else { "paused" };
-                    s.error = None;
-                    s.track_id = Some(item.track_id);
-                    s.title = item.title.clone();
-                    s.artist = item.artist.clone();
-                    s.duration_ms = item.duration_ms;
-                    s.sample_rate = Some(spec.0);
-                    s.channels = Some(spec.1);
-                    s.queue_len = self.queue.len();
-                    s.queue_index = Some(self.index);
-                }
-                if let Some(st) = &self.stream {
-                    let _ = st.play();
-                }
-                // 播放历史（追加日志；每秒级时间戳即可）
-                self.record_history(item.track_id);
-            }
-            Err(e) => self.fail(format!("无法播放 {}: {e}", item.path)),
+        // 先把曲目元数据写入快照；采样率/声道待解码器就绪后由 `on_worker_ready` 补全
+        {
+            let mut s = self.shared.lock_snapshot();
+            s.state = "loading";
+            s.error = None;
+            s.track_id = Some(item.track_id);
+            s.title = item.title.clone();
+            s.artist = item.artist.clone();
+            s.duration_ms = item.duration_ms;
+            s.queue_len = self.queue.len();
+            s.queue_index = Some(self.index);
+        }
+        // 阻塞的打开/探测交给解码线程；就绪后回发 `WorkerEvent::Ready`
+        let _ = self.decode_tx.send(DecodeMsg::Load {
+            path: item.path.clone(),
+            autoplay,
+        });
+    }
+
+    /// 解码线程报告解码器就绪：建/重建 cpal 流、开始播放、写历史（B9 解耦）。
+    fn on_worker_ready(&mut self, spec: (u32, u16)) {
+        if let Err(e) = self.ensure_stream(spec) {
+            self.fail(format!("音频输出启动失败: {e}"));
+            return;
+        }
+        let tid = self.shared.lock_snapshot().track_id;
+        if let Some(t) = tid {
+            // 历史（失败忽略——历史不是播放前置条件）
+            self.record_history(t);
+        }
+        self.playing = true;
+        self.shared.lock_snapshot().state = "playing";
+        if let Some(st) = &self.stream {
+            let _ = st.play();
+        }
+        // 通知解码线程开始产块
+        let _ = self.decode_tx.send(DecodeMsg::Resume);
+    }
+
+    /// 处理解码线程事件（B9）：Ready→建流、Ended→推进、Error→失败态。
+    fn on_worker_event(&mut self, ev: WorkerEvent) {
+        match ev {
+            WorkerEvent::Ready { spec } => self.on_worker_ready(spec),
+            WorkerEvent::Ended => self.auto_advance(),
+            WorkerEvent::Error(e) => self.fail(e),
         }
     }
 
@@ -491,11 +517,15 @@ impl Engine {
         }
         // 参数变化：重建（旧流先 drop，其回调随之结束）
         self.stream = None;
-        self.sample_tx = None;
+        if let Ok(mut g) = self.out_tx.lock() {
+            *g = None;
+        }
         let (stream, tx) = build_output(spec.0, spec.1, Arc::clone(&self.shared))?;
         stream.play().map_err(|e| format!("音频输出启动失败: {e}"))?;
         self.stream = Some(stream);
-        self.sample_tx = Some(tx);
+        if let Ok(mut g) = self.out_tx.lock() {
+            *g = Some(tx);
+        }
         self.stream_spec = Some(spec);
         Ok(())
     }
@@ -506,24 +536,26 @@ impl Engine {
             // B7：停声（否则缓冲里最多还有 ~1.5s 继续响，且 underruns 持续累加）
             self.silence_output();
             self.shared.lock_snapshot().state = "paused";
+            // 解码线程暂停产块（流由引擎控制播放/暂停）
+            let _ = self.decode_tx.send(DecodeMsg::Pause);
         }
     }
 
     fn resume(&mut self) {
-        if self.decoder.is_none() {
-            // 曾在停止态：尝试重新加载当前队列项
+        // 停止态（解码线程已丢弃解码器）：重新加载当前队列项
+        if self.stream_spec.is_none() {
             if !self.queue.is_empty() {
                 self.load_current(true);
             }
             return;
         }
-        // 断流恢复（设备热插拔的自动重试路径）：重建输出流，保留解码器与位置
+        // 断流恢复（设备热插拔的自动重试路径）：重建输出流
         if self.shared.stream_broken.swap(false, Ordering::Relaxed) {
-            let Some(dec) = self.decoder.as_ref() else { return };
-            let spec = (dec.sample_rate(), dec.channels());
+            let Some(spec) = self.stream_spec else { return };
             self.stream = None;
-            self.sample_tx = None;
-            self.stream_spec = None;
+            if let Ok(mut g) = self.out_tx.lock() {
+                *g = None;
+            }
             if let Err(e) = self.ensure_stream(spec) {
                 self.shared.lock_snapshot().error = Some(e);
                 return;
@@ -535,6 +567,7 @@ impl Engine {
         if let Some(st) = &self.stream {
             let _ = st.play();
         }
+        let _ = self.decode_tx.send(DecodeMsg::Resume);
     }
 
     /// 用户手动上一首/下一首（P6.18：按模式分派；单曲循环忽略、随机取随机项）。
@@ -574,7 +607,8 @@ impl Engine {
                 self.load_current(true);
             } else {
                 self.playing = false;
-                self.decoder = None;
+                let _ = self.decode_tx.send(DecodeMsg::Stop);
+                self.stream_spec = None;
                 self.silence_output();
                 self.set_idle();
             }
@@ -616,23 +650,23 @@ impl Engine {
     }
 
     fn seek(&mut self, ms: i64) {
-        let Some(dec) = self.decoder.as_mut() else { return };
         let ms = ms.max(0);
-        match dec.seek(ms) {
-            Ok(()) => {
-                // 代际 +1：回调丢弃旧块；位置直接改写为绝对样本数
-                self.shared.generation.fetch_add(1, Ordering::Relaxed);
-                self.generation = self.shared.generation.load(Ordering::Relaxed);
-                self.shared.in_flight.store(0, Ordering::Relaxed);
-                let rate = dec.sample_rate() as u64;
-                let ch = dec.channels() as u64;
-                let frames = (ms as u64) * rate / 1000;
-                self.shared
-                    .samples_played
-                    .store(frames * ch, Ordering::Relaxed);
-            }
-            Err(e) => self.fail(format!("跳转失败: {e}")),
-        }
+        // 钳上界：越界 seek 会让解码器落到 EOF 之外、并写出离谱的进度（B7 后续缺陷）。
+        // duration_ms 为 None/0（未知）时不钳，避免误杀合法长 seek。
+        let dur = self.shared.lock_snapshot().duration_ms.filter(|d| *d > 0);
+        let ms = match dur {
+            Some(d) => ms.min(d),
+            None => ms,
+        };
+        // 代际 +1：回调丢弃旧块；位置直接改写为绝对样本数（B9：seek 委托解码线程）
+        self.shared.generation.fetch_add(1, Ordering::Relaxed);
+        self.generation = self.shared.generation.load(Ordering::Relaxed);
+        self.shared.in_flight.store(0, Ordering::Relaxed);
+        let rate = self.stream_spec.map(|(r, _)| r).unwrap_or(48_000) as u64;
+        let ch = self.stream_spec.map(|(_, c)| c).unwrap_or(2) as u64;
+        let frames = (ms as u64) * rate / 1000;
+        self.shared.samples_played.store(frames * ch, Ordering::Relaxed);
+        let _ = self.decode_tx.send(DecodeMsg::Seek { ms });
     }
 
     /// 清空未消费的样本（seek / 切歌时）。
@@ -691,7 +725,8 @@ impl Engine {
         self.queue.remove(index);
         if self.queue.is_empty() {
             self.playing = false;
-            self.decoder = None;
+            let _ = self.decode_tx.send(DecodeMsg::Stop);
+            self.stream_spec = None;
             self.flush_channel();
             self.set_idle();
             return;
@@ -738,7 +773,8 @@ impl Engine {
         self.queue.clear();
         self.index = 0;
         self.playing = false;
-        self.decoder = None;
+        let _ = self.decode_tx.send(DecodeMsg::Stop);
+        self.stream_spec = None;
         self.silence_output();
         self.set_idle();
     }
@@ -773,7 +809,8 @@ impl Engine {
 
     fn fail(&mut self, msg: String) {
         self.playing = false;
-        self.decoder = None;
+        let _ = self.decode_tx.send(DecodeMsg::Stop);
+        self.stream_spec = None;
         let mut s = self.shared.lock_snapshot();
         s.state = "error";
         s.error = Some(msg);
@@ -789,6 +826,108 @@ impl Engine {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
         let _ = db.record_play(track_id, now, 0);
+    }
+}
+
+// ----------------------------------------------------- 解码线程 (B9) --
+/// 独立线程持有解码器与阻塞 I/O（ffmpeg 管道读 / 文件读），产块到 `out_tx`；
+/// 引擎线程只处理命令与 cpal 流，pause/seek/stop 永不被解码读卡住。
+struct DecodeWorker {
+    rx: Receiver<DecodeMsg>,
+    event_tx: Sender<WorkerEvent>,
+    out_tx: Arc<Mutex<Option<SyncSender<Chunk>>>>,
+    shared: Arc<Shared>,
+}
+
+impl DecodeWorker {
+    fn run(self) {
+        let mut dec: Option<ActiveDecoder> = None;
+        let mut paused = true; // Load 后由 Ready→Resume 启动产块
+        loop {
+            // 1) 优先消费命令（即使正在产块，命令也不被阻塞）
+            loop {
+                match self.rx.try_recv() {
+                    Ok(msg) => match msg {
+                        DecodeMsg::Load { path, autoplay } => {
+                            match ActiveDecoder::open(Path::new(&path)) {
+                                Ok(d) => {
+                                    let spec = (d.sample_rate(), d.channels());
+                                    dec = Some(d);
+                                    paused = !autoplay;
+                                    let _ = self.event_tx.send(WorkerEvent::Ready { spec });
+                                }
+                                Err(e) => {
+                                    let _ = self
+                                        .event_tx
+                                        .send(WorkerEvent::Error(format!("无法打开 {path}: {e}")));
+                                }
+                            }
+                        }
+                        DecodeMsg::Seek { ms } => {
+                            if let Some(d) = dec.as_mut() {
+                                if let Err(e) = d.seek(ms) {
+                                    let _ = self
+                                        .event_tx
+                                        .send(WorkerEvent::Error(format!("跳转失败: {e}")));
+                                }
+                            }
+                        }
+                        DecodeMsg::Pause => paused = true,
+                        DecodeMsg::Resume => paused = false,
+                        DecodeMsg::Stop => {
+                            dec = None;
+                            paused = true;
+                        }
+                    },
+                    Err(TryRecvError::Empty) => break,
+                    // 引擎已释放 → 退出解码线程（不泄漏）
+                    Err(TryRecvError::Disconnected) => return,
+                }
+            }
+            // 2) 背压内产块
+            if let Some(d) = dec.as_mut() {
+                if !paused {
+                    if self.shared.in_flight.load(Ordering::Relaxed) < MAX_IN_FLIGHT {
+                        let out = self.out_tx.lock().ok().and_then(|g| g.clone());
+                        if let Some(tx) = out {
+                            match d.next_chunk() {
+                                Ok(Some(data)) => {
+                                    let n = data.len();
+                                    let chunk = Chunk {
+                                        generation: self.shared.generation.load(Ordering::Relaxed),
+                                        data,
+                                    };
+                                    if tx.try_send(chunk).is_ok() {
+                                        self.shared.in_flight.fetch_add(n, Ordering::Relaxed);
+                                    }
+                                    // 满：背压，下个循环重试
+                                }
+                                Ok(None) => {
+                                    // 曲终 → 通知引擎推进；丢弃解码器
+                                    let _ = self.event_tx.send(WorkerEvent::Ended);
+                                    dec = None;
+                                }
+                                Err(e) => {
+                                    let _ = self
+                                        .event_tx
+                                        .send(WorkerEvent::Error(format!("解码失败: {e}")));
+                                    dec = None;
+                                }
+                            }
+                        } else {
+                            // 流尚未就绪（引擎正在建 cpal 流）：稍候
+                            std::thread::sleep(Duration::from_millis(2));
+                        }
+                    } else {
+                        std::thread::sleep(Duration::from_millis(2));
+                    }
+                } else {
+                    std::thread::sleep(Duration::from_millis(4));
+                }
+            } else {
+                std::thread::sleep(Duration::from_millis(8));
+            }
+        }
     }
 }
 
@@ -812,7 +951,9 @@ fn build_output(
     let mut supported_range = false;
     if let Ok(ranges) = device.supported_output_configs() {
         for r in ranges {
-            if r.channels() == channels
+            // 声道数用 `>=` 而非 `==`：设备支持立体声(2ch) 时应能播单声道(1ch) 曲目，
+            // 原 `==` 会让所有单声道曲目被误拒、永不发声（B7 后续缺陷）。
+            if r.channels() >= channels
                 && r.min_sample_rate().0 <= rate
                 && r.max_sample_rate().0 >= rate
             {
@@ -1045,11 +1186,16 @@ impl SymDecoder {
             match self.decoder.decode(&packet) {
                 Ok(audio_buf) => {
                     let spec = *audio_buf.spec();
-                    self.sample_rate = spec.rate;
-                    self.channels = spec.channels.count() as u16;
                     let frames = audio_buf.capacity() as u64;
+                    // 重建条件：容量不足 **或 spec 变化**（采样率/声道数变了仍沿用旧 spec
+                    // 会让 `copy_interleaved_ref` 按旧声道数错排样本，B7 后续缺陷）。
+                    // 注意：self.sample_rate/self.channels 此刻是上一块的旧值，比较完再更新。
                     let need_new = match &self.sample_buf {
-                        Some(b) => b.capacity() < audio_buf.capacity(),
+                        Some(b) => {
+                            b.capacity() < audio_buf.capacity()
+                                || self.sample_rate != spec.rate
+                                || self.channels != spec.channels.count() as u16
+                        }
                         None => true,
                     };
                     if need_new {
@@ -1059,6 +1205,8 @@ impl SymDecoder {
                         return Err("内部缓冲区初始化失败".to_string());
                     };
                     buf.copy_interleaved_ref(audio_buf);
+                    self.sample_rate = spec.rate;
+                    self.channels = spec.channels.count() as u16;
                     return Ok(Some(buf.samples().to_vec()));
                 }
                 // 单个损坏包：跳过（容错——坏一包不应中断整曲）
@@ -1565,6 +1713,85 @@ mod ffmpeg_tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// B9 回归：阻塞解码在独立 worker 线程完成，引擎/测试线程只发消息、等事件，
+    /// 永不被卡住。用 symphonia 原生 WAV 解码（无需 ffmpeg，CI 可跑）。
+    #[test]
+    fn decode_worker_offloads_blocking_read() {
+        let dir = std::env::temp_dir().join(format!("mf-dw-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let wav = dir.join("sine.wav");
+        // 0.1s 立体声 44.1k 静音 WAV（symphonia 原生解码，不依赖 ffmpeg）
+        let frames = 4410usize;
+        let channels: u16 = 2;
+        let rate: u32 = 44_100;
+        let data_len = frames * channels as usize * 2;
+        let mut buf = Vec::with_capacity(44 + data_len);
+        buf.extend_from_slice(b"RIFF");
+        buf.extend_from_slice(&((36 + data_len) as u32).to_le_bytes());
+        buf.extend_from_slice(b"WAVE");
+        buf.extend_from_slice(b"fmt ");
+        buf.extend_from_slice(&16u32.to_le_bytes());
+        buf.extend_from_slice(&1u16.to_le_bytes());
+        buf.extend_from_slice(&channels.to_le_bytes());
+        buf.extend_from_slice(&rate.to_le_bytes());
+        buf.extend_from_slice(&(rate * channels as u32 * 2).to_le_bytes());
+        buf.extend_from_slice(&(channels * 2u16).to_le_bytes());
+        buf.extend_from_slice(&16u16.to_le_bytes());
+        buf.extend_from_slice(b"data");
+        buf.extend_from_slice(&(data_len as u32).to_le_bytes());
+        for _ in 0..frames * channels as usize {
+            buf.extend_from_slice(&0i16.to_le_bytes());
+        }
+        std::fs::write(&wav, &buf).unwrap();
+
+        let (sample_tx, sample_rx) = std::sync::mpsc::sync_channel::<Chunk>(64);
+        // 把唯一的 Sender 移入 out_tx：worker 退出后通道关闭，drain 线程随之结束（避免 join 死锁）
+        let out_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(sample_tx)));
+        let (decode_tx, decode_rx) = std::sync::mpsc::channel::<DecodeMsg>();
+        let (event_tx, event_rx) = std::sync::mpsc::channel::<WorkerEvent>();
+        let shared = std::sync::Arc::new(Shared::new());
+        let worker = DecodeWorker { rx: decode_rx, event_tx, out_tx, shared };
+        let handle = std::thread::Builder::new()
+            .name("test-decode".into())
+            .spawn(move || worker.run())
+            .unwrap();
+
+        // 阻塞解码在 worker 内完成；本线程仅发消息 + 收事件，不卡读
+        decode_tx
+            .send(DecodeMsg::Load {
+                path: wav.to_string_lossy().into_owned(),
+                autoplay: true,
+            })
+            .unwrap();
+        match event_rx.recv_timeout(std::time::Duration::from_secs(10)) {
+            Ok(WorkerEvent::Ready { spec }) => {
+                assert_eq!(spec, (rate, channels), "spec 应为 44.1k/立体声")
+            }
+            other => panic!("期望 Ready，得到 {other:?}"),
+        }
+        // 并行排空样本块以释放背压，直到 worker 报曲终
+        let drain = std::thread::spawn(move || {
+            let mut t = 0usize;
+            while let Ok(c) = sample_rx.recv() {
+                t += c.data.len();
+            }
+            t
+        });
+        loop {
+            match event_rx.recv_timeout(std::time::Duration::from_secs(10)) {
+                Ok(WorkerEvent::Ended) => break,
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        drop(decode_tx); // 触发 worker 退出
+        let total = drain.join().unwrap();
+        // Chunk.data 是 Vec<i16>（样本数，非字节）；0.1s 立体声 44.1k = 8820 样本
+        assert_eq!(total, frames * channels as usize, "worker 应产出全部样本（解码在独立线程）");
+        let _ = handle.join();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(test)]
@@ -1701,5 +1928,36 @@ mod audio_state_tests {
         assert!(!e.playing);
         assert!(e.queue.is_empty());
         assert_eq!(e.index, 0);
+    }
+
+    /// seek 越界时应钳到曲目时长：避免写出离谱进度 / 让解码线程落 EOF 之外（B7 后续缺陷）。
+    #[test]
+    fn seek_clamps_to_track_duration() {
+        let mut e = eng();
+        e.shared.lock_snapshot().duration_ms = Some(1000); // 1s 曲目
+        let rate = 48_000u64;
+        let ch = 2u64;
+        // 越界 seek：5000ms → 钳到 1000ms
+        e.seek(5000);
+        assert_eq!(
+            e.shared.samples_played.load(Ordering::Relaxed),
+            1000 * rate / 1000 * ch,
+            "越界 seek 应钳到曲目时长"
+        );
+        // 合法 seek 不被钳
+        e.seek(300);
+        assert_eq!(
+            e.shared.samples_played.load(Ordering::Relaxed),
+            300 * rate / 1000 * ch,
+            "合法 seek 不应被钳"
+        );
+        // duration 未知（None）时不钳，避免误杀合法长 seek
+        e.shared.lock_snapshot().duration_ms = None;
+        e.seek(7000);
+        assert_eq!(
+            e.shared.samples_played.load(Ordering::Relaxed),
+            7000 * rate / 1000 * ch,
+            "duration 未知时不应钳"
+        );
     }
 }
