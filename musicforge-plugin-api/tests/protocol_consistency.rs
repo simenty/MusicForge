@@ -205,6 +205,7 @@ fn manifest_serde_shape_frozen() {
         data_not_sent: vec!["audio_bytes".into()],
         ack_required: true,
         extensions: vec!["kwm".into()],
+        hash_sha256: None,
         permissions: PluginPermissions::default(),
     };
     let v = serde_json::to_value(&m).unwrap();

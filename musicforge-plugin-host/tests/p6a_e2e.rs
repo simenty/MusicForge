@@ -138,6 +138,55 @@ fn output_path_egress_boundary() {
     ));
 }
 
+/// **B15 回归**：加载期完整性闸门。
+///
+/// 插件目录 plugin.json 声明 `hash_sha256`：
+/// ① 与二进制真实哈希一致 → 正常加载；
+/// ② 不一致（被篡改/替换）→ spawn **之前**拒绝（`MF-PLUGIN-INTEGRITY`），绝不运行；
+/// ③ 未声明 → 仍加载（遗留兼容），仅告警。
+///
+/// 复用 `sha256_of` 计算真实二进制哈希（与 Host 内逻辑同一实现）。
+#[test]
+fn integrity_hash_pins_and_rejects_tampered_binary() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = std::path::Path::new(mock_exe());
+    let dst = dir.path().join(src.file_name().unwrap());
+    std::fs::copy(src, &dst).unwrap();
+    let real = PluginProcess::sha256_of(&dst).unwrap();
+    assert_eq!(real.len(), 64, "SHA-256 必须是 64 位 hex");
+
+    // ① 声明正确 hash → 加载成功
+    std::fs::write(
+        dir.path().join("plugin.json"),
+        format!(
+            r#"{{"name":"mock-ai","api_version":"1.0.0","kind":"ai","network":false,"hash_sha256":"{real}"}}"#
+        ),
+    )
+    .unwrap();
+    let _p = PluginProcess::spawn(dst.as_path(), ">=1,<2", &wd()).unwrap();
+
+    // ② 声明错误 hash → spawn 前拒绝（绝不运行被篡改二进制）
+    std::fs::write(
+        dir.path().join("plugin.json"),
+        r#"{"name":"mock-ai","api_version":"1.0.0","kind":"ai","network":false,"hash_sha256":"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}"#,
+    )
+    .unwrap();
+    let err = PluginProcess::spawn(dst.as_path(), ">=1,<2", &wd()).unwrap_err();
+    assert!(
+        matches!(err, PluginHostError::Integrity { .. }),
+        "篡改二进制必须被完整性闸拒绝: {err}"
+    );
+    assert_eq!(err.code(), codes::INTEGRITY);
+
+    // ③ 未声明 hash → 仍加载（遗留兼容）
+    std::fs::write(
+        dir.path().join("plugin.json"),
+        r#"{"name":"mock-ai","api_version":"1.0.0","kind":"ai","network":false}"#,
+    )
+    .unwrap();
+    let _p2 = PluginProcess::spawn(dst.as_path(), ">=1,<2", &wd()).unwrap();
+}
+
 /// 平台无关 shim：注入 MOCK_FORBIDDEN=1 后转发到 mock 二进制。
 #[cfg(windows)]
 fn forbidden_shim() -> std::path::PathBuf {

@@ -11,6 +11,8 @@ serde = { version = "1", features = ["derive"] }
 # P3：协议违规（超限等）可观测——调用方初始化 subscriber 后可见（server 已初始化）
 tracing = "0.1"
 serde_json = "1"
+# B15（稳定审计修复）：加载期二进制完整性校验（SHA-256）
+sha2 = "0.10"
 
 [dev-dependencies]
 tempfile = "3"

@@ -25,6 +25,7 @@ use musicforge_plugin_api::{
     api_compatible, codes, methods, HostCapabilities, InitParams, InitResult, PluginManifest,
     Request, Response,
 };
+use sha2::{Digest, Sha256};
 
 // ---------------------------------------------------------------- 限制三件套 --
 
@@ -82,6 +83,14 @@ pub enum PluginHostError {
     Protocol(String),
     Io(std::io::Error),
     Gone,
+    /// B15（稳定审计修复）：加载期二进制完整性校验失败——哈希与 plugin.json
+    /// 声明的 `hash_sha256` 不一致（或二进制不可读）。在 spawn **之前**返回，
+    /// 绝不运行被篡改/替换的二进制。
+    Integrity {
+        name: String,
+        expected: String,
+        actual: String,
+    },
 }
 
 impl std::fmt::Display for PluginHostError {
@@ -104,6 +113,15 @@ impl std::fmt::Display for PluginHostError {
             Self::Protocol(s) => write!(f, "协议错误: {s}"),
             Self::Io(e) => write!(f, "IO: {e}"),
             Self::Gone => write!(f, "子进程已退出"),
+            Self::Integrity {
+                name,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "插件二进制完整性校验失败（{}）：plugin.json 声明 {}，实际 {}",
+                name, expected, actual
+            ),
         }
     }
 }
@@ -118,6 +136,7 @@ impl PluginHostError {
             Self::Timeout { .. } => codes::TIMEOUT,
             Self::Spawn(_) | Self::Gone => codes::FAILED,
             Self::Handshake(_) | Self::Protocol(_) => codes::MANIFEST_INVALID,
+            Self::Integrity { .. } => codes::INTEGRITY,
             Self::Io(_) => "MF-IO-FAILED",
         }
     }
@@ -171,6 +190,44 @@ impl PluginProcess {
         host_range: &str,
         work_dir: &Path,
     ) -> Result<Self, PluginHostError> {
+        // B15（稳定审计修复）：加载期完整性闸门。
+        //
+        // 在 **执行二进制之前**（任何 spawn / create_dir 之前）计算 `program` 的
+        // SHA-256，与同目录 plugin.json 声明的 `hash_sha256` 比对：
+        // - 声明且一致 → 放行；
+        // - 声明且不一致（或被篡改导致二进制不可读）→ 拒绝，**绝不运行**该二进制；
+        // - 未声明 → 加载但告警（遗留插件兼容，逐步推广 pin）。
+        //
+        // 注：plugin.json 与二进制同目录属「自声明」pin（攻击者可同时改两者）。
+        // 真正的可信锚点（签名校验 / 受控信任表）属架构级后续项；本闸已能挡住
+        // 「仅替换二进制、plugin.json 未同步」这一类最常见的本地篡改。
+        if let Some(dir) = program.parent() {
+            match plugin_json_expected_hash(dir) {
+                Some(declared) => match Self::sha256_of(program) {
+                    Ok(actual) if actual.eq_ignore_ascii_case(&declared) => {}
+                    Ok(actual) => {
+                        return Err(PluginHostError::Integrity {
+                            name: program.display().to_string(),
+                            expected: declared,
+                            actual,
+                        });
+                    }
+                    Err(e) => {
+                        return Err(PluginHostError::Integrity {
+                            name: program.display().to_string(),
+                            expected: declared,
+                            actual: format!("(二进制不可读: {e})"),
+                        });
+                    }
+                },
+                None => {
+                    tracing::warn!(
+                        plugin = %program.display(),
+                        "插件未声明 hash_sha256，跳过加载期完整性校验（建议为插件 pin 哈希）"
+                    );
+                }
+            }
+        }
         std::fs::create_dir_all(work_dir)
             .map_err(|e| PluginHostError::Spawn(format!("work_dir 创建失败: {e}")))?;
         let mut child = Command::new(program)
@@ -298,6 +355,7 @@ impl PluginProcess {
                 data_not_sent: vec![],
                 ack_required: false,
                 extensions: vec![],
+                hash_sha256: None,
                 permissions: Default::default(),
             },
             program: program.to_path_buf(),
@@ -775,6 +833,33 @@ fn crash_key(program: &Path) -> String {
     program.display().to_string().to_lowercase()
 }
 
+/// B15：计算文件 SHA-256（hex 小写，64 位）。加载期完整性校验复用。
+impl PluginProcess {
+    pub fn sha256_of(path: &Path) -> Result<String, std::io::Error> {
+        let data = std::fs::read(path)?;
+        let mut hasher = Sha256::new();
+        hasher.update(&data);
+        let digest = hasher.finalize();
+        let mut s = String::with_capacity(64);
+        for b in digest {
+            s.push_str(&format!("{b:02x}"));
+        }
+        Ok(s)
+    }
+}
+
+/// B15：从插件目录的 plugin.json 读取声明的 `hash_sha256`。
+///
+/// 缺文件 / 解析失败 / 缺字段 → `None`（调用方据此走「未 pin」兼容分支）。
+/// 与 [`crate::plugins`]（默认构建不链接协议 crate）无关——此处只取单字段。
+fn plugin_json_expected_hash(dir: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(dir.join("plugin.json")).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    v.get("hash_sha256")
+        .and_then(|h| h.as_str())
+        .map(|s| s.to_string())
+}
+
 impl std::fmt::Debug for PluginProcess {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PluginProcess")
@@ -820,6 +905,23 @@ mod tests {
         assert!(!out.contains("s3cret"), "JSON 值不得泄露: {out}");
         // 无密钥行原样
         assert_eq!(redact_secrets("plain log line"), "plain log line");
+    }
+
+    /// B15 回归：sha256_of 稳定且对内容敏感（确定性 + 64 位 hex + 内容变更即变）。
+    #[test]
+    fn sha256_of_is_deterministic_and_content_sensitive() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.bin");
+        let b = dir.path().join("b.bin");
+        std::fs::write(&a, b"musicforge").unwrap();
+        std::fs::write(&b, b"musicforge!").unwrap();
+        let ha = PluginProcess::sha256_of(&a).unwrap();
+        let ha2 = PluginProcess::sha256_of(&a).unwrap();
+        let hb = PluginProcess::sha256_of(&b).unwrap();
+        assert_eq!(ha, ha2, "同内容必须哈希一致");
+        assert_ne!(ha, hb, "内容变更必须改变哈希");
+        assert_eq!(ha.len(), 64);
+        assert!(ha.chars().all(|c| c.is_ascii_hexdigit()));
     }
 
     /// 稳定审计 C14 回归：不存在路径的**符号链接祖先**逃逸被拒（TOCTOU）。

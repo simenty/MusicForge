@@ -65,6 +65,7 @@ fn manifest_for(api_version: &str) -> PluginManifest {
         ],
         ack_required: false,
         extensions: vec![],
+        hash_sha256: None,
         permissions,
     }
 }

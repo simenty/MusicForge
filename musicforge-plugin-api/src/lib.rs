@@ -21,6 +21,8 @@ pub mod codes {
     pub const FAILED: &str = "MF-PLUGIN-FAILED";
     pub const METHOD_UNKNOWN: &str = "MF-PLUGIN-METHOD-UNKNOWN";
     pub const MANIFEST_INVALID: &str = "MF-PLUGIN-MANIFEST-INVALID";
+    /// B15（稳定审计修复）：加载期二进制完整性校验失败（哈希与 plugin.json 声明不一致）
+    pub const INTEGRITY: &str = "MF-PLUGIN-INTEGRITY";
     /// Host 侧支持的最大协议主版本（D20 区间的上界来源）
     pub const HOST_API_MAJOR: u64 = 1;
 }
@@ -203,6 +205,17 @@ pub struct PluginManifest {
     pub data_not_sent: Vec<String>,
     #[serde(default)]
     pub ack_required: bool,
+    /// B15（稳定审计修复）：插件**二进制** SHA-256（hex 小写，64 位）。
+    ///
+    /// Host 在 **spawn（执行二进制）之前**计算二进制哈希并与本值比对；声明且
+    /// 不一致 → 拒载（绝不运行被篡改/替换的二进制）。未声明 → 加载但告警
+    /// （遗留插件兼容，逐步推广 pin）。
+    ///
+    /// 注：本字段为「自声明」pin——真实可信锚点（签名校验 / 受控信任表，见
+    /// SECURITY.md B15 后续项）属架构级工作；自声明哈希已能挡住「仅替换二进制、
+    /// plugin.json 未同步」这一类最常见的本地篡改。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hash_sha256: Option<String>,
     /// P6b.2：格式插件能力声明——可迁移的容器扩展名（小写、不含点，如 "kwm"）。
     /// 加密容器无明文魔数，Host 按扩展名探测（PLUGIN_POLICY §4 逐格式兼容性申报）。
     #[serde(default)]
@@ -743,6 +756,23 @@ mod tests {
             "能力声明：可迁移扩展名"
         );
         assert!(m.data_not_sent.is_empty());
+    }
+
+    #[test]
+    fn manifest_hash_sha256_roundtrip() {
+        // B15：插件二进制哈希字段可声明并被解析（且缺省兼容旧清单）
+        let h = "a".repeat(64);
+        let m: PluginManifest = serde_json::from_str(&format!(
+            r#"{{"name":"kwm-migration","api_version":"1.0.0","kind":"format-adapter","network":false,"hash_sha256":"{h}"}}"#
+        ))
+        .unwrap();
+        assert_eq!(m.hash_sha256.as_deref(), Some(h.as_str()));
+        // 旧清单不声明 → None（向后兼容）
+        let legacy: PluginManifest = serde_json::from_str(
+            r#"{"name":"mock-ai","api_version":"1.0.0","kind":"ai","network":false}"#,
+        )
+        .unwrap();
+        assert!(legacy.hash_sha256.is_none());
     }
 
     #[test]
