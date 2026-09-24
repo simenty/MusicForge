@@ -9,6 +9,19 @@ fn mock_exe() -> &'static str {
     env!("CARGO_BIN_EXE_mock-ai-plugin")
 }
 
+/// 跨平台：复制二进制后确保可执行位（Linux/macOS 上 `fs::copy` 不保留 `+x`，
+/// 否则 spawn 会 permission-denied；Windows 无需处理）。
+fn copy_mock_executable(dst: &std::path::Path) {
+    std::fs::copy(mock_exe(), dst).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(dst).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(dst, perms).unwrap();
+    }
+}
+
 /// P6a-R：插件 work_dir（X41 出站边界；e2e 共享临时目录，mock 仅 demo 写入）。
 fn wd() -> std::path::PathBuf {
     use std::sync::OnceLock;
@@ -151,7 +164,7 @@ fn integrity_hash_pins_and_rejects_tampered_binary() {
     let dir = tempfile::tempdir().unwrap();
     let src = std::path::Path::new(mock_exe());
     let dst = dir.path().join(src.file_name().unwrap());
-    std::fs::copy(src, &dst).unwrap();
+    copy_mock_executable(&dst);
     let real = PluginProcess::sha256_of(&dst).unwrap();
     assert_eq!(real.len(), 64, "SHA-256 必须是 64 位 hex");
 
@@ -197,7 +210,7 @@ fn integrity_trust_store_pin_overrides_self_declared() {
     let dir = tempfile::tempdir().unwrap();
     let src = std::path::Path::new(mock_exe());
     let dst = dir.path().join(src.file_name().unwrap());
-    std::fs::copy(src, &dst).unwrap();
+    copy_mock_executable(&dst);
     let real = PluginProcess::sha256_of(&dst).unwrap();
 
     let trust = dir.path().join("plugins_trust.json");
