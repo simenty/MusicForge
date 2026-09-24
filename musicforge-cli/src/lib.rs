@@ -1374,8 +1374,14 @@ pub mod format_bridge {
                     self.name
                 )));
             }
-            let mut p = musicforge_plugin_host::PluginProcess::spawn(&self.exe, ">=1,<2", out_dir)
-                .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
+            let trust_store = musicforge_core::db::local_config_dir().join("plugins_trust.json");
+            let mut p = musicforge_plugin_host::PluginProcess::spawn(
+                &self.exe,
+                ">=1,<2",
+                out_dir,
+                Some(&trust_store),
+            )
+            .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
             // P6a-R（v0.1 形状）：job_id 关联 progress 事件；work_dir = 迁移暂存目录
             let params = FormatMigrateParams {
                 job_id: format!("job-{}", std::process::id()),
@@ -1611,7 +1617,8 @@ pub fn format_migrate(
         .join(".musicforge")
         .join("work")
         .join(plugin);
-    let mut p = musicforge_plugin_host::PluginProcess::spawn(&exe, ">=1,<2", &work_dir)
+    let trust_store = musicforge_core::db::local_config_dir().join("plugins_trust.json");
+    let mut p = musicforge_plugin_host::PluginProcess::spawn(&exe, ">=1,<2", &work_dir, Some(&trust_store))
         .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
     plugins::ack_gate(
         p.manifest.ack_required,
