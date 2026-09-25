@@ -20,6 +20,7 @@ import {
   type PluginsStatus,
 } from "./api";
 import { useLang } from "./i18n";
+import ConfirmDialog from "./ConfirmDialog";
 
 export default function PluginPanel() {
   const { t } = useLang();
@@ -34,6 +35,8 @@ export default function PluginPanel() {
   const [migResults, setMigResults] = useState<Record<string, string[]>>({});
   // X49：用户自备 ekey（QMC STag 尾标变体；仅本地传递给插件进程，零网络）
   const [ekey, setEkey] = useState("");
+  // P2-18：高风险插件 ACK 确认原本 window.confirm —— 改为 ConfirmDialog
+  const [pendingAck, setPendingAck] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     // 服务端形态：插件能力为桌面专属——**不发起请求**，由渲染层显示形态说明
@@ -62,15 +65,16 @@ export default function PluginPanel() {
   };
 
   // P6b.2：高风险插件（格式迁移类）ACK 确认——面板内展示风险提示后确认
-  const acknowledge = async (name: string) => {
-    const ok = window.confirm(t.plugin.ackConfirm(name));
-    if (!ok) return;
+  const acknowledge = async () => {
+    if (!pendingAck) return;
     setError(null);
     try {
-      await pluginsAcknowledge(name);
+      await pluginsAcknowledge(pendingAck);
       await load();
     } catch (e) {
       setError(String(e));
+    } finally {
+      setPendingAck(null);
     }
   };
 
@@ -255,7 +259,7 @@ export default function PluginPanel() {
                   {needsAck && <b className="plugin-ack-warn">{t.plugin.needAck}</b>}
                 </label>
                 {needsAck && (
-                  <button className="btn sm" onClick={() => void acknowledge(p.name)}>
+                  <button className="btn sm" onClick={() => setPendingAck(p.name)}>
                     {t.plugin.ackButton}
                   </button>
                 )}
@@ -318,6 +322,17 @@ export default function PluginPanel() {
       </ul>
 
       <p className="plugin-url">{t.plugin.learnMore}</p>
+
+      <ConfirmDialog
+        open={pendingAck !== null}
+        title={t.plugin.ackConfirm(pendingAck ?? "")}
+        summary={t.plugin.ackConfirm(pendingAck ?? "")}
+        ackLabel={t.plugin.ackConfirm(pendingAck ?? "")}
+        confirmLabel={t.player.confirm}
+        cancelLabel={t.player.cancel}
+        onConfirm={() => void acknowledge()}
+        onCancel={() => setPendingAck(null)}
+      />
     </div>
   );
 }

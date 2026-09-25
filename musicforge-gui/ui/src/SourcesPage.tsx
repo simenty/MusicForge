@@ -3,6 +3,7 @@
 // 语义：索引 = 只读扫描 + 读标签 + 写本地库（可再生）；移除源只清索引行，
 // 音乐文件不受影响（移除按钮的确认文案已明示）。
 import { useCallback, useEffect, useState } from "react";
+import ConfirmDialog from "./ConfirmDialog";
 import {
   IS_DESKTOP,
   indexSource,
@@ -29,6 +30,8 @@ export default function SourcesPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // P2-18：移除源原本 window.confirm —— 改为 ConfirmDialog（可样式化/可测/可 i18n）
+  const [pendingRemove, setPendingRemove] = useState<Source | null>(null);
 
   const reload = useCallback(() => {
     if (!IS_DESKTOP) return;
@@ -84,22 +87,20 @@ export default function SourcesPage() {
     [busy, t, reload]
   );
 
-  const remove = useCallback(
-    async (s: Source) => {
-      if (busy || !window.confirm(t.media.srcRemoveConfirm)) return;
-      setBusy(true);
-      setErr(null);
-      try {
-        await sourcesRemove(s.id);
-        reload();
-      } catch (e) {
-        setErr(String(e));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [busy, t, reload]
-  );
+  const remove = useCallback(async () => {
+    if (!pendingRemove) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await sourcesRemove(pendingRemove.id);
+      reload();
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+      setPendingRemove(null);
+    }
+  }, [pendingRemove, t, reload]);
 
   if (!IS_DESKTOP) {
     return (
@@ -183,7 +184,11 @@ export default function SourcesPage() {
                 >
                   {busy ? t.media.srcIndexing : t.media.srcReindex}
                 </button>
-                <button className="btn sm danger" onClick={() => void remove(s)} disabled={busy}>
+                <button
+                  className="btn sm danger"
+                  onClick={() => setPendingRemove(s)}
+                  disabled={busy}
+                >
                   {t.media.srcRemove}
                 </button>
               </div>
@@ -191,6 +196,17 @@ export default function SourcesPage() {
           ))
         )}
       </div>
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        busy={busy}
+        title={t.media.srcRemoveConfirm}
+        summary={t.media.srcRemoveConfirm}
+        ackLabel={t.media.srcRemoveConfirm}
+        confirmLabel={t.player.confirm}
+        cancelLabel={t.player.cancel}
+        onConfirm={remove}
+        onCancel={() => setPendingRemove(null)}
+      />
     </>
   );
 }

@@ -6,11 +6,14 @@
 // 还原会覆盖恢复路径上的同名文件（如存在）——因此强制二次确认。
 import { useState } from "react";
 import { IS_SERVER_MODE, trashRestore } from "./api";
+import ConfirmDialog from "./ConfirmDialog";
 import { useLang } from "./i18n";
 
 export default function TrashPanel() {
   const { t } = useLang();
   const [manifest, setManifest] = useState("");
+  // P2-18：还原原本 window.confirm —— 改为 ConfirmDialog
+  const [pendingRestore, setPendingRestore] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +21,6 @@ export default function TrashPanel() {
   const run = async () => {
     const m = manifest.trim();
     if (!m || busy) return;
-    if (!window.confirm(t.trash.confirmRestore)) return;
     setBusy(true);
     setError(null);
     try {
@@ -28,6 +30,7 @@ export default function TrashPanel() {
       setError(String(e));
     } finally {
       setBusy(false);
+      setPendingRestore(false);
     }
   };
 
@@ -55,7 +58,7 @@ export default function TrashPanel() {
           />
           <button
             className="btn primary"
-            onClick={() => void run()}
+            onClick={() => setPendingRestore(true)}
             disabled={busy || !manifest.trim()}
           >
             {busy ? t.trash.restoring : t.trash.restoreBtn}
@@ -74,6 +77,18 @@ export default function TrashPanel() {
 
       {error && <div className="scan-error">✕ {error}</div>}
       {result && <div className="scan-note scan-clean">✓ {result}</div>}
+
+      <ConfirmDialog
+        open={pendingRestore}
+        busy={busy}
+        title={t.trash.confirmRestore}
+        summary={t.trash.confirmRestore}
+        ackLabel={t.trash.confirmRestore}
+        confirmLabel={t.player.confirm}
+        cancelLabel={t.player.cancel}
+        onConfirm={() => void run()}
+        onCancel={() => setPendingRestore(false)}
+      />
     </div>
   );
 }

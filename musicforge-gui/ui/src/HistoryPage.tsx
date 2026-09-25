@@ -45,6 +45,8 @@ export default function HistoryPage({
   const [rows, setRows] = useState<HistoryEntry[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  // P2-18：清空历史原本 window.confirm —— 改为 ConfirmDialog（可样式化/可测/可 i18n）
+  const [pendingClear, setPendingClear] = useState(false);
 
   const [sort, setSort] = useSort("history", "default");
   // P6.23：批量从资料库移除的确认闸
@@ -139,7 +141,7 @@ export default function HistoryPage({
   );
 
   const clear = useCallback(async () => {
-    if (busy || !window.confirm(t.media.historyClearConfirm)) return;
+    if (busy) return;
     setBusy(true);
     try {
       const r = await historyClear();
@@ -149,6 +151,7 @@ export default function HistoryPage({
       /* 静默：列表未变即为失败信号 */
     } finally {
       setBusy(false);
+      setPendingClear(false);
     }
   }, [busy, t, reload]);
 
@@ -201,7 +204,7 @@ export default function HistoryPage({
           />
           <button
             className="btn sm"
-            onClick={() => void clear()}
+            onClick={() => setPendingClear(true)}
             disabled={busy || !rows || rows.length === 0}
           >
             {t.media.historyClear}
@@ -296,6 +299,17 @@ export default function HistoryPage({
         cancelLabel={t.player.cancel}
         onConfirm={doRemove}
         onCancel={() => setPendingRemove(false)}
+      />
+      <ConfirmDialog
+        open={pendingClear}
+        busy={busy}
+        title={t.media.historyClearConfirm}
+        summary={t.media.historyClearConfirm}
+        ackLabel={t.media.historyClearConfirm}
+        confirmLabel={t.player.confirm}
+        cancelLabel={t.player.cancel}
+        onConfirm={clear}
+        onCancel={() => setPendingClear(false)}
       />
     </>
   );

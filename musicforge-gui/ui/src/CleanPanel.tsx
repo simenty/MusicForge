@@ -42,6 +42,8 @@ export default function CleanPanel() {
   const [error, setError] = useState<string | null>(null);
   /** 三级闸弹层开关（确认后才真正执行） */
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // P2-18：还原原本 window.confirm —— 改为 ConfirmDialog
+  const [pendingRestore, setPendingRestore] = useState(false);
 
   const busy = planning || applying || restoring;
 
@@ -92,7 +94,6 @@ export default function CleanPanel() {
 
   const restore = async () => {
     if (!manifest || busy) return;
-    if (!window.confirm(t.clean.confirmRestore)) return;
     setRestoring(true);
     setError(null);
     try {
@@ -103,6 +104,7 @@ export default function CleanPanel() {
       setError(String(e));
     } finally {
       setRestoring(false);
+      setPendingRestore(false);
     }
   };
 
@@ -181,7 +183,7 @@ export default function CleanPanel() {
               <button
                 className="btn sm"
                 style={{ marginLeft: "auto" }}
-                onClick={() => void restore()}
+                onClick={() => setPendingRestore(true)}
                 disabled={busy}
               >
                 {restoring ? t.clean.restoring : t.clean.restoreBtn}
@@ -292,6 +294,17 @@ export default function CleanPanel() {
         busy={applying}
         onConfirm={() => void doApply()}
         onCancel={() => setConfirmOpen(false)}
+      />
+      <ConfirmDialog
+        open={pendingRestore}
+        busy={restoring}
+        title={t.clean.confirmRestore}
+        summary={t.clean.confirmRestore}
+        ackLabel={t.clean.confirmRestore}
+        confirmLabel={t.player.confirm}
+        cancelLabel={t.player.cancel}
+        onConfirm={() => void restore()}
+        onCancel={() => setPendingRestore(false)}
       />
     </div>
   );

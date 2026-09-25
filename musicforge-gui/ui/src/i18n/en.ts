@@ -403,6 +403,7 @@ export const en: typeof zh = {
     selection: "Bulk actions",
     remove: "Remove",
     cancel: "Cancel",
+    confirm: "Confirm",
   },
   serverInfo: {
     head: "Server info (fnOS / self-hosted)",

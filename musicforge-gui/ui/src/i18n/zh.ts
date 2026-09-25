@@ -403,6 +403,7 @@ export const zh = {
     selection: "批量操作",
     remove: "移除",
     cancel: "取消",
+    confirm: "确认",
   },
   serverInfo: {
     head: "服务端信息（fnOS / 自建 server）",

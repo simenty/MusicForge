@@ -46,6 +46,8 @@ export default function OrganizePanel() {
   const [error, setError] = useState<string | null>(null);
   /** 三级闸弹层开关 */
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // P2-18：还原原本 window.confirm —— 改为 ConfirmDialog
+  const [pendingRestore, setPendingRestore] = useState(false);
 
   const busy = planning || applying || restoring;
 
@@ -110,7 +112,6 @@ export default function OrganizePanel() {
 
   const restore = async () => {
     if (!manifest || busy) return;
-    if (!window.confirm(t.organize.confirmRestore)) return;
     setRestoring(true);
     setError(null);
     try {
@@ -121,6 +122,7 @@ export default function OrganizePanel() {
       setError(String(e));
     } finally {
       setRestoring(false);
+      setPendingRestore(false);
     }
   };
 
@@ -219,7 +221,7 @@ export default function OrganizePanel() {
               <button
                 className="btn sm"
                 style={{ marginLeft: "auto" }}
-                onClick={() => void restore()}
+                onClick={() => setPendingRestore(true)}
                 disabled={busy}
               >
                 {restoring ? t.organize.restoring : t.organize.restoreBtn}
@@ -345,6 +347,17 @@ export default function OrganizePanel() {
         busy={applying}
         onConfirm={() => void doApply()}
         onCancel={() => setConfirmOpen(false)}
+      />
+      <ConfirmDialog
+        open={pendingRestore}
+        busy={restoring}
+        title={t.organize.confirmRestore}
+        summary={t.organize.confirmRestore}
+        ackLabel={t.organize.confirmRestore}
+        confirmLabel={t.player.confirm}
+        cancelLabel={t.player.cancel}
+        onConfirm={() => void restore()}
+        onCancel={() => setPendingRestore(false)}
       />
     </div>
   );
