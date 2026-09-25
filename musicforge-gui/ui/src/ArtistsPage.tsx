@@ -361,7 +361,21 @@ export default function ArtistsPage({
       ) : (
         <div className="mgrid">
           {visible.map((a, i) => (
-            <div className="mcard pl-card" key={a.id} onClick={() => openArtist(a)}>
+            <div
+              className="mcard pl-card"
+              key={a.id}
+              // P2-19：卡片键盘等价（审计 3.4 缺口，与 AlbumsPage 同类）
+              role="button"
+              tabIndex={0}
+              aria-label={a.name}
+              onClick={() => openArtist(a)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  openArtist(a);
+                }
+              }}
+            >
               {covers[a.id] ? (
                 <span className="ava" aria-hidden="true">
                   <img src={covers[a.id]} alt="" loading="lazy" />

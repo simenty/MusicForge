@@ -53,7 +53,20 @@ function TrackRow({
 }: TrackRowProps) {
   const { t } = useLang();
   return (
-    <div className={"vt-row" + (selected ? " sel" : "")} onDoubleClick={() => onPlay?.(tr)} {...dragProps}>
+    <div
+      className={"vt-row" + (selected ? " sel" : "")}
+      // P2-19：键盘等价播放——纯键盘用户无法双击，行可聚焦后 Enter/Space 触发播放
+      tabIndex={onPlay ? 0 : -1}
+      onKeyDown={(e) => {
+        if (!onPlay) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onPlay(tr);
+        }
+      }}
+      onDoubleClick={() => onPlay?.(tr)}
+      {...dragProps}
+    >
       {selectable ? (
         <button
           type="button"

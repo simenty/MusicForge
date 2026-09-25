@@ -380,7 +380,20 @@ export default function AlbumsPage({
           {visible.map((a, i) => {
           const src = assetUrl(a.coverPath);
           return (
-            <div className="mcard pl-card" key={a.id} onClick={() => openAlbum(a)}>
+            <div
+              className="mcard pl-card"
+              key={a.id}
+              // P2-19：卡片键盘等价（审计 3.4 缺口）；含 cover-edit 嵌套按钮故不加 role="button"
+              tabIndex={0}
+              aria-label={a.title}
+              onClick={() => openAlbum(a)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  openAlbum(a);
+                }
+              }}
+            >
               {src ? (
                 <img className="cover2" src={src} alt="" loading="lazy" />
               ) : (
