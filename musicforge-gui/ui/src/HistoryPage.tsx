@@ -11,6 +11,7 @@ import SortControl from "./SortControl";
 import FilterInput from "./FilterInput";
 import { useSort } from "./hooks/useSort";
 import { useRequestGuard } from "./hooks/useRequestGuard";
+import { useWindowedTracks, TRACK_ROW_H } from "./hooks/useWindowedTracks";
 import ConfirmDialog from "./ConfirmDialog";
 
 type DayKey = "today" | "yesterday" | "earlier";
@@ -79,6 +80,17 @@ export default function HistoryPage({
     reloadGuard.bump(); // 参数已变 → 作废旧代（须在 reload 取令牌之前）
     reload();
   }, [reload, reloadGuard]);
+
+  // P2-20：复用 useWindowedTracks 虚拟化历史列表（内存 slice）。仅 non-default 扁平视图；
+  // 默认「今天/昨天/更早」分组视图为变高布局，统一行高窗口器不兼容，保持全量渲染（上限 300 条）。
+  const historyFetch = useCallback(
+    (off: number, lim: number) => Promise.resolve((rows ?? []).slice(off, off + lim)),
+    [rows]
+  );
+  const w = useWindowedTracks(200, undefined, undefined, historyFetch);
+  useEffect(() => {
+    w.reset(rows?.length ?? 0);
+  }, [rows, w.reset]);
 
   const liked = useLiked();
 
@@ -263,22 +275,36 @@ export default function HistoryPage({
           </section>
         ))
       ) : (
-        <div className="tracks">
-          {rows.map((r, i) => (
-            <TrackRow
-              key={`${r.id}-${r.playedAt}-${i}`}
-              lead={timeOf(r.playedAt)}
-              track={r}
-              onPlay={onPlay ? () => playFrom(r) : undefined}
-              liked={liked.isLiked(r.id)}
-              onLike={() => void liked.toggle(r.id)}
-              onQueue={onQueue ? () => void onQueue([r]) : undefined}
-              onPlayNext={onPlayNext ? () => void onPlayNext([r]) : undefined}
-              selectable={selApi.selMode}
-              selected={selApi.has(String(r.id))}
-              onToggleSelect={() => selApi.toggle(String(r.id))}
-            />
-          ))}
+        <div className="vt-scroll" onScroll={(e) => w.onScroll(e.currentTarget)}>
+          <div style={{ height: w.total * TRACK_ROW_H, position: "relative" }}>
+            <div style={{ transform: `translateY(${w.start * TRACK_ROW_H}px)` }}>
+              {w.indices.map((i) => {
+                const tr = w.rowAt(i) as HistoryEntry | undefined;
+                return tr ? (
+                  <TrackRow
+                    key={tr.id}
+                    lead={timeOf(tr.playedAt)}
+                    track={tr}
+                    onPlay={onPlay ? handlePlay : undefined}
+                    liked={liked.isLiked(tr.id)}
+                    onLike={handleLike}
+                    onQueue={onQueue ? handleQueue : undefined}
+                    onPlayNext={onPlayNext ? handlePlayNext : undefined}
+                    selectable={selApi.selMode}
+                    selected={selApi.has(String(tr.id))}
+                    onToggleSelect={handleToggleSelect}
+                  />
+                ) : (
+                  <div className="vt-row" key={`ph-${i}`}>
+                    <span className="vt-idx">{i + 1}</span>
+                    <span className="vt-main">
+                      <b>{t.media.loading}</b>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
       {selApi.selMode && (

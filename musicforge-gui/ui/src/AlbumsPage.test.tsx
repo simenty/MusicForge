@@ -1,6 +1,6 @@
 // AlbumsPage 组件测试（P6.10）：列表 → 详情（曲目 + 播放全部）→ 返回。
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./api", () => ({
   IS_DESKTOP: true,
@@ -54,6 +54,19 @@ function renderPage() {
 describe("AlbumsPage（专辑详情）", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // jsdom 无布局：虚拟化滚动容器 clientHeight 为 0 → 仅渲染首行。
+    // 模拟容器高度，使窗口覆盖全部曲目（与生产虚拟滚动行为无关，仅让组件测试可见全量）。
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+      configurable: true,
+      get: () => 800,
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+      configurable: true,
+      get: () => 0,
+    });
   });
 
   it("点卡片进入详情：曲目表 + 播放全部；返回回到列表", async () => {

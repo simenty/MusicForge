@@ -65,6 +65,23 @@ export default function StatsPage({
       });
   }, [statsGuard]);
 
+  // P2-16：行内动作稳定化，配合 TrackRow memo（须置于早返回之前，遵守 hooks 顺序）
+  const handlePlay = useCallback(
+    (tr: Track) => {
+      if (!onPlay || !data) return;
+      const queue: Track[] = data.top;
+      const idx = queue.findIndex((x) => x.id === tr.id);
+      void onPlay(queue, idx >= 0 ? idx : 0);
+    },
+    [onPlay, data]
+  );
+  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
+  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
+  const handleToggleSelect = useCallback(
+    (tr: Track) => selApi.toggle(String(tr.id)),
+    [selApi.toggle]
+  );
+
   if (!IS_DESKTOP) {
     return (
       <div className="media-empty">
@@ -91,25 +108,6 @@ export default function StatsPage({
   const counts = new Map(data.daily.map((d) => [d.day, d.count]));
   const weekVals = days.map((d) => counts.get(d) ?? 0);
   const max = Math.max(1, ...weekVals);
-
-  // P2-16：playTop 改为稳定 useCallback（依赖稳定原语），配合 TrackRow memo
-  const handlePlay = useCallback(
-    (tr: Track) => {
-      if (!onPlay) return;
-      const queue: Track[] = data.top;
-      const idx = queue.findIndex((x) => x.id === tr.id);
-      void onPlay(queue, idx >= 0 ? idx : 0);
-    },
-    [onPlay, data]
-  );
-
-  // P2-16：行内动作稳定化，配合 TrackRow memo
-  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
-  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
-  const handleToggleSelect = useCallback(
-    (tr: Track) => selApi.toggle(String(tr.id)),
-    [selApi.toggle]
-  );
 
   return (
     <>

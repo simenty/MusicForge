@@ -20,6 +20,7 @@ import SortControl from "./SortControl";
 import FilterInput from "./FilterInput";
 import { useSort } from "./hooks/useSort";
 import { useRequestGuard } from "./hooks/useRequestGuard";
+import { useWindowedTracks, TRACK_ROW_H } from "./hooks/useWindowedTracks";
 import { sortTracks } from "./lib/sortTracks";
 import { filterAlbums, filterTracks } from "./lib/filterTracks";
 import AddToPlaylistDialog from "./AddToPlaylistDialog";
@@ -111,6 +112,35 @@ export default function AlbumsPage({
       });
   }, [focusId, rows, tracksGuard]);
 
+  // P2-16：行内动作稳定化（详情态映射用），配合 TrackRow memo。
+  // 必须置于所有早返回（含 if (!IS_DESKTOP)）之前，遵守 hooks 顺序（react-hooks/rules-of-hooks）。
+  const handlePlay = useCallback(
+    (tr: Track) => {
+      if (!onPlay || !tracks) return;
+      const arr = tracks;
+      const idx = arr.findIndex((x) => x.id === tr.id);
+      void onPlay(arr, idx >= 0 ? idx : 0);
+    },
+    [onPlay, tracks]
+  );
+  const handleAdd = useCallback((tr: Track) => setAddTarget(tr), []);
+  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
+  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
+  const handleToggleSelect = useCallback(
+    (tr: Track) => selApi.toggle(String(tr.id)),
+    [selApi.toggle]
+  );
+
+  // P2-20：复用 useWindowedTracks 虚拟化专辑曲目列表（内存 slice，免改后端）
+  const albumFetch = useCallback(
+    (off: number, lim: number) => Promise.resolve((tracks ?? []).slice(off, off + lim)),
+    [tracks]
+  );
+  const w = useWindowedTracks(200, undefined, undefined, albumFetch);
+  useEffect(() => {
+    w.reset(tracks?.length ?? 0);
+  }, [tracks, w.reset]);
+
   if (!IS_DESKTOP) {
     return (
       <div className="media-empty">
@@ -118,6 +148,7 @@ export default function AlbumsPage({
       </div>
     );
   }
+
   if (!rows) {
     return (
       <div className="media-empty">
@@ -171,24 +202,6 @@ export default function AlbumsPage({
     setFetching(false);
     setProgress(null);
   };
-
-  // P2-16：行内动作稳定化（详情态映射用），配合 TrackRow memo
-  const handlePlay = useCallback(
-    (tr: Track) => {
-      if (!onPlay || !tracks) return;
-      const arr = tracks;
-      const idx = arr.findIndex((x) => x.id === tr.id);
-      void onPlay(arr, idx >= 0 ? idx : 0);
-    },
-    [onPlay, tracks]
-  );
-  const handleAdd = useCallback((tr: Track) => setAddTarget(tr), []);
-  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
-  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
-  const handleToggleSelect = useCallback(
-    (tr: Track) => selApi.toggle(String(tr.id)),
-    [selApi.toggle]
-  );
 
   // ---------------------------------------------------------------- 详情态 --
   if (sel) {
@@ -289,20 +302,36 @@ export default function AlbumsPage({
               <span style={{ textAlign: "right" }}>{t.media.colFormat}</span>
               <span />
             </div>
-            {list.map((r, i) => (
-              <TrackRow
-                key={r.id}
-                lead={i + 1}
-                track={r}
-                onPlay={onPlay ? handlePlay : undefined}
-                onAdd={handleAdd}
-                onQueue={onQueue ? handleQueue : undefined}
-                onPlayNext={onPlayNext ? handlePlayNext : undefined}
-                selectable={selApi.selMode}
-                selected={selApi.has(String(r.id))}
-                onToggleSelect={handleToggleSelect}
-              />
-            ))}
+            <div className="vt-scroll" onScroll={(e) => w.onScroll(e.currentTarget)}>
+              <div style={{ height: w.total * TRACK_ROW_H, position: "relative" }}>
+                <div style={{ transform: `translateY(${w.start * TRACK_ROW_H}px)` }}>
+                  {w.indices.map((i) => {
+                    const tr = w.rowAt(i);
+                    return tr ? (
+                      <TrackRow
+                        key={tr.id}
+                        lead={i + 1}
+                        track={tr}
+                        onPlay={onPlay ? handlePlay : undefined}
+                        onAdd={handleAdd}
+                        onQueue={onQueue ? handleQueue : undefined}
+                        onPlayNext={onPlayNext ? handlePlayNext : undefined}
+                        selectable={selApi.selMode}
+                        selected={selApi.has(String(tr.id))}
+                        onToggleSelect={handleToggleSelect}
+                      />
+                    ) : (
+                      <div className="vt-row" key={`ph-${i}`}>
+                        <span className="vt-idx">{i + 1}</span>
+                        <span className="vt-main">
+                          <b>{t.media.loading}</b>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
           </div>
         )}
         <AddToPlaylistDialog

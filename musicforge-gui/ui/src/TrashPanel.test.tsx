@@ -37,9 +37,8 @@ describe("TrashPanel（回收站还原）", () => {
     expect(screen.getByRole("button", { name: zh.trash.restoreBtn })).toBeDisabled();
   });
 
-  it("二次确认被拒绝 → 绝不调用 trashRestore", async () => {
+  it("二次确认被拒绝（取消弹层）→ 绝不调用 trashRestore", async () => {
     const user = userEvent.setup();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     renderPanel();
 
     await user.type(
@@ -47,14 +46,14 @@ describe("TrashPanel（回收站还原）", () => {
       "/m/.musicforge/trash/t1/rollback.jsonl"
     );
     await user.click(screen.getByRole("button", { name: zh.trash.restoreBtn }));
+    // 弹层打开后取消（拒绝二次确认）
+    await user.click(screen.getByRole("button", { name: zh.player.cancel }));
 
-    expect(confirmSpy).toHaveBeenCalledOnce();
     expect(mockRestore).not.toHaveBeenCalled();
   });
 
-  it("确认后调用 trashRestore 并显示还原数量", async () => {
+  it("三级闸：勾选确认后调用 trashRestore 并显示还原数量", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     mockRestore.mockResolvedValue({ restored: 3 });
     renderPanel();
 
@@ -63,6 +62,9 @@ describe("TrashPanel（回收站还原）", () => {
       "/m/.musicforge/trash/t1/rollback.jsonl"
     );
     await user.click(screen.getByRole("button", { name: zh.trash.restoreBtn }));
+    // 三级闸：勾选确认 + 点击确认按钮（未勾选时确认按钮禁用）
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: zh.player.confirm }));
 
     expect(mockRestore).toHaveBeenCalledWith("/m/.musicforge/trash/t1/rollback.jsonl");
     expect(await screen.findByText(`✓ ${zh.trash.restored(3)}`)).toBeInTheDocument();

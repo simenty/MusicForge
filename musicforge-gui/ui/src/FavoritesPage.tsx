@@ -2,7 +2,7 @@
 //
 // 取消喜欢后该行**立即从列表消失**（本地过滤，不回后端重拉）——
 // 过滤只在初始 liked 集合加载完成后生效（否则会把整页误滤为空）。
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { IS_DESKTOP, likedTracks } from "./api";
 import type { Track } from "./api";
 import { useLang } from "./i18n";
@@ -14,6 +14,7 @@ import SortControl from "./SortControl";
 import FilterInput from "./FilterInput";
 import { useSort } from "./hooks/useSort";
 import { useRequestGuard } from "./hooks/useRequestGuard";
+import { useWindowedTracks, TRACK_ROW_H } from "./hooks/useWindowedTracks";
 import ConfirmDialog from "./ConfirmDialog";
 
 export default function FavoritesPage({
@@ -62,6 +63,42 @@ export default function FavoritesPage({
     reload();
   }, [reload, reloadGuard]);
 
+  // P2-20：复用 useWindowedTracks 虚拟化收藏列表（内存 slice，免改后端）。
+  // live 提升为 useMemo 并置于早返回之前，使其引用稳定（避免 fetchPage 每帧重建导致死循环重取）。
+  const live = useMemo(
+    () => (rows && liked.loaded ? rows.filter((r) => liked.isLiked(r.id)) : rows),
+    [rows, liked.loaded, liked.isLiked]
+  );
+  const favFetch = useCallback(
+    (off: number, lim: number) => Promise.resolve((live ?? []).slice(off, off + lim)),
+    [live]
+  );
+  const w = useWindowedTracks(200, undefined, undefined, favFetch);
+  useEffect(() => {
+    w.reset(live?.length ?? 0);
+  }, [live, w.reset]);
+
+  // P2-16：playFrom 改为稳定 useCallback（依赖稳定原语，避免每帧重建闭包），配合 TrackRow memo。
+  // 必须置于 if (!IS_DESKTOP) 早返回之前，遵守 hooks 顺序（react-hooks/rules-of-hooks）。
+  const handlePlay = useCallback(
+    (tr: Track) => {
+      if (!onPlay || !rows) return;
+      const arr = liked.loaded ? rows.filter((r) => liked.isLiked(r.id)) : rows;
+      const idx = arr.findIndex((x) => x.id === tr.id);
+      void onPlay(arr, idx >= 0 ? idx : 0);
+    },
+    [onPlay, rows, liked.loaded, liked.isLiked]
+  );
+
+  // P2-16：行内动作稳定化，配合 TrackRow memo
+  const handleLike = useCallback((tr: Track) => void liked.toggle(tr.id), [liked.toggle]);
+  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
+  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
+  const handleToggleSelect = useCallback(
+    (tr: Track) => selApi.toggle(String(tr.id)),
+    [selApi.toggle]
+  );
+
   if (!IS_DESKTOP) {
     return (
       <div className="media-empty">
@@ -69,8 +106,6 @@ export default function FavoritesPage({
       </div>
     );
   }
-
-  const live = rows && liked.loaded ? rows.filter((r) => liked.isLiked(r.id)) : rows;
 
   // P6.19 批量操作（selApi 已在组件顶部无条件初始化）
   const list = live ?? [];
@@ -94,26 +129,6 @@ export default function FavoritesPage({
     selApi.toggleSelMode();
     setPendingUnlike(false);
   };
-
-  // P2-16：playFrom 改为稳定 useCallback（依赖稳定原语，避免每帧重建闭包），配合 TrackRow memo
-  const handlePlay = useCallback(
-    (tr: Track) => {
-      if (!onPlay || !rows) return;
-      const arr = liked.loaded ? rows.filter((r) => liked.isLiked(r.id)) : rows;
-      const idx = arr.findIndex((x) => x.id === tr.id);
-      void onPlay(arr, idx >= 0 ? idx : 0);
-    },
-    [onPlay, rows, liked.loaded, liked.isLiked]
-  );
-
-  // P2-16：行内动作稳定化，配合 TrackRow memo
-  const handleLike = useCallback((tr: Track) => void liked.toggle(tr.id), [liked.toggle]);
-  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
-  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
-  const handleToggleSelect = useCallback(
-    (tr: Track) => selApi.toggle(String(tr.id)),
-    [selApi.toggle]
-  );
 
   return (
     <>
@@ -178,21 +193,37 @@ export default function FavoritesPage({
             <span style={{ textAlign: "right" }}>{t.media.colFormat}</span>
             <span />
           </div>
-          {live.map((r, i) => (
-            <TrackRow
-              key={r.id}
-              lead={i + 1}
-              track={r}
-              onPlay={onPlay ? handlePlay : undefined}
-              liked={liked.isLiked(r.id)}
-              onLike={handleLike}
-              onQueue={onQueue ? handleQueue : undefined}
-              onPlayNext={onPlayNext ? handlePlayNext : undefined}
-              selectable={selApi.selMode}
-              selected={selApi.has(String(r.id))}
-              onToggleSelect={handleToggleSelect}
-              />
-          )          )}
+          <div className="vt-scroll" onScroll={(e) => w.onScroll(e.currentTarget)}>
+            <div style={{ height: w.total * TRACK_ROW_H, position: "relative" }}>
+              <div style={{ transform: `translateY(${w.start * TRACK_ROW_H}px)` }}>
+                {w.indices.map((i) => {
+                  const tr = w.rowAt(i);
+                  return tr ? (
+                    <TrackRow
+                      key={tr.id}
+                      lead={i + 1}
+                      track={tr}
+                      onPlay={onPlay ? handlePlay : undefined}
+                      liked={liked.isLiked(tr.id)}
+                      onLike={handleLike}
+                      onQueue={onQueue ? handleQueue : undefined}
+                      onPlayNext={onPlayNext ? handlePlayNext : undefined}
+                      selectable={selApi.selMode}
+                      selected={selApi.has(String(tr.id))}
+                      onToggleSelect={handleToggleSelect}
+                    />
+                  ) : (
+                    <div className="vt-row" key={`ph-${i}`}>
+                      <span className="vt-idx">{i + 1}</span>
+                      <span className="vt-main">
+                        <b>{t.media.loading}</b>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         </div>
       )}
       {selApi.selMode && (

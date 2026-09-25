@@ -41,7 +41,11 @@ export interface WindowedTracks {
 export function useWindowedTracks(
   pageSize = 200,
   sort?: TrackSortField,
-  query?: string
+  query?: string,
+  /** P2-20：自定义取数，使非库列表（Albums/Favorites/History）也能复用本 hook 做窗口化渲染。
+   *  不传则走默认 listTracks（LibraryPage）。三页均传「内存 slice」——数据已全量加载，
+   *  仅虚拟化渲染层，零后端改动、零新增计数 API。 */
+  fetchPage?: (offset: number, limit: number) => Promise<Track[]>
 ): WindowedTracks {
   const [total, setTotal] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
@@ -87,7 +91,7 @@ export function useWindowedTracks(
       if (pages.current.has(p) || inflight.current.has(p)) continue;
       inflight.current.add(p);
       const token = guard.token();
-      listTracks(pageSize, p * pageSize, sort, query)
+      (fetchPage ? fetchPage(p * pageSize, pageSize) : listTracks(pageSize, p * pageSize, sort, query))
         .then((rows) => {
           if (guard.isStale(token)) return; // 旧代际/已卸载 → 丢弃
           pages.current.set(p, rows);
@@ -100,7 +104,7 @@ export function useWindowedTracks(
           if (guard.isMounted()) setTick((v) => v + 1);
         });
     }
-  }, [start, end, total, pageSize, sort, query, guard]);
+  }, [start, end, total, pageSize, sort, query, guard, fetchPage]);
 
   const rowAt = useCallback(
     (i: number): Track | undefined => pages.current.get(Math.floor(i / pageSize))?.[i % pageSize],

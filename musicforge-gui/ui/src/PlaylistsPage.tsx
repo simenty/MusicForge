@@ -127,6 +127,23 @@ export default function PlaylistsPage({
       });
   }, [focusId, lists, itemsGuard]);
 
+  // P2-16：行内动作稳定化，配合 TrackRow memo（须置于早返回之前，遵守 hooks 顺序）
+  const handlePlay = useCallback(
+    (tr: Track) => {
+      if (!onPlay || !items) return;
+      const arr = items;
+      const idx = arr.findIndex((x) => x.id === tr.id);
+      void onPlay(arr, idx >= 0 ? idx : 0);
+    },
+    [onPlay, items]
+  );
+  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
+  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
+  const handleToggleSelect = useCallback(
+    (tr: Track) => selApi.toggle(String(tr.id)),
+    [selApi.toggle]
+  );
+
   if (!IS_DESKTOP) {
     return (
       <div className="media-empty">
@@ -233,22 +250,6 @@ export default function PlaylistsPage({
   };
 
   // ---------------------------------------------------------------- 详情态 --
-  // P2-16：行内动作稳定化（详情态映射用），配合 TrackRow memo
-  const handlePlay = useCallback(
-    (tr: Track) => {
-      if (!onPlay || !items) return;
-      const arr = items;
-      const idx = arr.findIndex((x) => x.id === tr.id);
-      void onPlay(arr, idx >= 0 ? idx : 0);
-    },
-    [onPlay, items]
-  );
-  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
-  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
-  const handleToggleSelect = useCallback(
-    (tr: Track) => selApi.toggle(String(tr.id)),
-    [selApi.toggle]
-  );
 
   if (open) {
     // P6.19 批量操作
