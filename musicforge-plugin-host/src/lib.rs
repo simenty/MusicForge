@@ -98,6 +98,11 @@ pub enum PluginHostError {
     /// 与下面 `spawn` 中握手**之后**的 B13 闸不同：本变体只在 **spawn 之前**
     /// 返回——插件二进制**一次都没有被执行**（消除「恶意插件已执行一次任意代码」）。
     Forbidden { name: String },
+    /// P3-26（默认拒载）：完整性**无从校验**——既无主机信任表 pin，plugin.json
+    /// 也未声明 `hash_sha256`。此前这里是「告警放行」，等于加载期校验形同虚设。
+    ///
+    /// 放行只有一条路：在主机受控的 `plugins_trust.json` 中为该插件 pin 哈希。
+    Untrusted { name: String },
 }
 
 impl std::fmt::Display for PluginHostError {
@@ -134,6 +139,11 @@ impl std::fmt::Display for PluginHostError {
                 "{}: 插件 {} 申请了被禁权限（delete_source_file / move_source_file / upload_audio），已在执行前拒载",
                 codes::FORBIDDEN, name
             ),
+            Self::Untrusted { name } => write!(
+                f,
+                "{}: 插件 {} 未经完整性校验（无信任表 pin 且 plugin.json 未声明 hash_sha256），默认拒载；请在 plugins_trust.json 中 pin 其哈希后重试",
+                codes::UNTRUSTED, name
+            ),
         }
     }
 }
@@ -150,6 +160,7 @@ impl PluginHostError {
             Self::Handshake(_) | Self::Protocol(_) => codes::MANIFEST_INVALID,
             Self::Integrity { .. } => codes::INTEGRITY,
             Self::Forbidden { .. } => codes::FORBIDDEN,
+            Self::Untrusted { .. } => codes::UNTRUSTED,
             Self::Io(_) => "MF-IO-FAILED",
         }
     }
@@ -951,13 +962,12 @@ fn verify_plugin_integrity(
                 actual: format!("(二进制不可读: {e})"),
             }),
         },
-        None => {
-            tracing::warn!(
-                plugin = %program.display(),
-                "插件未声明 hash_sha256 且无信任表 pin，跳过加载期完整性校验（建议 pin）"
-            );
-            Ok(())
-        }
+        // 3) 二者皆无 → P3-26：**默认拒载**（此前为 warn 放行，等于加载期校验
+        //    形同虚设——攻击者替换二进制后无需改动任何声明即可通过）。
+        //    唯一放行途径是主机受控的 plugins_trust.json 中 pin 该插件哈希。
+        None => Err(PluginHostError::Untrusted {
+            name: name.unwrap_or_else(|| program.display().to_string()),
+        }),
     }
 }
 
@@ -1057,8 +1067,9 @@ mod tests {
         assert!(matches!(err, PluginHostError::Integrity { .. }));
     }
 
+    /// P3-26：plugin.json 未声明 hash_sha256 且无 pin → **默认拒载**（原为 warn 放行）。
     #[test]
-    fn verify_integrity_no_hash_warns_and_loads() {
+    fn verify_integrity_no_hash_is_rejected_by_default() {
         let dir = tempfile::tempdir().unwrap();
         let bin = dir.path().join("plugin");
         std::fs::write(&bin, b"musicforge-binary").unwrap();
@@ -1067,7 +1078,12 @@ mod tests {
             r#"{"name":"p","api_version":"1.0.0","kind":"ai","network":false}"#,
         )
         .unwrap();
-        assert!(verify_plugin_integrity(&bin, None).is_ok());
+        let err = verify_plugin_integrity(&bin, None).unwrap_err();
+        assert!(
+            matches!(err, PluginHostError::Untrusted { .. }),
+            "无自声明哈希且无 pin 必须默认拒载，实际: {err}"
+        );
+        assert_eq!(err.code(), "MF-PLUGIN-UNTRUSTED");
     }
 
     /// B15 信任锚点回归（单元）：信任表 pin 为权威，覆盖自声明；无信任表回落自声明。
@@ -1101,13 +1117,39 @@ mod tests {
         assert!(matches!(err2, PluginHostError::Integrity { .. }));
     }
 
+    /// P3-26：连 plugin.json 都没有 → 同样默认拒载。
     #[test]
-    fn verify_integrity_no_plugin_json_loads() {
+    fn verify_integrity_no_plugin_json_is_rejected_by_default() {
         let dir = tempfile::tempdir().unwrap();
         let bin = dir.path().join("plugin");
         std::fs::write(&bin, b"musicforge-binary").unwrap();
-        // 无 plugin.json → 无 pin 无自声明 → 放行（遗留兼容）
-        assert!(verify_plugin_integrity(&bin, None).is_ok());
+        // 无 plugin.json → 无 pin 无自声明 → 默认拒载
+        let err = verify_plugin_integrity(&bin, None).unwrap_err();
+        assert!(
+            matches!(err, PluginHostError::Untrusted { .. }),
+            "无 plugin.json 必须默认拒载，实际: {err}"
+        );
+    }
+
+    /// P3-26 的**唯一**放行途径：主机受控信任表 pin（插件未自声明哈希亦可）。
+    #[test]
+    fn verify_integrity_trust_pin_allows_without_self_declared_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("plugin");
+        std::fs::write(&bin, b"musicforge-binary").unwrap();
+        // 只声明 name，不声明 hash_sha256
+        std::fs::write(
+            dir.path().join("plugin.json"),
+            r#"{"name":"p","api_version":"1.0.0","kind":"ai","network":false}"#,
+        )
+        .unwrap();
+        let real = PluginProcess::sha256_of(&bin).unwrap();
+        let trust = dir.path().join("plugins_trust.json");
+        std::fs::write(&trust, format!(r#"{{"pins":{{"p":"{real}"}}}}"#)).unwrap();
+        assert!(
+            verify_plugin_integrity(&bin, Some(&trust)).is_ok(),
+            "pin 正确即放行（默认拒载下的唯一放行途径）"
+        );
     }
 
     // ---- P3-25（B14）：三禁位拒载前移到 spawn 之前 ----
@@ -1122,10 +1164,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let bin = dir.path().join("plugin");
         std::fs::write(&bin, b"not-a-real-binary").unwrap();
+        // P3-26：先自声明正确哈希让完整性闸门放行，才能验证**其后**的三禁位前闸
+        let real = PluginProcess::sha256_of(&bin).unwrap();
         std::fs::write(
             dir.path().join("plugin.json"),
-            r#"{"name":"evil","api_version":"1.0.0","kind":"ai","network":false,
-                "permissions":{"network":false,"delete_source_file":true}}"#,
+            format!(
+                r#"{{"name":"evil","api_version":"1.0.0","kind":"ai","network":false,"hash_sha256":"{real}","permissions":{{"network":false,"delete_source_file":true}}}}"#
+            ),
         )
         .unwrap();
         let wd = dir.path().join("work");
@@ -1144,9 +1189,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let bin = dir.path().join("plugin");
         std::fs::write(&bin, b"not-a-real-binary").unwrap();
+        // 同上：自声明正确哈希以通过完整性闸门，确保前闸放行后确实走到 spawn
+        let real = PluginProcess::sha256_of(&bin).unwrap();
         std::fs::write(
             dir.path().join("plugin.json"),
-            r#"{"name":"legacy","api_version":"1.0.0","kind":"ai","network":false}"#,
+            format!(
+                r#"{{"name":"legacy","api_version":"1.0.0","kind":"ai","network":false,"hash_sha256":"{real}"}}"#
+            ),
         )
         .unwrap();
         let wd = dir.path().join("work");

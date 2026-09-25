@@ -6,7 +6,27 @@ use musicforge_plugin_api::{codes, IdentifySuggestion, Request};
 use musicforge_plugin_host::{PluginHostError, PluginProcess, ProtocolMode};
 
 fn mock_exe() -> &'static str {
-    env!("CARGO_BIN_EXE_mock-ai-plugin")
+    static INIT: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    let exe = env!("CARGO_BIN_EXE_mock-ai-plugin");
+    // P3-26（默认拒载）：夹具必须像真实插件一样自声明 hash_sha256，
+    // 否则「无信任表 pin 且无自声明」会被加载期闸门直接拒载。
+    INIT.get_or_init(|| self_declare_integrity(std::path::Path::new(exe)));
+    exe
+}
+
+/// P3-26：在 `program` 同目录写 plugin.json 并声明其哈希——真实插件的做法。
+///
+/// 注意这是**自声明**（攻击者可同时改二进制与 json），仅用于让夹具通过加载期校验；
+/// 真正的权威校验来自主机受控的 `plugins_trust.json` pin。
+fn self_declare_integrity(program: &std::path::Path) {
+    let hash = PluginProcess::sha256_of(program).expect("夹具二进制可读");
+    std::fs::write(
+        program.parent().expect("夹具目录").join("plugin.json"),
+        format!(
+            r#"{{"name":"mock-ai","api_version":"1.0.0","kind":"ai","network":false,"hash_sha256":"{hash}"}}"#
+        ),
+    )
+    .expect("写入夹具 plugin.json");
 }
 
 /// P6a-R：插件 work_dir（X41 出站边界；e2e 共享临时目录，mock 仅 demo 写入）。
@@ -166,6 +186,8 @@ fn write_shim(ext: &str, body: &str) -> std::path::PathBuf {
         format!("exec \"{mock}\" \"$@\"\n")
     };
     std::fs::write(&p, format!("{body}{target}")).unwrap();
+    // P3-26：shim 同样是被 spawn 的程序，需自声明哈希才能通过默认拒载
+    self_declare_integrity(&p);
     p
 }
 
@@ -529,6 +551,7 @@ mod adversarial {
                 format!("@echo off\r\nset MOCK_BEHAVIOR={behavior}\r\n\"{mock}\"\r\n"),
             )
             .unwrap();
+            self_declare_integrity(&p);
             p
         }
         #[cfg(not(windows))]
@@ -541,6 +564,7 @@ mod adversarial {
             .unwrap();
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            self_declare_integrity(&p);
             p
         }
     }

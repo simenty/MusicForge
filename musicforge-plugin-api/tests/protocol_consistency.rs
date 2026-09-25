@@ -124,6 +124,8 @@ fn error_codes_frozen() {
     assert_eq!(codes::INTEGRITY, "MF-PLUGIN-INTEGRITY");
     // P3-25（B14）：三禁位「执行前拒载」的稳定码
     assert_eq!(codes::FORBIDDEN, "MF-PLUGIN-FORBIDDEN");
+    // P3-26：完整性无从校验 → 默认拒载
+    assert_eq!(codes::UNTRUSTED, "MF-PLUGIN-UNTRUSTED");
 }
 
 // ------------------------------------------------------------ 信封形状 --

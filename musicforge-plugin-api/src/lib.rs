@@ -27,6 +27,9 @@ pub mod codes {
     /// move_source_file / upload_audio）→ 在 **spawn 之前**拒载，
     /// 插件二进制一次都不会被执行。
     pub const FORBIDDEN: &str = "MF-PLUGIN-FORBIDDEN";
+    /// P3-26：完整性**无从校验**（既无主机信任表 pin，plugin.json 也未声明
+    /// hash_sha256）→ 默认拒载。放行只有一条路：在 plugins_trust.json 里 pin。
+    pub const UNTRUSTED: &str = "MF-PLUGIN-UNTRUSTED";
     /// Host 侧支持的最大协议主版本（D20 区间的上界来源）
     pub const HOST_API_MAJOR: u64 = 1;
 }
