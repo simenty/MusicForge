@@ -21,6 +21,16 @@ defaults:
     shell: bash
 
 jobs:
+  # P3-27：发布门禁必须复用与分支**完全相同**的 test + supply-chain 定义。
+  # 此前本 workflow 只跑 release-check.sh，而 CI 的这两个 job 只在分支 push 触发
+  # → 打 tag 发布时测试与供应链校验根本没跑，等于门禁可绕过。现用 workflow_call
+  # 复用同一份定义（改一处即两处生效，不存在「两边漂移」）。
+  test:
+    uses: ./.github/workflows/reusable-test.yml
+
+  supply-chain:
+    uses: ./.github/workflows/reusable-supply-chain.yml
+
   release-gate:
     runs-on: ubuntu-latest
     steps:

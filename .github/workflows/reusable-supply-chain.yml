@@ -1,0 +1,60 @@
+name: Reusable · Supply Chain
+
+# 可复用工作流（P3-27）：供应链确定性（许可证/公告/源级禁令/feature 断言）。
+#
+# 同 reusable-test.yml 的动因：release-gate 必须与分支跑**同一份**供应链校验，
+# 否则 tag 可绕过门禁直接发布。
+#
+# 只声明 workflow_call：本文件不会被任何事件直接触发，仅被调用。
+on:
+  workflow_call:
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+
+      - name: Install cargo-deny & cargo-audit
+        uses: taiki-e/install-action@fa23953489c080190314742a9b907f8e97c6767c # v2
+        with:
+          tool: cargo-deny,cargo-audit
+
+      - name: cargo deny check（全仓：许可证 + DB 服务端客户端/GPL 传输）
+        run: cargo deny check licenses bans sources
+
+      - name: cargo deny check（core+cli 严格网络禁令，GUI 由 tauri 合法引入 http 栈）
+        run: cargo deny --config deny.core.toml check bans
+
+      - name: cargo audit（RustSec 公告）
+        run: cargo audit
+
+      - name: 源码正则扫描（核心/CLI 零网络字面量：URL/TcpStream/UdpSocket）
+        run: |
+          grep -rnE "https?://|TcpStream::|UdpSocket::" musicforge-core/src/ musicforge-cli/src/ \
+            && exit 1 || echo "源码零网络字面量 ✓"
+
+      - name: 默认构建 feature 断言（默认构建无插件宿主/云层）
+        run: |
+          cargo tree -e features -p musicforge-core -p musicforge-cli 2>/dev/null | grep -iE "plugin-host|musicforge-cloud" \
+            && exit 1 || echo "默认构建零插件宿主/云层 ✓"
+
+      # P7（ROADMAP）：cfg 只在壳层——业务源码禁平台 cfg attribute（测试模块的
+      # cfg(test)/feature 门控不受限；平台行为差异收敛到运行时 env/路径探测）
+      - name: 平台差异壳层闸（cfg 只在壳层）
+        run: |
+          grep -rnE '#\[cfg\((target_os|windows|unix|not\((windows|unix|target_os)' \
+            musicforge-core/src/ musicforge-cli/src/ musicforge-plugin-api/src/ musicforge-plugin-host/src/ \
+            && exit 1 || echo "core/cli 业务源码零平台 cfg ✓"
