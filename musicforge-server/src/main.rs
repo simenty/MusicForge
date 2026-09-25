@@ -17,9 +17,14 @@ async fn main() {
 
     // R22：token 首启生成时显式展示（一次性；此后读文件不重复打印）
     if token_generated {
-        println!("=== MusicForge 首启：随机访问 token（请妥善保存）===");
-        println!("{}", cfg.token);
-        println!("=================================================");
+        // P9 审计修复：完整 token **不再**落 stdout——fpk 把 stdout 重定向进
+        // data/logs/server.log，等于把凭据明文写进日志文件（日志常被随手分享
+        // 或打包进 bug report）。首启只给遮蔽形态 + 文件绝对路径。
+        println!("=== MusicForge 首启：已生成随机访问 token ===");
+        println!("{}", musicforge_server::mask_token(&cfg.token));
+        println!("完整 token 见文件：{}", cfg.token_path.display());
+        println!("（不会再次显示；请妥善保存）");
+        println!("================================================");
     }
 
     // P1-2：allowed_roots 稍后 move 进 state——先留计数供启动日志

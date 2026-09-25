@@ -62,6 +62,8 @@ pub struct ServerConfig {
     pub data_dir: PathBuf,
     pub bind: String,
     pub token: String,
+    /// token 文件路径（P9：首启提示用户到此处取完整值——完整 token 不再落日志）。
+    pub token_path: PathBuf,
     pub ui_dir: PathBuf,
     /// P8.2.1：音乐库目录（`MUSICFORGE_LIBRARY_DIR`；scan API 缺省根）
     pub library_dir: Option<PathBuf>,
@@ -129,6 +131,7 @@ impl ServerConfig {
                 data_dir,
                 bind,
                 token,
+                token_path: token_file,
                 ui_dir,
                 library_dir,
                 allowed_roots,
@@ -191,6 +194,40 @@ fn generate_token() -> String {
             }
         }
     }
+    #[cfg(windows)]
+    {
+        // Windows：BCryptGenRandom（OS CSPRNG）。
+        //
+        // 原 Windows 路径只有「RandomState + 时间 + pid」兜底，而 std 明确声明
+        // RandomState 的输出**不适合密码学用途**（P9 审计 Top6）。
+        // 零新增依赖：直接链接系统 bcrypt.dll（与 plugin-host 的 raw Win32 FFI
+        // 同法），失败才继续落到下面的兜底。
+        #[allow(non_snake_case)]
+        #[link(name = "bcrypt")]
+        extern "system" {
+            fn BCryptGenRandom(
+                h_algorithm: *mut std::ffi::c_void,
+                buffer: *mut u8,
+                length: u32,
+                flags: u32,
+            ) -> i32;
+        }
+        // 算法句柄传 NULL 时必须带此标志（使用系统首选 RNG）
+        const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 0x0000_0002;
+        let mut buf = [0u8; 24];
+        let status = unsafe {
+            BCryptGenRandom(
+                std::ptr::null_mut(),
+                buf.as_mut_ptr(),
+                buf.len() as u32,
+                BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+            )
+        };
+        if status == 0 {
+            // STATUS_SUCCESS
+            return buf.iter().map(|b| format!("{b:02x}")).collect();
+        }
+    }
     // 兜底熵：RandomState 种子叠加（每轮 hasher 状态不同）
     use std::hash::{BuildHasher as _, Hasher as _};
     let mut acc: u128 = std::process::id() as u128;
@@ -207,6 +244,22 @@ fn generate_token() -> String {
                 << (i * 13 % 96));
     }
     format!("{acc:032x}{:016x}", acc as u64 ^ (acc >> 64) as u64)
+}
+
+/// 遮蔽 token：保留首尾各 4 位，其余以 `*` 代替（首启展示用）。
+///
+/// P9 审计修复：完整 token 曾直接 `println!` 到 stdout，而 fpk 把 stdout
+/// 重定向进 `data/logs/server.log` → **凭据明文落进日志文件**（日志常被随手
+/// 分享、打包进 bug report）。首启仍需给用户可辨识的线索，故只显示遮蔽
+/// 形态 + 文件绝对路径（由 [`ServerConfig::token_path`] 提供）。
+pub fn mask_token(token: &str) -> String {
+    let chars: Vec<char> = token.chars().collect();
+    if chars.len() <= 8 {
+        return "*".repeat(chars.len());
+    }
+    let head: String = chars[..4].iter().collect();
+    let tail: String = chars[chars.len() - 4..].iter().collect();
+    format!("{head}****{tail}")
 }
 
 /// 常量时间字符串比较（token 校验；长度不同直接 false——不泄露长度差时序）。
@@ -832,6 +885,30 @@ mod tests {
         assert!(!gen2);
         assert_eq!(t1, t2);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// P9 审计修复：首启展示用遮蔽——中段不得出现原字符，长度保持可辨识。
+    #[test]
+    fn mask_token_hides_middle() {
+        let t = "0123456789abcdef0123456789abcdef0123456789abcdef";
+        let m = mask_token(t);
+        assert!(m.starts_with("0123"), "保留前 4 位便于核对");
+        assert!(m.ends_with("cdef"), "保留后 4 位便于核对");
+        assert!(!m.contains("456789"), "中段必须被遮蔽（原 token 不得完整落日志）");
+        assert!(m.len() < t.len(), "中段被压缩为固定 4 个 *");
+        // 过短 token：全遮蔽，不泄露任何字符
+        assert_eq!(mask_token("abc"), "***");
+    }
+
+    /// token 熵：24B → 48 位十六进制；两次生成不得相同。
+    /// （Windows 走 BCryptGenRandom = OS CSPRNG，取代原非密码学的兜底熵）
+    #[test]
+    fn generate_token_is_48_hex_and_unique() {
+        let a = generate_token();
+        let b = generate_token();
+        assert_eq!(a.len(), 48, "24B → 48 位十六进制");
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_ne!(a, b, "两次生成不得相同");
     }
 
     #[test]
