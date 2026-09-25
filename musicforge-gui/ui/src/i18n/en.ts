@@ -26,6 +26,8 @@ export const en: typeof zh = {
     playCount: "Plays",
     likedAt: "Date liked",
     playedAt: "Date played",
+    // P1-14: explicit notice when the sort isn't supported by this list
+    unsupported: "Previous sort isn't supported here; reset to Default",
   },
   // P6.25 list text filter (server-side; title / artist / album / path)
   // NB: `filter` is taken by the task-status filter (see App.tsx `t.filter.all`)

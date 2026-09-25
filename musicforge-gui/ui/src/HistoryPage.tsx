@@ -9,7 +9,7 @@ import SelectionBar from "./SelectionBar";
 import { useSelection } from "./hooks/useSelection";
 import SortControl from "./SortControl";
 import FilterInput from "./FilterInput";
-import { useSort } from "./hooks/useSort";
+import { SORT_SUPPORTED, useSort } from "./hooks/useSort";
 import { useRequestGuard } from "./hooks/useRequestGuard";
 import { useWindowedTracks, TRACK_ROW_H } from "./hooks/useWindowedTracks";
 import ConfirmDialog from "./ConfirmDialog";
@@ -49,7 +49,7 @@ export default function HistoryPage({
   // P2-18：清空历史原本 window.confirm —— 改为 ConfirmDialog（可样式化/可测/可 i18n）
   const [pendingClear, setPendingClear] = useState(false);
 
-  const [sort, setSort] = useSort("history", "default");
+  const [sort, setSort, sortRejected] = useSort("history", "default", SORT_SUPPORTED.history);
   // P6.23：批量从资料库移除的确认闸
   const [pendingRemove, setPendingRemove] = useState(false);
   const [busyRemove, setBusyRemove] = useState(false);
@@ -209,6 +209,7 @@ export default function HistoryPage({
           <SortControl
             value={sort}
             onChange={setSort}
+            note={sortRejected ? t.sort.unsupported : null}
             fields={[
               { value: "default", label: t.sort.playedAt },
               { value: "title", label: t.sort.title },

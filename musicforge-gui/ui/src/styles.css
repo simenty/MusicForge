@@ -443,6 +443,15 @@ code,
   flex-wrap: wrap;
 }
 
+/* P1-14：排序失效的显式提示（与排序按钮同排，弱化但必须可见） */
+.sort-note {
+  align-self: center;
+  max-width: 24ch;
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+  color: var(--warn);
+}
+
 .btn.sm.on {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   border-color: var(--accent);

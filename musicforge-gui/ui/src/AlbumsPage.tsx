@@ -18,7 +18,7 @@ import SelectionBar from "./SelectionBar";
 import { useSelection } from "./hooks/useSelection";
 import SortControl from "./SortControl";
 import FilterInput from "./FilterInput";
-import { useSort } from "./hooks/useSort";
+import { SORT_SUPPORTED, useSort } from "./hooks/useSort";
 import { useRequestGuard } from "./hooks/useRequestGuard";
 import { useWindowedTracks, TRACK_ROW_H } from "./hooks/useWindowedTracks";
 import { sortTracks } from "./lib/sortTracks";
@@ -43,7 +43,11 @@ export default function AlbumsPage({
   const { t } = useLang();
   const { settings } = useSettings();
   const selApi = useSelection();
-  const [sort, setSort] = useSort("album-detail", "default");
+  const [sort, setSort, sortRejected] = useSort(
+    "album-detail",
+    "default",
+    SORT_SUPPORTED.memory
+  );
   /** P6.26 详情页筛选：整段曲目已在内存 → 纯前端过滤，无需防抖/IPC */
   const [filter, setFilter] = useState("");
   /** P6.27 列表网格筛选（与详情页筛选**互相独立**：两个态不同时可见，
@@ -250,6 +254,7 @@ export default function AlbumsPage({
             <SortControl
               value={sort}
               onChange={setSort}
+              note={sortRejected ? t.sort.unsupported : null}
               fields={[
                 { value: "default", label: t.sort.def },
                 { value: "title", label: t.sort.title },

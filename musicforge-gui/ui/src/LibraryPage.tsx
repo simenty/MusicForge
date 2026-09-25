@@ -14,7 +14,7 @@ import { useSelection } from "./hooks/useSelection";
 import AddToPlaylistDialog from "./AddToPlaylistDialog";
 import ConfirmDialog from "./ConfirmDialog";
 import SortControl from "./SortControl";
-import { useSort } from "./hooks/useSort";
+import { SORT_SUPPORTED, useSort } from "./hooks/useSort";
 import { useRequestGuard } from "./hooks/useRequestGuard";
 
 export default function LibraryPage({
@@ -30,7 +30,7 @@ export default function LibraryPage({
   onPlayNext?: (tracks: Track[]) => Promise<void>;
 }) {
   const { t } = useLang();
-  const [sort, setSort] = useSort("library", "default");
+  const [sort, setSort, sortRejected] = useSort("library", "default", SORT_SUPPORTED.library);
   /** P6.25：输入框原文；`filter` 是防抖后真正下推到服务端的过滤词 */
   const [rawQuery, setRawQuery] = useState("");
   const [filter, setFilter] = useState("");
@@ -115,27 +115,15 @@ export default function LibraryPage({
     [selApi.toggle]
   );
 
-  if (!IS_DESKTOP) {
-    return (
-      <div className="media-empty">
-        <p>{t.media.desktopOnly}</p>
-      </div>
-    );
-  }
-  if (initErr) {
-    return (
-      <div className="media-empty">
-        <p>{initErr}</p>
-      </div>
-    );
-  }
-
   // 可见列表 = 虚拟化已加载快照（P6.25：过滤已下推到服务端，不再有独立的
   // 「搜索结果」集合，因此不受原先 500 条上限约束）；全选覆盖该集合
   // P2-15：`snapshot()` 每次调用按 `total` 全量迭代（十万曲库 = 十万次），此前渲染内
   // 被调用两次（列表 + 确认弹层 items）→ 每次 setState 约 20 万次迭代。仅在「已加载
   // 页数 / 总数 / 取数忙闲」变化时才重算；页只增不逐出，`loadedPages` 单调增可精确
   // 反映数据变化，滚动等无关渲染不再重算（修复审计 #15 首要热点）。
+  //
+  // 必须置于所有早返回之前：`initErr` 会在运行时被置位（批量移除失败），
+  // 若在其后的早返回之后调用这些 hook 会触发「Rendered fewer hooks」。
   const list = useMemo(() => snapshot(), [w.total, w.loadedPages, w.busy]);
   const selectedTracks = useMemo(
     () => list.filter((x) => selApi.sel.has(String(x.id))),
@@ -153,6 +141,22 @@ export default function LibraryPage({
         : [],
     [pendingRemove, list, selApi]
   );
+
+  if (!IS_DESKTOP) {
+    return (
+      <div className="media-empty">
+        <p>{t.media.desktopOnly}</p>
+      </div>
+    );
+  }
+  if (initErr) {
+    return (
+      <div className="media-empty">
+        <p>{initErr}</p>
+      </div>
+    );
+  }
+
   const bulkQueue = async () => {
     if (selectedTracks.length && onQueue) await onQueue(selectedTracks);
     selApi.toggleSelMode();
@@ -201,6 +205,7 @@ export default function LibraryPage({
           <SortControl
             value={sort}
             onChange={setSort}
+            note={sortRejected ? t.sort.unsupported : null}
             fields={[
               { value: "default", label: t.sort.def },
               { value: "title", label: t.sort.title },

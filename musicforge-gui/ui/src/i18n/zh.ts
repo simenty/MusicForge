@@ -29,6 +29,8 @@ export const zh = {
     playCount: "播放数",
     likedAt: "收藏时间",
     playedAt: "播放时间",
+    // P1-14：排序键不被本列表支持 → 显式提示（此前静默回退，用户以为排序生效了）
+    unsupported: "此列表不支持上次的排序，已回退为「默认」",
   },
   // P6.25 列表文本筛选（服务端；标题 / 艺术家 / 专辑 / 路径）
   // 注意：`filter`（单数）已被任务状态筛选占用（见 App.tsx `t.filter.all`）

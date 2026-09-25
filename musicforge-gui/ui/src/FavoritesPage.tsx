@@ -12,7 +12,7 @@ import SelectionBar from "./SelectionBar";
 import { useSelection } from "./hooks/useSelection";
 import SortControl from "./SortControl";
 import FilterInput from "./FilterInput";
-import { useSort } from "./hooks/useSort";
+import { SORT_SUPPORTED, useSort } from "./hooks/useSort";
 import { useRequestGuard } from "./hooks/useRequestGuard";
 import { useWindowedTracks, TRACK_ROW_H } from "./hooks/useWindowedTracks";
 import ConfirmDialog from "./ConfirmDialog";
@@ -32,7 +32,11 @@ export default function FavoritesPage({
   const [rows, setRows] = useState<Track[] | null>(null);
   const liked = useLiked();
   const selApi = useSelection();
-  const [sort, setSort] = useSort("favorites", "default");
+  const [sort, setSort, sortRejected] = useSort(
+    "favorites",
+    "default",
+    SORT_SUPPORTED.favorites
+  );
   // P6.23：批量取消喜欢的确认闸
   const [pendingUnlike, setPendingUnlike] = useState(false);
   /** P6.25：输入框原文；`filter` 为防抖后下推服务端的过滤词 */
@@ -147,6 +151,7 @@ export default function FavoritesPage({
           <SortControl
             value={sort}
             onChange={setSort}
+            note={sortRejected ? t.sort.unsupported : null}
             fields={[
               { value: "default", label: t.sort.likedAt },
               { value: "title", label: t.sort.title },

@@ -5,11 +5,14 @@ export default function SortControl({
   value,
   onChange,
   fields,
+  note = null,
 }: {
   value: TrackSortField;
   onChange: (s: TrackSortField) => void;
   /** 可选排序键 + 文案（default 的文案各页不同：路径序 / 收藏时间 / 播放时间） */
   fields: { value: TrackSortField; label: string }[];
+  /** P1-14：排序失效时的显式提示（null = 无）。失效必须可见——绝不能静默回退。 */
+  note?: string | null;
 }) {
   return (
     <div className="sort-ctrl" role="group" aria-label="排序">
@@ -23,6 +26,11 @@ export default function SortControl({
           {f.label}
         </button>
       ))}
+      {note ? (
+        <span className="sort-note" role="status">
+          {note}
+        </span>
+      ) : null}
     </div>
   );
 }

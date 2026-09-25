@@ -18,7 +18,7 @@ import SelectionBar from "./SelectionBar";
 import { useSelection } from "./hooks/useSelection";
 import SortControl from "./SortControl";
 import FilterInput from "./FilterInput";
-import { useSort } from "./hooks/useSort";
+import { SORT_SUPPORTED, useSort } from "./hooks/useSort";
 import { useRequestGuard } from "./hooks/useRequestGuard";
 import { sortTracks } from "./lib/sortTracks";
 import { filterArtists, filterTracks } from "./lib/filterTracks";
@@ -42,7 +42,11 @@ export default function ArtistsPage({
   const { t } = useLang();
   const { settings } = useSettings();
   const selApi = useSelection();
-  const [sort, setSort] = useSort("artist-detail", "default");
+  const [sort, setSort, sortRejected] = useSort(
+    "artist-detail",
+    "default",
+    SORT_SUPPORTED.memory
+  );
   /** P6.26 详情页筛选：整段曲目已在内存 → 纯前端过滤，无需防抖/IPC */
   const [filter, setFilter] = useState("");
   /** P6.27 列表网格筛选（与详情页筛选互相独立，见 AlbumsPage 同名注释） */
@@ -121,6 +125,25 @@ export default function ArtistsPage({
       });
   }, [focusId, rows, tracksGuard]);
 
+  // P2-16：行内动作稳定化（详情态映射用），配合 TrackRow memo。
+  // 必须置于所有早返回（含非常量的 if (!rows)）之前，遵守 hooks 顺序。
+  const handlePlay = useCallback(
+    (tr: Track) => {
+      if (!onPlay || !tracks) return;
+      const arr = tracks;
+      const idx = arr.findIndex((x) => x.id === tr.id);
+      void onPlay(arr, idx >= 0 ? idx : 0);
+    },
+    [onPlay, tracks]
+  );
+  const handleAdd = useCallback((tr: Track) => setAddTarget(tr), []);
+  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
+  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
+  const handleToggleSelect = useCallback(
+    (tr: Track) => selApi.toggle(String(tr.id)),
+    [selApi.toggle]
+  );
+
   if (!IS_DESKTOP) {
     return (
       <div className="media-empty">
@@ -167,24 +190,6 @@ export default function ArtistsPage({
     }
   };
 
-  // P2-16：行内动作稳定化（详情态映射用），配合 TrackRow memo
-  const handlePlay = useCallback(
-    (tr: Track) => {
-      if (!onPlay || !tracks) return;
-      const arr = tracks;
-      const idx = arr.findIndex((x) => x.id === tr.id);
-      void onPlay(arr, idx >= 0 ? idx : 0);
-    },
-    [onPlay, tracks]
-  );
-  const handleAdd = useCallback((tr: Track) => setAddTarget(tr), []);
-  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
-  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
-  const handleToggleSelect = useCallback(
-    (tr: Track) => selApi.toggle(String(tr.id)),
-    [selApi.toggle]
-  );
-
   // ---------------------------------------------------------------- 详情态 --
   if (sel) {
     // P6.19 批量操作；P6.21：详情页按 sort 前端排序（整段已在内存）
@@ -228,6 +233,7 @@ export default function ArtistsPage({
             <SortControl
               value={sort}
               onChange={setSort}
+              note={sortRejected ? t.sort.unsupported : null}
               fields={[
                 { value: "default", label: t.sort.def },
                 { value: "title", label: t.sort.title },
