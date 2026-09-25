@@ -220,6 +220,79 @@ fn remove_stale_tracks_retain_keeps_behavior_rows() {
     );
 }
 
+/// P1-11：daily_play_counts 必须排除孤儿播放（曲目已删、保留历史策略下残留）。
+#[test]
+fn daily_play_counts_excludes_orphans_p1() {
+    let db = Db::open_in_memory().unwrap();
+    let sid = db.upsert_source("/m", None).unwrap();
+    let mut t = track("/m/a.flac", Some("A"), Some("Al"), "a");
+    t.source_id = sid;
+    db.upsert_tracks_batch(&[t], 1000).unwrap();
+    let tid = db.list_tracks(10, 0).unwrap().remove(0).id;
+    db.record_play(tid, 1_700_000_000, 10_000).unwrap();
+    // 让 a.flac 变陈旧：再索引别的文件 → a.flac 被删但 history 保留（retain=true）
+    let mut other = track("/m/b.flac", Some("B"), Some("Bl"), "b");
+    other.source_id = sid;
+    db.upsert_tracks_batch(&[other], 2000).unwrap();
+    db.remove_stale_tracks(sid, 2000, true).unwrap();
+    assert_eq!(db.count_tracks().unwrap(), 1);
+    let days = db.daily_play_counts(0).unwrap();
+    assert!(
+        days.is_empty(),
+        "孤儿播放不得计入每日计数（否则统计数虚高、与可导航历史脱节）"
+    );
+}
+
+/// P1-11：list_playlists 的曲目数必须排除孤儿条目（曲目已删、保留策略下残留）。
+#[test]
+fn list_playlists_excludes_orphan_items_p1() {
+    let db = Db::open_in_memory().unwrap();
+    let sid = db.upsert_source("/m", None).unwrap();
+    let mut t = track("/m/a.flac", Some("A"), Some("Al"), "a");
+    t.source_id = sid;
+    db.upsert_tracks_batch(&[t], 1000).unwrap();
+    let tid = db.list_tracks(10, 0).unwrap().remove(0).id;
+    let pid = db.create_playlist("p1").unwrap();
+    db.playlist_add_tracks(pid, &[tid]).unwrap();
+    assert_eq!(db.list_playlists().unwrap()[0].track_count, 1);
+    // 让 a.flac 变陈旧 → 残留孤儿 playlist_items
+    let mut other = track("/m/b.flac", Some("B"), Some("Bl"), "b");
+    other.source_id = sid;
+    db.upsert_tracks_batch(&[other], 2000).unwrap();
+    db.remove_stale_tracks(sid, 2000, true).unwrap();
+    assert_eq!(db.count_tracks().unwrap(), 1);
+    assert_eq!(
+        db.list_playlists().unwrap()[0].track_count,
+        0,
+        "孤儿条目不得计入歌单曲目数"
+    );
+}
+
+/// P1-12：count_history_filtered 与 list_history_with 必须同口径
+/// （虚拟化历史列表行数不再错位出现越界占位行）。
+#[test]
+fn history_count_matches_list_p1() {
+    let db = Db::open_in_memory().unwrap();
+    let sid = db.upsert_source("/m", None).unwrap();
+    for i in 0..3 {
+        let mut t = track(&format!("/m/{i}.flac"), Some("A"), Some("Al"), "a");
+        t.source_id = sid;
+        db.upsert_tracks_batch(&[t], 1000).unwrap();
+    }
+    for t in db.list_tracks(10, 0).unwrap() {
+        db.record_play(t.id, 1_700_000_000 + t.id, 10_000).unwrap();
+    }
+    let list = db
+        .list_history_with(musicforge_core::db::TrackSort::Default, 500, None)
+        .unwrap();
+    let n = db.count_history_filtered(None).unwrap();
+    assert_eq!(
+        n as usize,
+        list.len(),
+        "历史计数必须与列表自洽（否则虚拟化越界占位）"
+    );
+}
+
 /// 专辑年份：先入库无年份、后续索引补齐（补空不覆盖已有值）。
 #[test]
 fn album_year_backfilled_when_missing() {

@@ -328,6 +328,9 @@ impl TrackSort {
     }
 }
 
+/// 文件索引批量写入行：`(path, size, mtime, format, sha256)`——`upsert_files_batch` 的形参。
+type FileIndexRow = (String, i64, Option<i64>, Option<String>, Option<String>);
+
 impl Db {
     /// 打开（不存在则创建）状态库并完成迁移。
     ///
@@ -346,14 +349,33 @@ impl Db {
         // 铁律不变——db 只是**可再生缓存**：WAL 设置失败仅降级，绝不中止流程。
         // （二级索引暂不加：当前查询模式全部按 path 命中 PRIMARY KEY，加索引无收益。）
         let _ = conn.pragma_update(None, "journal_mode", "WAL");
+        // P1-9：忙等待而非立即失败。原实现每请求 `Db::open` 并发读写，遇锁直接
+        // `SQLITE_BUSY` 失败；设 5s busy_timeout 后 SQLite 自行等待，调用方无需
+        // 处理瞬时锁争用。（server 连接的共享复用属更大重构，留待单独评估。）
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(|e| NcmError::Db(e.to_string()))?;
         Self::migrate(&conn)?;
+        // P1-7：补两个高频查询索引。幂等——已建库不重建；须在 migrate（建表）之后。
+        // 覆盖：最近播放 / 播放排行（GROUP BY track_id）/ 批量删曲（WHERE track_id IN）。
+        let _ = conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_history_track ON play_history(track_id);
+             CREATE INDEX IF NOT EXISTS idx_playlist_items_track ON playlist_items(track_id);",
+        );
         Ok(Self { conn })
     }
 
     /// 内存库（测试用）。
     pub fn open_in_memory() -> Result<Self, NcmError> {
         let conn = Connection::open_in_memory().map_err(|e| NcmError::Db(e.to_string()))?;
+        // 与 `open()` 同源：busy_timeout + 两个高频查询索引（P1-9 / P1-7）。
+        // 注意：索引必须在 `migrate`（建表）之后创建，否则表尚不存在被静默跳过。
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(|e| NcmError::Db(e.to_string()))?;
         Self::migrate(&conn)?;
+        let _ = conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_history_track ON play_history(track_id);
+             CREATE INDEX IF NOT EXISTS idx_playlist_items_track ON playlist_items(track_id);",
+        );
         Ok(Self { conn })
     }
 
@@ -366,24 +388,44 @@ impl Db {
                 "状态库版本 {version} 高于本程序支持的 {SCHEMA_VERSION}：拒绝打开以免破坏数据（请升级 MusicForge 或迁移后重试）"
             )));
         }
-        // 逐级迁移：`version < N` 时执行第 N 级建表 SQL。全部语句幂等
-        // （CREATE IF NOT EXISTS / 表达式索引），中途失败可安全重试。
-        // 历史库（v1）只补 v2 表；全新库（v0）两级都执行。
-        if version < 1 {
-            conn.execute_batch(SCHEMA_SQL)
-                .map_err(|e| NcmError::Db(e.to_string()))?;
+        if version == SCHEMA_VERSION {
+            return Ok(()); // 已是目标版本，无需迁移（避免无谓事务）
         }
-        if version < 2 {
-            conn.execute_batch(V2_SCHEMA_SQL)
-                .map_err(|e| NcmError::Db(e.to_string()))?;
-        }
-        if version < 3 {
-            conn.execute_batch(V3_SCHEMA_SQL)
-                .map_err(|e| NcmError::Db(e.to_string()))?;
-        }
-        if version != SCHEMA_VERSION {
+        // P1-8：迁移包进**单个事务**。原实现三段 execute_batch + user_version
+        // 各自独立——跨级失败会留下**半套 schema** 且 user_version 不推进，库永久
+        // 卡在中间态、无法自愈（审计 Top5 数据·不可恢复）。包事务后，任何一级失败
+        // 整体回滚，下次打开可安全重试。
+        conn.execute("BEGIN", [])
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let outcome: Result<(), NcmError> = (|| {
+            // 逐级迁移：`version < N` 时执行第 N 级建表 SQL。全部语句幂等
+            // （CREATE IF NOT EXISTS / 表达式索引），中途失败可安全重试。
+            // 历史库（v1）只补 v2 表；全新库（v0）两级都执行。
+            if version < 1 {
+                conn.execute_batch(SCHEMA_SQL)
+                    .map_err(|e| NcmError::Db(e.to_string()))?;
+            }
+            if version < 2 {
+                conn.execute_batch(V2_SCHEMA_SQL)
+                    .map_err(|e| NcmError::Db(e.to_string()))?;
+            }
+            if version < 3 {
+                conn.execute_batch(V3_SCHEMA_SQL)
+                    .map_err(|e| NcmError::Db(e.to_string()))?;
+            }
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)
                 .map_err(|e| NcmError::Db(e.to_string()))?;
+            Ok(())
+        })();
+        match outcome {
+            Ok(()) => {
+                conn.execute("COMMIT", [])
+                    .map_err(|e| NcmError::Db(e.to_string()))?;
+            }
+            Err(e) => {
+                let _ = conn.execute("ROLLBACK", []);
+                return Err(e);
+            }
         }
         Ok(())
     }
@@ -408,6 +450,35 @@ impl Db {
                 params![path, size, mtime, format, sha256],
             )
             .map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(())
+    }
+
+    /// 批量写文件索引（单事务；P1-10）。
+    ///
+    /// 把原本逐条 autocommit 的上万次写入合并为一次提交，全库刷新快一个数量级
+    /// （审计：十万文件 = 十万次 autocommit）。每条幂等（`ON CONFLICT(path) DO
+    /// UPDATE`），整批失败整体回滚后可安全重试（扫描本就按增量缓存重算）。
+    pub fn upsert_files_batch(&self, rows: &[FileIndexRow]) -> Result<(), NcmError> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        for (path, size, mtime, format, sha256) in rows {
+            tx.execute(
+                "INSERT INTO files (path, size, mtime, format, sha256, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))
+                 ON CONFLICT(path) DO UPDATE SET
+                    size=excluded.size, mtime=excluded.mtime,
+                    format=excluded.format, sha256=excluded.sha256,
+                    updated_at=excluded.updated_at",
+                params![path, size, mtime, format, sha256],
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        }
+        tx.commit().map_err(|e| NcmError::Db(e.to_string()))?;
         Ok(())
     }
 
@@ -1292,7 +1363,8 @@ impl Db {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT p.id, p.name, COUNT(pi.track_id) AS n
+                "SELECT p.id, p.name, \
+                        COUNT(pi.track_id) FILTER (WHERE EXISTS (SELECT 1 FROM tracks t WHERE t.id = pi.track_id)) AS n \
                  FROM playlists p LEFT JOIN playlist_items pi ON pi.playlist_id = p.id
                  WHERE p.name LIKE ?1 ESCAPE '\\'
                  GROUP BY p.id, p.name
@@ -1594,6 +1666,38 @@ impl Db {
         self.list_history_sorted(TrackSort::Default, limit)
     }
 
+    /// 播放历史总数（与 [`Db::list_history_with`] 同过滤条件；P1-12）。
+    ///
+    /// 前端历史列表是**虚拟化的**，行数必须映射到历史结果集；此前却借用了
+    /// [`Db::count_tracks_filtered`]（统计实体是 `tracks`）→ 行数错位、虚拟化
+    /// 出现越界占位行。此处统计 `play_history` 行，并与列表共用同一
+    /// `track_filter_pred`，使「列表 + 计数」自洽。
+    pub fn count_history_filtered(&self, query: Option<&str>) -> Result<i64, NcmError> {
+        let pred = query.and_then(|q| track_filter_pred(q, 1));
+        let n = match &pred {
+            Some((sql, pat)) => {
+                let full = format!(
+                    "SELECT COUNT(1) FROM play_history h \
+                     JOIN tracks t ON t.id = h.track_id \
+                     LEFT JOIN artists ar ON ar.id = t.artist_id \
+                     LEFT JOIN albums al ON al.id = t.album_id \
+                     WHERE {sql}"
+                );
+                let mut stmt = self
+                    .conn
+                    .prepare(&full)
+                    .map_err(|e| NcmError::Db(e.to_string()))?;
+                stmt.query_row([pat], |r| r.get::<_, i64>(0))
+                    .map_err(|e| NcmError::Db(e.to_string()))?
+            }
+            None => self
+                .conn
+                .query_row("SELECT COUNT(1) FROM play_history", [], |r| r.get::<_, i64>(0))
+                .map_err(|e| NcmError::Db(e.to_string()))?,
+        };
+        Ok(n)
+    }
+
     /// 清空播放历史；返回被清空的行数。
     pub fn clear_history(&self) -> Result<usize, NcmError> {
         self.conn
@@ -1661,7 +1765,10 @@ impl Db {
             .conn
             .prepare(
                 "SELECT date(played_at, 'unixepoch', 'localtime') AS day, COUNT(1) \
-                 FROM play_history WHERE played_at >= ?1 GROUP BY day ORDER BY day",
+                 FROM play_history ph \
+                 WHERE played_at >= ?1 \
+                   AND EXISTS (SELECT 1 FROM tracks t WHERE t.id = ph.track_id) \
+                 GROUP BY day ORDER BY day",
             )
             .map_err(|e| NcmError::Db(e.to_string()))?;
         let rows = stmt
@@ -1720,7 +1827,8 @@ impl Db {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT p.id, p.name, COUNT(i.track_id) AS n
+                "SELECT p.id, p.name, \
+                        COUNT(i.track_id) FILTER (WHERE EXISTS (SELECT 1 FROM tracks t WHERE t.id = i.track_id)) AS n \
                  FROM playlists p
                  LEFT JOIN playlist_items i ON i.playlist_id = p.id
                  GROUP BY p.id
@@ -2169,6 +2277,28 @@ fn track_filter_pred(query: &str, idx: usize) -> Option<(String, String)> {
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
+
+    /// P1-7：open 必须为高频查询建立两个索引（最近播放/播放排行/批量删曲）。
+    #[test]
+    fn indexes_created_on_open_p1() {
+        let db = Db::open_in_memory().unwrap();
+        let names: Vec<String> = db
+            .conn
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='index' \
+                 AND name IN ('idx_history_track','idx_playlist_items_track')",
+            )
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(
+            names.len(),
+            2,
+            "两个索引都应存在（覆盖 play_history / playlist_items 的 track_id 查询）"
+        );
+    }
 
     /// 造一个干净的 3 曲歌单（a/b/c 各一次）。
     fn seed_clean() -> (Db, i64, i64, i64, i64) {

@@ -614,18 +614,25 @@ pub struct HashRefreshStats {
 ///
 /// 只读音乐文件、只写可再生缓存（db）；db 读写失败**不 panic 不传播**
 /// （命中判定失败按未命中处理、回写失败忽略）——缓存失败绝不影响扫描结论。
+/// 文件索引批量写入行：`(path, size, mtime, format, sha256)`（与 `Db::upsert_files_batch` 同形）。
+type FileIndexRow = (String, i64, Option<i64>, Option<String>, Option<String>);
+
 pub fn refresh_hash_cache(db: &crate::db::Db, items: &[ScanItem]) -> HashRefreshStats {
     let mut st = HashRefreshStats::default();
+    // P1-10：先算（含文件读取）再**单事务**批量回写，避免十万文件 = 十万次
+    // autocommit。文件读取在事务外进行（不长期持锁）；写入幂等（ON CONFLICT
+    // DO UPDATE），整批失败可安全重试（增量缓存本就按 size+mtime 重算）。
+    let mut batch: Vec<FileIndexRow> = Vec::new();
     for item in items {
         if item.category != Category::Audio {
             continue;
         }
         st.considered += 1;
         let key = item.path.to_string_lossy().into_owned();
-        let ext = item.path.extension().and_then(|e| e.to_str());
+        let ext = item.path.extension().and_then(|e| e.to_str()).map(String::from);
         let Some(mtime) = item.mtime else {
             // 退化：占位索引（mtime None 的行永远不可作缓存依据）
-            let _ = db.upsert_file(&key, item.size as i64, None, ext, None);
+            batch.push((key, item.size as i64, None, ext, None));
             st.skipped += 1;
             continue;
         };
@@ -637,10 +644,14 @@ pub fn refresh_hash_cache(db: &crate::db::Db, items: &[ScanItem]) -> HashRefresh
         match sha256_file_stream(&item.path) {
             Some(sha) => {
                 st.hashed += 1;
-                let _ = db.upsert_file(&key, item.size as i64, Some(mtime), ext, Some(&sha));
+                batch.push((key, item.size as i64, Some(mtime), ext, Some(sha)));
             }
             None => st.skipped += 1,
         }
+    }
+    // 批量回写（DB 写入失败按既有策略忽略——缓存失败绝不影响扫描结论）
+    if !batch.is_empty() {
+        let _ = db.upsert_files_batch(&batch);
     }
     st
 }
