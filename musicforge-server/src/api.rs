@@ -402,6 +402,15 @@ pub async fn batch(State(state): State<ServerState>, JsonBody(body): JsonBody<Va
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(PathBuf::from);
+    // P9 路径域（out_dir）：与 inputs **同标准**校验。原实现只校验 inputs——
+    // batch 可把转码产物与回滚清单写到白名单之外的任意路径（审计 Top1 越权写）。
+    // 派生 manifest 路径由 out_dir 推导（缺省回落 state.data_dir，服务端自有目录），
+    // 故校验 out_dir 即覆盖两者。
+    if let Some(od) = out_dir.as_deref() {
+        if let Err(r) = ensure_allowed(&state, od) {
+            return r;
+        }
+    }
     let template = body
         .get("template")
         .and_then(|v| v.as_str())
