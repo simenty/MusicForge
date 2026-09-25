@@ -1,7 +1,7 @@
 // 音乐库（P1 核心页）：十万级曲目浏览 = 分页取数 + 自建虚拟滚动；
 // 搜索走 core 的 search_tracks（一次 ≤500，不走虚拟化）。
 // P2：双击行 → 以「已缓存行快照」为队列开始播放。
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { IS_DESKTOP, countTracks, libraryStats, removeTracks } from "./api";
 import type { LibraryStats, Track } from "./api";
 import { useLang } from "./i18n";
@@ -114,8 +114,27 @@ export default function LibraryPage({
 
   // 可见列表 = 虚拟化已加载快照（P6.25：过滤已下推到服务端，不再有独立的
   // 「搜索结果」集合，因此不受原先 500 条上限约束）；全选覆盖该集合
-  const list = snapshot();
-  const selectedTracks = list.filter((x) => selApi.sel.has(String(x.id)));
+  // P2-15：`snapshot()` 每次调用按 `total` 全量迭代（十万曲库 = 十万次），此前渲染内
+  // 被调用两次（列表 + 确认弹层 items）→ 每次 setState 约 20 万次迭代。仅在「已加载
+  // 页数 / 总数 / 取数忙闲」变化时才重算；页只增不逐出，`loadedPages` 单调增可精确
+  // 反映数据变化，滚动等无关渲染不再重算（修复审计 #15 首要热点）。
+  const list = useMemo(() => snapshot(), [w.total, w.loadedPages, w.busy]);
+  const selectedTracks = useMemo(
+    () => list.filter((x) => selApi.sel.has(String(x.id))),
+    [list, selApi]
+  );
+  // P2-15：确认弹层 items 此前每次渲染都现算（即便弹层关闭），叠加 snapshot 全量迭代。
+  // 仅在弹层开启时构造，并复用上面的 memo `list`。
+  const removeItems = useMemo(
+    () =>
+      pendingRemove
+        ? list
+            .filter((x) => selApi.sel.has(String(x.id)))
+            .map((x) => x.title ?? x.path)
+            .slice(0, 5)
+        : [],
+    [pendingRemove, list, selApi]
+  );
   const bulkQueue = async () => {
     if (selectedTracks.length && onQueue) await onQueue(selectedTracks);
     selApi.toggleSelMode();
@@ -273,10 +292,7 @@ export default function LibraryPage({
         open={pendingRemove}
         title={t.library.removeTitle}
         summary={t.library.removeSummary(selApi.count)}
-        items={snapshot()
-          .filter((x) => selApi.sel.has(String(x.id)))
-          .map((x) => x.title ?? x.path)
-          .slice(0, 5)}
+        items={removeItems}
         moreCount={Math.max(0, selApi.count - 5)}
         note={t.library.removeNote}
         ackLabel={t.library.removeAck}

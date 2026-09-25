@@ -35,13 +35,18 @@ if (!entry) {
 
 // 首屏 = 入口 + 其静态导入链（递归，去重）
 const byFile = new Map(Object.values(manifest).map((m) => [m.file, m]));
+// manifest 的 `imports` 引用的是**键**：非入口/页面块键 == 其 `file`，但 manualChunks
+// 等共享块键带前导 `_` 且不含 `assets/`（`_react-vendor-xxx.js` vs `assets/react-vendor-xxx.js`）。
+// 直接用键做 `size(join(DIST, key))` 会因路径错位 ENOENT——P2-22 引入 manualChunks 触发。
+// 建「键→file」映射，walk 时把键解析成真实产出路径。
+const keyToFile = new Map(Object.entries(manifest).map(([k, m]) => [k, m.file]));
 const seen = new Set();
 const initialFiles = [];
 const walk = (file) => {
   if (seen.has(file)) return;
   seen.add(file);
   initialFiles.push(file);
-  for (const imp of byFile.get(file)?.imports ?? []) walk(imp);
+  for (const imp of byFile.get(file)?.imports ?? []) walk(keyToFile.get(imp) ?? imp);
 };
 walk(entry.file);
 const initial = initialFiles.reduce((n, f) => n + size(join(DIST, f)), 0);
