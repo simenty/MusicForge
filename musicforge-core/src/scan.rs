@@ -808,6 +808,9 @@ pub fn apply_clean_plan(plan: &CleanPlan, task_id: &str) -> Result<CleanOutcome,
             "rule": action.rule_id,
         });
         writeln!(rb, "{}", serde_json::to_string(&line)?)?;
+        // P1-13：rename 成功但回滚行未落盘前崩溃 = 该移动不可回滚（双写窗口，审计 191 行）。
+        // 每条回滚记录写后 best-effort sync_all，使恢复依据先于下一项持久化。
+        let _ = rb.sync_all();
         outcome.moved += 1;
     }
     outcome.rollback_manifest = Some(rollback);

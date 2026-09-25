@@ -373,6 +373,12 @@ pub fn apply_organize_plan(
                         });
                         use std::io::Write as _;
                         writeln!(rb, "{}", serde_json::to_string(&line)?)?;
+                        // P1-13：rename 已成功、但回滚行未落盘前崩溃会令这一移动**不可回滚**
+                        // （双写窗口，审计 191 行）。每条回滚记录写后 best-effort sync_all，
+                        // 使「恢复依据」先于下一项持久化；失败不阻断批处理（仅弱化该条持久性）。
+                        // 注：同步的是 manifest 而非被移动文件——后者数据移动前已持久，且即便
+                        // rename 未落盘，恢复时 `from` 缺失也会被安全跳过，无数据风险。
+                        let _ = rb.sync_all();
                         outcome.moved += 1;
                     }
                     Err(_) => {
