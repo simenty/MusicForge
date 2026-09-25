@@ -273,11 +273,19 @@ pub async fn index_source(source_id: i64) -> Result<serde_json::Value, String> {
             .into_iter()
             .find(|s| s.id == source_id)
             .ok_or_else(|| format!("媒体源 {source_id} 不存在"))?;
+        // P9 审计修复：陈旧清理的保留策略取自配置，与 remove_source/remove_tracks
+        // 同源——避免「配置说保留 likes/history、重扫却把它们删掉」。
+        let retain = musicforge_core::config::AppConfig::load(
+            &musicforge_core::config::AppConfig::default_path(),
+        )
+        .map_err(|e| e.to_string())?
+        .retain_likes_history;
         musicforge_core::library::index_library(
             &db,
             source_id,
             std::path::Path::new(&src.path),
             &musicforge_core::scan::ScanOptions::default(),
+            retain,
         )
         .map_err(|e| e.to_string())
     })
@@ -435,11 +443,17 @@ pub async fn sources_add_and_index(
         let id = db
             .upsert_source(&p, label.as_deref())
             .map_err(|e| e.to_string())?;
+        let retain = musicforge_core::config::AppConfig::load(
+            &musicforge_core::config::AppConfig::default_path(),
+        )
+        .map_err(|e| e.to_string())?
+        .retain_likes_history;
         let out = musicforge_core::library::index_library(
             &db,
             id,
             std::path::Path::new(&p),
             &musicforge_core::scan::ScanOptions::default(),
+            retain,
         )
         .map_err(|e| e.to_string())?;
         Ok::<_, String>((id, out))

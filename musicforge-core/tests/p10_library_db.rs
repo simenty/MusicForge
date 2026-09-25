@@ -158,10 +158,66 @@ fn stale_tracks_removed_after_rescan() {
 
     // 第二次索引：只剩 a（b 已从磁盘移走）
     db.upsert_tracks_batch(&[a], 2000).unwrap();
-    let removed = db.remove_stale_tracks(sid, 2000).unwrap();
+    let removed = db.remove_stale_tracks(sid, 2000, false).unwrap();
     assert_eq!(removed, 1);
     assert_eq!(db.count_tracks().unwrap(), 1);
     assert_eq!(db.list_tracks(10, 0).unwrap()[0].path, "/music/a.flac");
+}
+
+/// P9 审计回归：陈旧清理的保留策略。
+///
+/// 原实现**无条件**删除 `likes` / `play_history`，与 `retain_likes_history`
+/// 默认 `true` 直接冲突——重扫索引会把用户不可再生数据「静默清理」掉。
+/// 语义对齐 [`Db::remove_source`] / [`Db::remove_tracks`]：
+/// `retain = true` 保留二者（FK 临时关闭以允许「留行为行 + 删曲目」），
+/// 仅结构性关联 `playlist_items` 两种模式都清。
+#[test]
+fn remove_stale_tracks_retain_keeps_behavior_rows() {
+    fn seed() -> (Db, i64, i64) {
+        let db = Db::open_in_memory().unwrap();
+        let sid = db.upsert_source("/music", None).unwrap();
+        let mut a = track("/music/a.flac", Some("A"), Some("Al"), "a");
+        a.source_id = sid;
+        let mut b = track("/music/b.flac", Some("B"), Some("Bl"), "b");
+        b.source_id = sid;
+        db.upsert_tracks_batch(&[a.clone(), b], 1000).unwrap();
+        let b_id = db
+            .list_tracks(100, 0)
+            .unwrap()
+            .into_iter()
+            .find(|t| t.path == "/music/b.flac")
+            .expect("b 应已入库")
+            .id;
+        db.toggle_like(b_id).unwrap();
+        db.record_play(b_id, 1_700_000_000, 30_000).unwrap();
+        (db, sid, b_id)
+    }
+
+    // retain = true：曲目行照删，但 likes / play_history 保留
+    let (db, sid, b_id) = seed();
+    assert_eq!(db.all_liked_ids().unwrap(), vec![b_id]);
+    let mut a = track("/music/a.flac", Some("A"), Some("Al"), "a");
+    a.source_id = sid;
+    db.upsert_tracks_batch(&[a], 2000).unwrap();
+    let removed = db.remove_stale_tracks(sid, 2000, true).unwrap();
+    assert_eq!(removed, 1, "陈旧曲目行仍要清掉（保留策略不豁免曲目本身）");
+    assert_eq!(db.count_tracks().unwrap(), 1);
+    assert_eq!(
+        db.all_liked_ids().unwrap(),
+        vec![b_id],
+        "retain=true：likes 不得被删（用户不可再生数据）"
+    );
+
+    // 对照 retain = false：likes 随曲目级联清理（原语义不变）
+    let (db2, sid2, _) = seed();
+    let mut a2 = track("/music/a.flac", Some("A"), Some("Al"), "a");
+    a2.source_id = sid2;
+    db2.upsert_tracks_batch(&[a2], 2000).unwrap();
+    db2.remove_stale_tracks(sid2, 2000, false).unwrap();
+    assert!(
+        db2.all_liked_ids().unwrap().is_empty(),
+        "retain=false：likes 随曲目级联清理"
+    );
 }
 
 /// 专辑年份：先入库无年份、后续索引补齐（补空不覆盖已有值）。

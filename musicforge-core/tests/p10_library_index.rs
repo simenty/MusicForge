@@ -41,7 +41,7 @@ fn index_reads_properties_and_aggregates() {
 
     let db = Db::open_in_memory().unwrap();
     let sid = db.upsert_source(dir.path().to_str().unwrap(), None).unwrap();
-    let out = index_library(&db, sid, dir.path(), &opts()).unwrap();
+    let out = index_library(&db, sid, dir.path(), &opts(), false).unwrap();
 
     assert_eq!(out.audio, 2);
     assert_eq!(out.indexed, 2);
@@ -76,7 +76,7 @@ fn corrupt_audio_degrades_without_aborting() {
 
     let db = Db::open_in_memory().unwrap();
     let sid = db.upsert_source(dir.path().to_str().unwrap(), None).unwrap();
-    let out = index_library(&db, sid, dir.path(), &opts()).unwrap();
+    let out = index_library(&db, sid, dir.path(), &opts(), false).unwrap();
 
     assert_eq!(out.audio, 2);
     assert_eq!(out.indexed, 2, "损坏文件也必须入库（基础字段）");
@@ -105,13 +105,13 @@ fn rescan_removes_deleted_files() {
 
     let db = Db::open_in_memory().unwrap();
     let sid = db.upsert_source(dir.path().to_str().unwrap(), None).unwrap();
-    index_library(&db, sid, dir.path(), &opts()).unwrap();
+    index_library(&db, sid, dir.path(), &opts(), false).unwrap();
     assert_eq!(db.count_tracks().unwrap(), 2);
 
     std::fs::remove_file(&a).unwrap();
     // run_id 为秒级：连续两次索引可能同秒——先睡过 1 秒边界确保 run 标记可比
     std::thread::sleep(std::time::Duration::from_millis(1100));
-    let out = index_library(&db, sid, dir.path(), &opts()).unwrap();
+    let out = index_library(&db, sid, dir.path(), &opts(), false).unwrap();
 
     assert_eq!(out.removed, 1, "已删除的 a.wav 应被清理");
     assert_eq!(db.count_tracks().unwrap(), 1);

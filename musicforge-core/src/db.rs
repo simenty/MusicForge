@@ -813,30 +813,59 @@ impl Db {
     ///
     /// 依赖 `indexed_at < run_id` 判定，而不是把本次全部 path 传进 NOT IN——
     /// 十万级 path 列表会撞 SQLite 变量上限（默认 999），也白白放大 SQL。
-    pub fn remove_stale_tracks(&self, source_id: i64, run_id: i64) -> Result<usize, NcmError> {
-        let tx = self
-            .conn
-            .unchecked_transaction()
-            .map_err(|e| NcmError::Db(e.to_string()))?;
-        for sql in [
-            "DELETE FROM play_history WHERE track_id IN \
-             (SELECT id FROM tracks WHERE source_id = ?1 AND indexed_at < ?2)",
-            "DELETE FROM likes WHERE track_id IN \
-             (SELECT id FROM tracks WHERE source_id = ?1 AND indexed_at < ?2)",
-            "DELETE FROM playlist_items WHERE track_id IN \
-             (SELECT id FROM tracks WHERE source_id = ?1 AND indexed_at < ?2)",
-        ] {
-            tx.execute(sql, params![source_id, run_id])
+    ///
+    /// **P9 审计修复**：`retain = true` 时**不删** `likes` / `play_history`
+    /// （用户不可再生数据），与 [`Db::remove_source`] / [`Db::remove_tracks`]
+    /// 的保留策略完全一致。原实现无条件删除二者，与 `retain_likes_history`
+    /// 默认 `true` 直接冲突——重扫索引时会把用户数据「静默清理」掉。
+    /// `playlist_items` 是结构性关联（曲目没了则条目必悬空），两种模式都清。
+    pub fn remove_stale_tracks(
+        &self,
+        source_id: i64,
+        run_id: i64,
+        retain: bool,
+    ) -> Result<usize, NcmError> {
+        // 保留策略与活 FK 冲突：保留 likes/play_history 却删曲目会
+        // `FOREIGN KEY constraint failed`。仅在此显式 opt-in 路径临时关闭 FK
+        // （必须在事务**外**），操作后恢复（与 remove_tracks 同法）。
+        if retain {
+            self.conn
+                .execute("PRAGMA foreign_keys = OFF", [])
                 .map_err(|e| NcmError::Db(e.to_string()))?;
         }
-        let n = tx
-            .execute(
-                "DELETE FROM tracks WHERE source_id = ?1 AND indexed_at < ?2",
-                params![source_id, run_id],
-            )
-            .map_err(|e| NcmError::Db(e.to_string()))?;
-        tx.commit().map_err(|e| NcmError::Db(e.to_string()))?;
-        Ok(n)
+        let outcome = (|| -> Result<usize, NcmError> {
+            let tx = self
+                .conn
+                .unchecked_transaction()
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+            let behavior_tables: &[&str] = if retain {
+                &["playlist_items"]
+            } else {
+                &["play_history", "likes", "playlist_items"]
+            };
+            for table in behavior_tables {
+                tx.execute(
+                    &format!(
+                        "DELETE FROM {table} WHERE track_id IN \
+                         (SELECT id FROM tracks WHERE source_id = ?1 AND indexed_at < ?2)"
+                    ),
+                    params![source_id, run_id],
+                )
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+            }
+            let n = tx
+                .execute(
+                    "DELETE FROM tracks WHERE source_id = ?1 AND indexed_at < ?2",
+                    params![source_id, run_id],
+                )
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+            tx.commit().map_err(|e| NcmError::Db(e.to_string()))?;
+            Ok(n)
+        })();
+        if retain {
+            let _ = self.conn.execute("PRAGMA foreign_keys = ON", []);
+        }
+        outcome
     }
 
     /// 各媒体源的曲目计数（`source_id → count`；源管理页展示用）。

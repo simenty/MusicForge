@@ -68,11 +68,17 @@ fn should_purge_stale(report: &ScanReport) -> bool {
 /// 索引一个媒体源目录：扫描 → 并行读标签 → 批量入库 → 清理陈旧行。
 ///
 /// `source_id` 必须已由 [`Db::upsert_source`] 登记。
+///
+/// `retain_likes_history`：清理陈旧行时是否**保留** likes / play_history
+/// （用户不可再生数据，见 [`Db::remove_stale_tracks`]）。由调用方从
+/// `config.retain_likes_history` 显式传入——刻意不在此自行取默认值，
+/// 以免「配置说保留、实现却删」的静默冲突重演（P9 审计 Top4）。
 pub fn index_library(
     db: &Db,
     source_id: i64,
     root: &Path,
     options: &ScanOptions,
+    retain_likes_history: bool,
 ) -> Result<IndexOutcome, NcmError> {
     let report = scan_library(root, options)?;
     let audio: Vec<&ScanItem> = report
@@ -100,7 +106,7 @@ pub fn index_library(
     let inputs: Vec<TrackInput> = parsed.into_iter().map(|(t, _, _)| t).collect();
     let indexed = db.upsert_tracks_batch(&inputs, run_id)?;
     let removed = if should_purge_stale(&report) {
-        db.remove_stale_tracks(source_id, run_id)?
+        db.remove_stale_tracks(source_id, run_id, retain_likes_history)?
     } else {
         0
     };
