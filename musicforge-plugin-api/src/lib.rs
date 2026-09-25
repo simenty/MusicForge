@@ -203,7 +203,11 @@ pub struct PluginManifest {
     pub data_sent: Vec<String>,
     #[serde(default)]
     pub data_not_sent: Vec<String>,
-    #[serde(default)]
+    /// **键名兼容（P9 审计修复）**：`PLUGIN_POLICY.md` / `plugin-protocol.md`
+    /// 规定字段名为 `user_acknowledgement_required`，而实现只认 `ack_required`
+    /// → 按**书面规范**编写的 plugin.json 会被 `#[serde(default)]` 静默判
+    /// `false`，高风险 ACK 闸**完全失效**。两个键名都接受，旧清单不受影响。
+    #[serde(default, alias = "user_acknowledgement_required")]
     pub ack_required: bool,
     /// B15（稳定审计修复）：插件**二进制** SHA-256（hex 小写，64 位）。
     ///
@@ -756,6 +760,28 @@ mod tests {
             "能力声明：可迁移扩展名"
         );
         assert!(m.data_not_sent.is_empty());
+    }
+
+    /// P9 审计修复：`PLUGIN_POLICY.md` / `plugin-protocol.md` 规定的**书面键名**
+    /// `user_acknowledgement_required` 必须被接受——否则按文档编写的 plugin.json
+    /// 会被 `#[serde(default)]` 静默判 `false`，高风险 ACK 闸**完全失效**。
+    #[test]
+    fn manifest_ack_accepts_documented_key_name() {
+        let m: PluginManifest = serde_json::from_str(
+            r#"{"name":"kwm-migration","api_version":"1.0.0","kind":"format-adapter",
+                "network":false,"user_acknowledgement_required":true,"extensions":["kwm"]}"#,
+        )
+        .unwrap();
+        assert!(
+            m.ack_required,
+            "书面键名 user_acknowledgement_required 必须等价生效（否则 ACK 闸静默失效）"
+        );
+        // 既有短键名保持兼容（两个独立插件仓的现有清单）
+        let short: PluginManifest = serde_json::from_str(
+            r#"{"name":"kwm","api_version":"1.0.0","kind":"format-adapter","network":false,"ack_required":true}"#,
+        )
+        .unwrap();
+        assert!(short.ack_required, "既有键名 ack_required 保持兼容");
     }
 
     #[test]

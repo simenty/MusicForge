@@ -25,10 +25,9 @@ pub fn read_plugin_manifest(dir: &Path) -> Option<serde_json::Value> {
     let kind = v.get("kind")?.as_str()?.to_string();
     let network = v.get("network").and_then(|n| n.as_bool()).unwrap_or(false);
     // P6b.2：ACK 闸声明 + 能力声明（extensions 透传给前端展示）
-    let ack_required = v
-        .get("ack_required")
-        .and_then(|x| x.as_bool())
-        .unwrap_or(false);
+    // P9 审计修复：键名兼容（书面规范为 `user_acknowledgement_required`）；
+    // 共用 cli 侧唯一实现，避免此处再次只认单键名导致 ACK 闸静默失效。
+    let ack_required = musicforge_cli::plugins::manifest_ack_required(&v);
     let extensions = v
         .get("extensions")
         .and_then(|x| x.as_array())

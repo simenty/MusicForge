@@ -1187,6 +1187,28 @@ pub mod plugins {
         Some(v)
     }
 
+    /// 读取清单的 ACK 闸声明，**兼容两个键名**——本函数是 `Value` 直读路径的
+    /// **唯一实现**（P9 审计修复）。
+    ///
+    /// `PLUGIN_POLICY.md` / `plugin-protocol.md` 规定字段名为
+    /// `user_acknowledgement_required`，而既有实现只认 `ack_required` →
+    /// 按**书面规范**编写的 plugin.json 会被静默判 `false`，高风险 ACK 闸
+    /// **完全失效**（审计 Top3）。三处 `Value` 直读点（注册期过滤 / spawn
+    /// 前置闸 / GUI 状态列表）与 `PluginManifest` 的 serde `alias` 必须一致，
+    /// 由 `tests/p6b_ack.rs` 契约测试钉死。
+    ///
+    /// 本模块刻意不链接协议 crate（默认构建零 host 符号），故在此就地实现，
+    /// 不复用 `musicforge_plugin_api`——避免默认构建被迫引入协议依赖。
+    pub fn manifest_ack_required(v: &serde_json::Value) -> bool {
+        v.get("ack_required")
+            .and_then(|x| x.as_bool())
+            .or_else(|| {
+                v.get("user_acknowledgement_required")
+                    .and_then(|x| x.as_bool())
+            })
+            .unwrap_or(false)
+    }
+
     /// 插件状态：config（enabled/acked）+ 白名单目录已装清单（可注入目录，测试友好）。
     pub fn status(
         config: &musicforge_core::config::AppConfig,
@@ -1508,10 +1530,7 @@ pub mod format_bridge {
                 if !cfg.plugins.enabled.iter().any(|x| x == name) {
                     continue;
                 }
-                let ack_required = m
-                    .get("ack_required")
-                    .and_then(|x| x.as_bool())
-                    .unwrap_or(false);
+                let ack_required = super::plugins::manifest_ack_required(&m);
                 if ack_required && !cfg.plugins.acked.iter().any(|x| x == name) {
                     continue;
                 }
@@ -1602,10 +1621,7 @@ pub fn format_migrate(
     // plugin.json）时，保留 spawn 后的那道闸作为兜底。
     if let Some(dir) = exe.parent() {
         if let Some(v) = plugins::manifest_value(dir) {
-            let ack_required = v
-                .get("ack_required")
-                .and_then(|x| x.as_bool())
-                .unwrap_or(false);
+            let ack_required = plugins::manifest_ack_required(&v);
             let name = v.get("name").and_then(|x| x.as_str()).unwrap_or(plugin);
             plugins::ack_gate(ack_required, name, &cfg.plugins.acked)?;
         }

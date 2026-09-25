@@ -14,6 +14,33 @@ fn ack_gate_blocks_until_acknowledged() {
     assert!(plugins::ack_gate(false, "ai-openai-compatible", &[]).is_ok());
 }
 
+/// P9 审计修复：ACK 键名兼容——书面键名与实现键名**都必须生效**。
+///
+/// 唯一实现在 `cli::plugins::manifest_ack_required`，三处 `Value` 直读点
+/// （注册期过滤 / spawn 前置闸 / GUI 状态列表）共用；与 `PluginManifest`
+/// 的 serde alias 由两侧测试共同钉死，防止再次漂移。
+#[test]
+fn manifest_ack_required_accepts_both_key_names() {
+    let short: serde_json::Value =
+        serde_json::from_str(r#"{"name":"kwm","ack_required":true}"#).unwrap();
+    let documented: serde_json::Value =
+        serde_json::from_str(r#"{"name":"kwm","user_acknowledgement_required":true}"#).unwrap();
+    let absent: serde_json::Value = serde_json::from_str(r#"{"name":"kwm"}"#).unwrap();
+
+    assert!(
+        plugins::manifest_ack_required(&short),
+        "既有键名 ack_required"
+    );
+    assert!(
+        plugins::manifest_ack_required(&documented),
+        "书面键名 user_acknowledgement_required 必须生效（否则 ACK 闸静默失效）"
+    );
+    assert!(
+        !plugins::manifest_ack_required(&absent),
+        "缺键默认 false（X35 向后兼容）"
+    );
+}
+
 /// acknowledge：幂等追加 + config 持久化；空名显式拒绝。
 #[test]
 fn acknowledge_roundtrip_and_rejects_empty_name() {
