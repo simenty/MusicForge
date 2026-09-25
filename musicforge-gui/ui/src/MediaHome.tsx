@@ -1,5 +1,5 @@
 // 媒体库概览（P1 建立 / P3 升级）：问候 + 统计卡 + 快捷入口 + 继续聆听。
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { IS_DESKTOP, listTracks, recentPlays, statsOverview } from "./api";
 import type { StatsOverview, Track } from "./api";
 import { useLang } from "./i18n";
@@ -91,11 +91,23 @@ export default function MediaHome({
         ? t.media.greetingAfternoon
         : t.media.greetingEvening;
 
-  const playFrom = (tr: Track) => {
-    if (!onPlay) return;
-    const idx = recent.findIndex((x) => x.id === tr.id);
-    void onPlay(recent, idx >= 0 ? idx : 0);
-  };
+  // P2-16：playFrom 改为稳定 useCallback（依赖稳定原语），配合 TrackRow memo
+  const handlePlay = useCallback(
+    (tr: Track) => {
+      if (!onPlay) return;
+      const idx = recent.findIndex((x) => x.id === tr.id);
+      void onPlay(recent, idx >= 0 ? idx : 0);
+    },
+    [onPlay, recent]
+  );
+
+  // P2-16：行内动作稳定化，配合 TrackRow memo
+  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
+  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
+  const handleToggleSelect = useCallback(
+    (tr: Track) => selApi.toggle(String(tr.id)),
+    [selApi.toggle]
+  );
 
   // P6.19 批量操作：多选后批量加入队列 / 下一首播放（selApi 已在顶部初始化）
   const selectedTracks = recent.filter((x) => selApi.sel.has(String(x.id)));
@@ -220,12 +232,12 @@ export default function MediaHome({
               key={tr.id}
               lead={i + 1}
               track={tr}
-              onPlay={onPlay ? () => playFrom(tr) : undefined}
-              onQueue={onQueue ? () => void onQueue([tr]) : undefined}
-              onPlayNext={onPlayNext ? () => void onPlayNext([tr]) : undefined}
+              onPlay={onPlay ? handlePlay : undefined}
+              onQueue={onQueue ? handleQueue : undefined}
+              onPlayNext={onPlayNext ? handlePlayNext : undefined}
               selectable={selApi.selMode}
               selected={selApi.has(String(tr.id))}
-              onToggleSelect={() => selApi.toggle(String(tr.id))}
+              onToggleSelect={handleToggleSelect}
             />
           ))}
         </div>

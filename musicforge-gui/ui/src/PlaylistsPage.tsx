@@ -220,6 +220,23 @@ export default function PlaylistsPage({
   };
 
   // ---------------------------------------------------------------- 详情态 --
+  // P2-16：行内动作稳定化（详情态映射用），配合 TrackRow memo
+  const handlePlay = useCallback(
+    (tr: Track) => {
+      if (!onPlay || !items) return;
+      const arr = items;
+      const idx = arr.findIndex((x) => x.id === tr.id);
+      void onPlay(arr, idx >= 0 ? idx : 0);
+    },
+    [onPlay, items]
+  );
+  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
+  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
+  const handleToggleSelect = useCallback(
+    (tr: Track) => selApi.toggle(String(tr.id)),
+    [selApi.toggle]
+  );
+
   if (open) {
     // P6.19 批量操作
     const list = items ?? [];
@@ -406,19 +423,12 @@ export default function PlaylistsPage({
                   onDrop: () => void moveTo(i),
                   style: { cursor: "grab" },
                 }}
-                onPlay={
-                  onPlay
-                    ? () => {
-                        const idx = items.findIndex((x) => x.id === r.id);
-                        void onPlay(items, idx >= 0 ? idx : 0);
-                      }
-                    : undefined
-                }
-                onQueue={onQueue ? () => void onQueue([r]) : undefined}
-                onPlayNext={onPlayNext ? () => void onPlayNext([r]) : undefined}
+                onPlay={onPlay ? handlePlay : undefined}
+                onQueue={onQueue ? handleQueue : undefined}
+                onPlayNext={onPlayNext ? handlePlayNext : undefined}
                 selectable={selApi.selMode}
                 selected={selApi.has(String(r.id))}
-                onToggleSelect={() => selApi.toggle(String(r.id))}
+                onToggleSelect={handleToggleSelect}
                 trailing={
                   <button
                     className="row-mini"

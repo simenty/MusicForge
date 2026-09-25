@@ -1,6 +1,6 @@
 // 专辑（P1 网格 / P6 在线封面 / P6.10 详情页）：
 // 点卡片进入详情（大封面 + 播放全部 + 按碟/轨号排序的曲目表）。
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import {
   IS_DESKTOP,
   albumTracks,
@@ -161,6 +161,24 @@ export default function AlbumsPage({
     setProgress(null);
   };
 
+  // P2-16：行内动作稳定化（详情态映射用），配合 TrackRow memo
+  const handlePlay = useCallback(
+    (tr: Track) => {
+      if (!onPlay || !tracks) return;
+      const arr = tracks;
+      const idx = arr.findIndex((x) => x.id === tr.id);
+      void onPlay(arr, idx >= 0 ? idx : 0);
+    },
+    [onPlay, tracks]
+  );
+  const handleAdd = useCallback((tr: Track) => setAddTarget(tr), []);
+  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
+  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
+  const handleToggleSelect = useCallback(
+    (tr: Track) => selApi.toggle(String(tr.id)),
+    [selApi.toggle]
+  );
+
   // ---------------------------------------------------------------- 详情态 --
   if (sel) {
     // P6.19 批量操作；P6.21：详情页按 sort 前端排序（整段已在内存）
@@ -265,13 +283,13 @@ export default function AlbumsPage({
                 key={r.id}
                 lead={i + 1}
                 track={r}
-                onPlay={onPlay ? () => void onPlay(list, i) : undefined}
-                onAdd={() => setAddTarget(r)}
-                onQueue={onQueue ? () => void onQueue([r]) : undefined}
-                onPlayNext={onPlayNext ? () => void onPlayNext([r]) : undefined}
+                onPlay={onPlay ? handlePlay : undefined}
+                onAdd={handleAdd}
+                onQueue={onQueue ? handleQueue : undefined}
+                onPlayNext={onPlayNext ? handlePlayNext : undefined}
                 selectable={selApi.selMode}
                 selected={selApi.has(String(r.id))}
-                onToggleSelect={() => selApi.toggle(String(r.id))}
+                onToggleSelect={handleToggleSelect}
               />
             ))}
           </div>

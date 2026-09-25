@@ -1,5 +1,5 @@
 // 统计（P3）：曲库规模 + 行为计数 + 近 7 天条形图（纯 CSS）+ 最常播放 Top 10。
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { IS_DESKTOP, statsOverview } from "./api";
 import type { StatsOverview, Track } from "./api";
 import { useLang } from "./i18n";
@@ -84,12 +84,24 @@ export default function StatsPage({
   const weekVals = days.map((d) => counts.get(d) ?? 0);
   const max = Math.max(1, ...weekVals);
 
-  const playTop = (tr: Track) => {
-    if (!onPlay) return;
-    const queue: Track[] = data.top;
-    const idx = queue.findIndex((x) => x.id === tr.id);
-    void onPlay(queue, idx >= 0 ? idx : 0);
-  };
+  // P2-16：playTop 改为稳定 useCallback（依赖稳定原语），配合 TrackRow memo
+  const handlePlay = useCallback(
+    (tr: Track) => {
+      if (!onPlay) return;
+      const queue: Track[] = data.top;
+      const idx = queue.findIndex((x) => x.id === tr.id);
+      void onPlay(queue, idx >= 0 ? idx : 0);
+    },
+    [onPlay, data]
+  );
+
+  // P2-16：行内动作稳定化，配合 TrackRow memo
+  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
+  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
+  const handleToggleSelect = useCallback(
+    (tr: Track) => selApi.toggle(String(tr.id)),
+    [selApi.toggle]
+  );
 
   return (
     <>
@@ -198,12 +210,12 @@ export default function StatsPage({
                 lead={i + 1}
                 track={tr}
                 trailing={<span className="vt-num">{t.media.playsN(tr.playCount)}</span>}
-                onPlay={onPlay ? () => playTop(tr) : undefined}
-                onQueue={onQueue ? () => void onQueue([tr]) : undefined}
-                onPlayNext={onPlayNext ? () => void onPlayNext([tr]) : undefined}
+                onPlay={onPlay ? handlePlay : undefined}
+                onQueue={onQueue ? handleQueue : undefined}
+                onPlayNext={onPlayNext ? handlePlayNext : undefined}
                 selectable={selApi.selMode}
                 selected={selApi.has(String(tr.id))}
-                onToggleSelect={() => selApi.toggle(String(tr.id))}
+                onToggleSelect={handleToggleSelect}
               />
             ))
           )}

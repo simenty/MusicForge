@@ -124,7 +124,7 @@ export default function HistoryPage({
 
   /** 双击历史行播放：队列 = 历史去重后的曲目（同一首歌只入队一次） */
   const playFrom = useCallback(
-    (entry: HistoryEntry) => {
+    (tr: Track) => {
       if (!onPlay || !rows) return;
       const seen = new Set<number>();
       const queue: Track[] = [];
@@ -134,10 +134,20 @@ export default function HistoryPage({
           queue.push(r);
         }
       }
-      const idx = queue.findIndex((x) => x.id === entry.id);
+      const idx = queue.findIndex((x) => x.id === tr.id);
       void onPlay(queue, idx >= 0 ? idx : 0);
     },
     [onPlay, rows]
+  );
+
+  // P2-16：行内动作稳定化，配合 TrackRow memo
+  const handlePlay = useCallback((tr: Track) => playFrom(tr), [playFrom]);
+  const handleLike = useCallback((tr: Track) => void liked.toggle(tr.id), [liked.toggle]);
+  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
+  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
+  const handleToggleSelect = useCallback(
+    (tr: Track) => selApi.toggle(String(tr.id)),
+    [selApi.toggle]
   );
 
   const clear = useCallback(async () => {
@@ -239,14 +249,14 @@ export default function HistoryPage({
                   key={`${r.id}-${r.playedAt}-${i}`}
                   lead={timeOf(r.playedAt)}
                   track={r}
-                  onPlay={onPlay ? () => playFrom(r) : undefined}
+                  onPlay={onPlay ? handlePlay : undefined}
                   liked={liked.isLiked(r.id)}
-                  onLike={() => void liked.toggle(r.id)}
-                  onQueue={onQueue ? () => void onQueue([r]) : undefined}
-                  onPlayNext={onPlayNext ? () => void onPlayNext([r]) : undefined}
+                  onLike={handleLike}
+                  onQueue={onQueue ? handleQueue : undefined}
+                  onPlayNext={onPlayNext ? handlePlayNext : undefined}
                   selectable={selApi.selMode}
                   selected={selApi.has(String(r.id))}
-                  onToggleSelect={() => selApi.toggle(String(r.id))}
+                  onToggleSelect={handleToggleSelect}
               />
               ))}
             </div>

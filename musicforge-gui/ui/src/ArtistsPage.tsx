@@ -1,7 +1,7 @@
 // 艺术家（P1 网格 / P6.2 代表图 / P6.10 详情页）：
 // 有封面则显示（其最热专辑的封面），否则圆形首字；点卡片进入详情（播放全部 + 曲目表）。
 // 「补全头像」需在设置中开启「在线元数据」——网络请求只由该按钮触发。
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import {
   IS_DESKTOP,
   artistCover,
@@ -161,6 +161,24 @@ export default function ArtistsPage({
     setProgress(null);
   };
 
+  // P2-16：行内动作稳定化（详情态映射用），配合 TrackRow memo
+  const handlePlay = useCallback(
+    (tr: Track) => {
+      if (!onPlay || !tracks) return;
+      const arr = tracks;
+      const idx = arr.findIndex((x) => x.id === tr.id);
+      void onPlay(arr, idx >= 0 ? idx : 0);
+    },
+    [onPlay, tracks]
+  );
+  const handleAdd = useCallback((tr: Track) => setAddTarget(tr), []);
+  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
+  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
+  const handleToggleSelect = useCallback(
+    (tr: Track) => selApi.toggle(String(tr.id)),
+    [selApi.toggle]
+  );
+
   // ---------------------------------------------------------------- 详情态 --
   if (sel) {
     // P6.19 批量操作；P6.21：详情页按 sort 前端排序（整段已在内存）
@@ -258,13 +276,13 @@ export default function ArtistsPage({
                 key={r.id}
                 lead={i + 1}
                 track={r}
-                onPlay={onPlay ? () => void onPlay(list, i) : undefined}
-                onAdd={() => setAddTarget(r)}
-                onQueue={onQueue ? () => void onQueue([r]) : undefined}
-                onPlayNext={onPlayNext ? () => void onPlayNext([r]) : undefined}
+                onPlay={onPlay ? handlePlay : undefined}
+                onAdd={handleAdd}
+                onQueue={onQueue ? handleQueue : undefined}
+                onPlayNext={onPlayNext ? handlePlayNext : undefined}
                 selectable={selApi.selMode}
                 selected={selApi.has(String(r.id))}
-                onToggleSelect={() => selApi.toggle(String(r.id))}
+                onToggleSelect={handleToggleSelect}
               />
             ))}
           </div>

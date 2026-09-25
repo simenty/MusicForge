@@ -97,6 +97,17 @@ export default function LibraryPage({
     [onPlay, snapshot]
   );
 
+  // P2-16：行内动作稳定化，配合 TrackRow memo（依赖具体稳定方法，避免每次渲染重建闭包）
+  const handlePlay = useCallback((tr: Track) => playFrom(tr), [playFrom]);
+  const handleLike = useCallback((tr: Track) => void liked.toggle(tr.id), [liked.toggle]);
+  const handleAdd = useCallback((tr: Track) => setAddTarget(tr), []);
+  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
+  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
+  const handleToggleSelect = useCallback(
+    (tr: Track) => selApi.toggle(String(tr.id)),
+    [selApi.toggle]
+  );
+
   if (!IS_DESKTOP) {
     return (
       <div className="media-empty">
@@ -246,15 +257,15 @@ export default function LibraryPage({
                       key={tr.id}
                       lead={i + 1}
                       track={tr}
-                      onPlay={onPlay ? () => playFrom(tr) : undefined}
+                      onPlay={onPlay ? handlePlay : undefined}
                       liked={liked.isLiked(tr.id)}
-                      onLike={() => void liked.toggle(tr.id)}
-                      onAdd={() => setAddTarget(tr)}
-                      onQueue={onQueue ? () => void onQueue([tr]) : undefined}
-                      onPlayNext={onPlayNext ? () => void onPlayNext([tr]) : undefined}
+                      onLike={handleLike}
+                      onAdd={handleAdd}
+                      onQueue={onQueue ? handleQueue : undefined}
+                      onPlayNext={onPlayNext ? handlePlayNext : undefined}
                       selectable={selApi.selMode}
                       selected={selApi.has(String(tr.id))}
-                      onToggleSelect={() => selApi.toggle(String(tr.id))}
+                      onToggleSelect={handleToggleSelect}
                     />
                   ) : (
                     <div className="vt-row" key={`ph-${i}`}>

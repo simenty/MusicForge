@@ -95,11 +95,25 @@ export default function FavoritesPage({
     setPendingUnlike(false);
   };
 
-  const playFrom = (tr: Track) => {
-    if (!onPlay || !live) return;
-    const idx = live.findIndex((x) => x.id === tr.id);
-    void onPlay(live, idx >= 0 ? idx : 0);
-  };
+  // P2-16：playFrom 改为稳定 useCallback（依赖稳定原语，避免每帧重建闭包），配合 TrackRow memo
+  const handlePlay = useCallback(
+    (tr: Track) => {
+      if (!onPlay || !rows) return;
+      const arr = liked.loaded ? rows.filter((r) => liked.isLiked(r.id)) : rows;
+      const idx = arr.findIndex((x) => x.id === tr.id);
+      void onPlay(arr, idx >= 0 ? idx : 0);
+    },
+    [onPlay, rows, liked.loaded, liked.isLiked]
+  );
+
+  // P2-16：行内动作稳定化，配合 TrackRow memo
+  const handleLike = useCallback((tr: Track) => void liked.toggle(tr.id), [liked.toggle]);
+  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
+  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
+  const handleToggleSelect = useCallback(
+    (tr: Track) => selApi.toggle(String(tr.id)),
+    [selApi.toggle]
+  );
 
   return (
     <>
@@ -169,14 +183,14 @@ export default function FavoritesPage({
               key={r.id}
               lead={i + 1}
               track={r}
-              onPlay={onPlay ? () => playFrom(r) : undefined}
+              onPlay={onPlay ? handlePlay : undefined}
               liked={liked.isLiked(r.id)}
-              onLike={() => void liked.toggle(r.id)}
-              onQueue={onQueue ? () => void onQueue([r]) : undefined}
-              onPlayNext={onPlayNext ? () => void onPlayNext([r]) : undefined}
+              onLike={handleLike}
+              onQueue={onQueue ? handleQueue : undefined}
+              onPlayNext={onPlayNext ? handlePlayNext : undefined}
               selectable={selApi.selMode}
               selected={selApi.has(String(r.id))}
-              onToggleSelect={() => selApi.toggle(String(r.id))}
+              onToggleSelect={handleToggleSelect}
               />
           )          )}
         </div>
