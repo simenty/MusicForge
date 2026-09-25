@@ -27,6 +27,32 @@ MusicForge 的每个失败都携带一个**稳定错误码**：UI、日志、失
 | `Io` | `IO-ERROR` | `MF-IO-FAILED` | 底层 I/O 失败 |
 | `TagRead` | `TAG-READ` | `MF-TAG-READ-FAILED` | 输出文件标签读取失败 |
 | `TagWrite` | `TAG-WRITE` | `MF-TAG-WRITE-FAILED` | 标签写入失败 |
+| `Db` | `MF-DB-FAILED` | `MF-DB-FAILED` | 状态库异常（可再生缓存，删除即重建；勿放网络挂载，D16） |
+| `Lossless` | `LOSSLESS-ERROR` | `MF-LOSSLESS-FAILED` | 无损转码失败 |
+| `FfmpegMissing` | `FFMPEG-MISSING` | `MF-FFMPEG-MISSING` | 需要 ffmpeg sidecar 但未探测到（P5b） |
+| `UpgradeBlocked` | `UPGRADE-BLOCKED` | `MF-LOSSY-TO-LOSSLESS` | 有损→无损升级被拦（MP3→FLAC 等，绝不静默升格） |
+| `OutputExists` | `OUTPUT-EXISTS` | `MF-OUTPUT-EXISTS` | 输出已存在（任何策略绝不覆盖目标） |
+| `Config` | `MF-CONFIG-INVALID` | `MF-CONFIG-INVALID` | 配置文件损坏 / schema 版本过高→显式拒绝打开 |
+| `PluginAckRequired` | `MF-PLUGIN-ACK-REQUIRED` | `MF-PLUGIN-ACK-REQUIRED` | 高风险插件未经 ACK 确认（P6b） |
+| `PluginNotFound` | `MF-PLUGIN-NOT-FOUND` | `MF-PLUGIN-NOT-FOUND` | 插件未安装 / 默认构建无 host（绝不静默装作执行过） |
+| `PluginDisabled` | `MF-PLUGIN-DISABLED` | `MF-PLUGIN-DISABLED` | 插件已禁用 |
+
+## 契约边界（P9 审计澄清，重要）
+
+**只有上面「映射表」里的码由 `NcmError::mf_code()` 产出**，可被 UI / 日志 / 失败清单
+CSV 按码分类。
+
+而下面「规划中的族」里的 `MF-OP-*` / `MF-TASK-*` / `MF-DUP-*` / `MF-PATH-CONFLICT` /
+`MF-DIR-NOT-AUTHORIZED` / `MF-ORGANIZE` **不是** `mf_code()` 的返回值：它们只是
+**规则标记**——出现在回滚清单的 `rule` 字段、扫描报告的 `unauthorized_dirs` 或 CLI
+退出文案里。**按码分类时这些族恒为空**，此前统一标注「✅ 已启用」易被误读成
+「可由 `mf_code()` 产出」，故在此明确。
+
+（`MF-DB-FAILED` / `MF-PLUGIN-NOT-FOUND` / `MF-CONFIG-INVALID` 是真正的 `NcmError`
+码，已补进上面映射表。）
+
+`p1e_error_codes.rs` 目前只钉死 **14 / 19** 个变体（`Db`、`Lossless`、`FfmpegMissing`、
+`UpgradeBlocked`、`OutputExists` 五族尚无断言）——映射表的完整性**不能**只靠该测试保证。
 
 ## 规划中的族（随阶段引入）
 
