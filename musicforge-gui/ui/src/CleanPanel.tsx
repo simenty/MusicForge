@@ -7,6 +7,7 @@
 // - 产物进 `<dir>/.musicforge/trash/<task>/`，**绝不直接删除**；
 // - 执行后给出 rollback_manifest，可一键还原。
 import { useState } from "react";
+import { useRequestGuard } from "./hooks/useRequestGuard";
 import {
   IS_SERVER_MODE,
   cleanApply,
@@ -42,6 +43,8 @@ export default function CleanPanel() {
   const [error, setError] = useState<string | null>(null);
   /** 三级闸弹层开关（确认后才真正执行） */
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // P2-17：清理执行守卫
+  const cleanGuard = useRequestGuard();
   // P2-18：还原原本 window.confirm —— 改为 ConfirmDialog
   const [pendingRestore, setPendingRestore] = useState(false);
 
@@ -77,16 +80,19 @@ export default function CleanPanel() {
   /** 弹层确认后执行（核心不变量：未经勾选确认，绝不调用 cleanApply） */
   const doApply = async () => {
     if (!plan || applying) return;
+    const token = cleanGuard.token();
     setConfirmOpen(false);
     setApplying(true);
     setError(null);
     try {
       const out = await cleanApply(dir.trim(), rules.trim() || undefined);
-      setResult(t.clean.resultLine(out.moved, out.dirs_removed));
-      setManifest(out.rollback_manifest);
-      setPlan(null);
+      if (!cleanGuard.isStale(token)) {
+        setResult(t.clean.resultLine(out.moved, out.dirs_removed));
+        setManifest(out.rollback_manifest);
+        setPlan(null);
+      }
     } catch (e) {
-      setError(String(e));
+      if (!cleanGuard.isStale(token)) setError(String(e));
     } finally {
       setApplying(false);
     }

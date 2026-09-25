@@ -4,6 +4,7 @@
 // 检视**不触碰音频**（存在性 + ffmpeg 需求判定）；切分是长任务（阻塞池执行），
 // 失败轨不落盘——报告与 CLI `musicforge split --json` 同形。
 import { useState } from "react";
+import { useRequestGuard } from "./hooks/useRequestGuard";
 import { IS_DESKTOP, cueInspect, cuePick, cueSplit, selectDirectory } from "./api";
 import type { CueInspect, CueSplitReport } from "./api";
 import ConfirmDialog from "./ConfirmDialog";
@@ -12,6 +13,8 @@ import { IconCheckBox, IconFolder, IconWarnTri } from "./icons";
 
 export default function CuePanel() {
   const { t } = useLang();
+  // P2-17：选档守卫
+  const cueGuard = useRequestGuard();
   const [cuePath, setCuePath] = useState<string | null>(null);
   const [info, setInfo] = useState<CueInspect | null>(null);
   const [outDir, setOutDir] = useState("");
@@ -29,19 +32,24 @@ export default function CuePanel() {
   }
 
   const pick = async () => {
+    const token = cueGuard.token();
     setErr(null);
     try {
       const p = await cuePick();
       if (!p) return; // 用户取消
-      setReport(null);
-      setCuePath(p);
-      // 默认输出目录 = CUE 同目录（最常见的期望）
-      const sep = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
-      setOutDir(sep > 0 ? p.slice(0, sep) : "");
-      setInfo(await cueInspect(p));
+      if (!cueGuard.isStale(token)) {
+        setReport(null);
+        setCuePath(p);
+        // 默认输出目录 = CUE 同目录（最常见的期望）
+        const sep = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+        setOutDir(sep > 0 ? p.slice(0, sep) : "");
+        setInfo(await cueInspect(p));
+      }
     } catch (e) {
-      setInfo(null);
-      setErr(String(e));
+      if (!cueGuard.isStale(token)) {
+        setInfo(null);
+        setErr(String(e));
+      }
     }
   };
 

@@ -82,6 +82,8 @@ export default function ArtistsPage({
 
   /** stale response 守卫：连点不同艺术家时，先发但**晚到**的请求不得覆盖后发的结果 */
   const tracksGuard = useRequestGuard();
+  // P2-17：封面补全守卫
+  const coverGuard = useRequestGuard();
 
   const openArtist = (a: Artist) => {
     setSel(a);
@@ -140,6 +142,7 @@ export default function ArtistsPage({
   /** 逐个补全（在线；已抓过的秒回）。网络失败即停。 */
   const fetchAll = async () => {
     if (!online || fetching || missing.length === 0) return;
+    const token = coverGuard.token();
     setFetching(true);
     setErr(null);
     let done = 0;
@@ -149,16 +152,19 @@ export default function ArtistsPage({
       try {
         const p = await artistCover(a.id);
         const url = assetUrl(p);
-        if (url) setCovers((prev) => ({ ...prev, [a.id]: url }));
+        if (url && !coverGuard.isStale(token))
+          setCovers((prev) => ({ ...prev, [a.id]: url }));
       } catch (e) {
-        setErr(String(e));
+        if (!coverGuard.isStale(token)) setErr(String(e));
         break;
       }
       done += 1;
       setProgress({ done, total });
     }
-    setFetching(false);
-    setProgress(null);
+    if (!coverGuard.isStale(token)) {
+      setFetching(false);
+      setProgress(null);
+    }
   };
 
   // P2-16：行内动作稳定化（详情态映射用），配合 TrackRow memo

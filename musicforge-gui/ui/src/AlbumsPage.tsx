@@ -60,13 +60,21 @@ export default function AlbumsPage({
 
   useEffect(() => {
     if (!IS_DESKTOP) return;
+    const token = listGuard.token();
     listAlbums()
-      .then(setRows)
-      .catch(() => setRows([]));
+      .then((r) => {
+        if (!listGuard.isStale(token)) setRows(r);
+      })
+      .catch(() => {
+        if (!listGuard.isStale(token)) setRows([]);
+      });
   }, []);
 
   /** stale response 守卫：连点不同专辑时，先发但**晚到**的请求不得覆盖后发的结果 */
   const tracksGuard = useRequestGuard();
+  // P2-17：列表/封面写入守卫
+  const listGuard = useRequestGuard();
+  const coverGuard = useRequestGuard();
 
   const openAlbum = (a: Album) => {
     setSel(a);
@@ -120,16 +128,19 @@ export default function AlbumsPage({
 
   /** 设置本地封面（**离线能力**：选一张图片，不走网络）。 */
   const pickCover = async (a: Album) => {
+    const token = coverGuard.token();
     const p = await coverPickImage();
     if (!p) return;
     try {
       const stored = await coverSetLocal(a.id, p);
-      setRows(
-        (prev) => prev?.map((x) => (x.id === a.id ? { ...x, coverPath: stored } : x)) ?? prev
-      );
-      setSel((prev) => (prev && prev.id === a.id ? { ...prev, coverPath: stored } : prev));
+      if (!coverGuard.isStale(token)) {
+        setRows(
+          (prev) => prev?.map((x) => (x.id === a.id ? { ...x, coverPath: stored } : x)) ?? prev
+        );
+        setSel((prev) => (prev && prev.id === a.id ? { ...prev, coverPath: stored } : prev));
+      }
     } catch (e) {
-      setErr(String(e));
+      if (!coverGuard.isStale(token)) setErr(String(e));
     }
   };
 

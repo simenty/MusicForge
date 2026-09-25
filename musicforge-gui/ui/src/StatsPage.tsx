@@ -1,6 +1,7 @@
 // 统计（P3）：曲库规模 + 行为计数 + 近 7 天条形图（纯 CSS）+ 最常播放 Top 10。
 import { useEffect, useState, useCallback } from "react";
 import { IS_DESKTOP, statsOverview } from "./api";
+import { useRequestGuard } from "./hooks/useRequestGuard";
 import type { StatsOverview, Track } from "./api";
 import { useLang } from "./i18n";
 import { fmtHours, fmtSizeGB } from "./lib/format";
@@ -50,12 +51,19 @@ export default function StatsPage({
     selApi.toggleSelMode();
   };
 
+  // P2-17：统计拉取守卫（晚到响应不得覆写新数据）
+  const statsGuard = useRequestGuard();
   useEffect(() => {
     if (!IS_DESKTOP) return;
+    const token = statsGuard.token();
     statsOverview()
-      .then(setData)
-      .catch((e: unknown) => setErr(String(e)));
-  }, []);
+      .then((d) => {
+        if (!statsGuard.isStale(token)) setData(d);
+      })
+      .catch((e: unknown) => {
+        if (!statsGuard.isStale(token)) setErr(String(e));
+      });
+  }, [statsGuard]);
 
   if (!IS_DESKTOP) {
     return (

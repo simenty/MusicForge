@@ -63,15 +63,27 @@ export default function PlaylistsPage({
   } | null>(null);
   const [cleanupBusy, setCleanupBusy] = useState(false);
 
+  // P2-17：列表/创建守卫（置于 reload 之前，供依赖数组引用）
+  const listGuard = useRequestGuard();
+  const createGuard = useRequestGuard();
   const reload = useCallback(() => {
     if (!IS_DESKTOP) return;
+    const token = listGuard.token();
     playlistsList()
-      .then(setLists)
-      .catch(() => setLists([]));
+      .then((r) => {
+        if (!listGuard.isStale(token)) setLists(r);
+      })
+      .catch(() => {
+        if (!listGuard.isStale(token)) setLists([]);
+      });
     playlistsCovers()
-      .then(setCovers)
-      .catch(() => setCovers({}));
-  }, []);
+      .then((r) => {
+        if (!listGuard.isStale(token)) setCovers(r);
+      })
+      .catch(() => {
+        if (!listGuard.isStale(token)) setCovers({});
+      });
+  }, [listGuard]);
   useEffect(() => reload(), [reload]);
 
   /** stale response 守卫：连点不同歌单时，先发但**晚到**的请求不得覆盖后发的结果 */
@@ -131,6 +143,7 @@ export default function PlaylistsPage({
   }
 
   const create = async () => {
+    const token = createGuard.token();
     const name = newName.trim();
     if (!name) return;
     try {
@@ -139,7 +152,7 @@ export default function PlaylistsPage({
       reload();
       openList({ id, name, trackCount: 0 });
     } catch (e) {
-      setErr(String(e));
+      if (!createGuard.isStale(token)) setErr(String(e));
     }
   };
 

@@ -46,11 +46,18 @@ export default function LibraryPage({
   const [pendingRemove, setPendingRemove] = useState(false);
 
   const { reset, snapshot } = w;
+  // P2-17：libraryStats 守卫（统计拉取与移除后刷新可能晚到，旧响应不得覆写新统计）
+  const statsGuard = useRequestGuard();
   useEffect(() => {
     if (!IS_DESKTOP) return;
+    const token = statsGuard.token();
     libraryStats()
-      .then(setStats)
-      .catch((e: unknown) => setInitErr(String(e)));
+      .then((s) => {
+        if (!statsGuard.isStale(token)) setStats(s);
+      })
+      .catch((e: unknown) => {
+        if (!statsGuard.isStale(token)) setInitErr(String(e));
+      });
   }, []);
 
   // P6.25：输入防抖 250ms → 下推服务端过滤（虚拟化列表因此不必一次性拉全量）
@@ -169,7 +176,12 @@ export default function LibraryPage({
         const n = await countTracks(filter);
         reset(n);
       }
-      libraryStats().then(setStats).catch(() => {});
+      const t2 = statsGuard.token();
+      libraryStats()
+        .then((s) => {
+          if (!statsGuard.isStale(t2)) setStats(s);
+        })
+        .catch(() => {});
       selApi.toggleSelMode();
     } catch (e) {
       setInitErr(String(e));

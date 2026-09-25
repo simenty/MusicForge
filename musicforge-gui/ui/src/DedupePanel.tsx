@@ -9,6 +9,7 @@
 // - 同名候选默认仅报告（同名≠同歌；CLI `--include-same-name` 才执行）；
 // - 执行前经三级闸弹层（预览牺牲清单 + 勾选确认）。
 import { useState } from "react";
+import { useRequestGuard } from "./hooks/useRequestGuard";
 import {
   dedupeApply,
   dedupeScan,
@@ -50,6 +51,8 @@ export default function DedupePanel({ hideCollapse = false }: { hideCollapse?: b
   const [keeps, setKeeps] = useState<Map<string, string>>(new Map());
   /** 三级闸弹层开关 */
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // P2-17：去重执行守卫
+  const dedupeGuard = useRequestGuard();
 
   const browse = async () => {
     const d = await selectDirectory(dir.trim() || null, t.dedupe.pickDirTitle);
@@ -104,17 +107,20 @@ export default function DedupePanel({ hideCollapse = false }: { hideCollapse?: b
   /** 弹层确认后执行（核心不变量：未经勾选确认，绝不调用 dedupeApply） */
   const doExecute = async () => {
     if (!report || applying) return;
+    const token = dedupeGuard.token();
     setConfirmOpen(false);
     setApplying(true);
     setError(null);
     try {
       const r = await dedupeApply(report.dir, finalSacrifices);
-      setResult(t.dedupe.movedResult(r.moved, r.rollback ?? "—"));
-      // 重新扫描刷新视图
-      setReport(await dedupeScan(report.dir));
-      setKeeps(new Map());
+      if (!dedupeGuard.isStale(token)) {
+        setResult(t.dedupe.movedResult(r.moved, r.rollback ?? "—"));
+        // 重新扫描刷新视图
+        setReport(await dedupeScan(report.dir));
+        setKeeps(new Map());
+      }
     } catch (e) {
-      setError(String(e));
+      if (!dedupeGuard.isStale(token)) setError(String(e));
     } finally {
       setApplying(false);
     }
