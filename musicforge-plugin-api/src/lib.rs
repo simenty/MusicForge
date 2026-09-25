@@ -23,6 +23,10 @@ pub mod codes {
     pub const MANIFEST_INVALID: &str = "MF-PLUGIN-MANIFEST-INVALID";
     /// B15（稳定审计修复）：加载期二进制完整性校验失败（哈希与 plugin.json 声明不一致）
     pub const INTEGRITY: &str = "MF-PLUGIN-INTEGRITY";
+    /// P3-25（B14）：plugin.json 声明了三禁位权限（delete_source_file /
+    /// move_source_file / upload_audio）→ 在 **spawn 之前**拒载，
+    /// 插件二进制一次都不会被执行。
+    pub const FORBIDDEN: &str = "MF-PLUGIN-FORBIDDEN";
     /// Host 侧支持的最大协议主版本（D20 区间的上界来源）
     pub const HOST_API_MAJOR: u64 = 1;
 }

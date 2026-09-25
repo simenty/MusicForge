@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 
 use musicforge_plugin_api::{
     api_compatible, codes, methods, HostCapabilities, InitParams, InitResult, PluginManifest,
-    Request, Response,
+    PluginPermissions, Request, Response,
 };
 use sha2::{Digest, Sha256};
 
@@ -93,6 +93,11 @@ pub enum PluginHostError {
         expected: String,
         actual: String,
     },
+    /// P3-25（B14）：plugin.json 声明了三禁位权限。
+    ///
+    /// 与下面 `spawn` 中握手**之后**的 B13 闸不同：本变体只在 **spawn 之前**
+    /// 返回——插件二进制**一次都没有被执行**（消除「恶意插件已执行一次任意代码」）。
+    Forbidden { name: String },
 }
 
 impl std::fmt::Display for PluginHostError {
@@ -124,6 +129,11 @@ impl std::fmt::Display for PluginHostError {
                 "插件二进制完整性校验失败（{}）：plugin.json 声明 {}，实际 {}",
                 name, expected, actual
             ),
+            Self::Forbidden { name } => write!(
+                f,
+                "{}: 插件 {} 申请了被禁权限（delete_source_file / move_source_file / upload_audio），已在执行前拒载",
+                codes::FORBIDDEN, name
+            ),
         }
     }
 }
@@ -139,6 +149,7 @@ impl PluginHostError {
             Self::Spawn(_) | Self::Gone => codes::FAILED,
             Self::Handshake(_) | Self::Protocol(_) => codes::MANIFEST_INVALID,
             Self::Integrity { .. } => codes::INTEGRITY,
+            Self::Forbidden { .. } => codes::FORBIDDEN,
             Self::Io(_) => "MF-IO-FAILED",
         }
     }
@@ -205,6 +216,25 @@ impl PluginProcess {
         // 2. 无信任 pin → 回落 plugin.json 自声明 `hash_sha256`（一致放行，不一致拒载）；
         // 3. 二者皆无 → 加载但告警（遗留兼容）。
         verify_plugin_integrity(program, trust_store)?;
+
+        // P3-25（B14）：三禁位拒载**前移到 spawn 之前**——从 plugin.json 读 permissions。
+        //
+        // 此前该闸只能在 spawn + init 握手**之后**执行（拿到 manifest 立即 kill），
+        // 恶意插件因此已获得一次任意代码执行机会（B13 接线时的已知时序限制）。
+        // 现 plugin.json 声明三禁位（delete_source_file / move_source_file /
+        // upload_audio）即**绝不执行**其二进制，也不创建 work_dir；
+        // 未声明 permissions 的遗留插件不受影响，仍由握手后的 manifest 闸兜底。
+        if let Some(dir) = program.parent() {
+            let (declared_name, perms) = read_plugin_json_permissions(dir);
+            if let Some(p) = perms {
+                if p.has_forbidden() {
+                    return Err(PluginHostError::Forbidden {
+                        name: declared_name.unwrap_or_else(|| program.display().to_string()),
+                    });
+                }
+            }
+        }
+
         std::fs::create_dir_all(work_dir)
             .map_err(|e| PluginHostError::Spawn(format!("work_dir 创建失败: {e}")))?;
         let mut child = Command::new(program)
@@ -844,6 +874,26 @@ fn read_plugin_json_meta(dir: &Path) -> (Option<String>, Option<String>) {
     (name, hash)
 }
 
+/// P3-25（B14）：读取同目录 plugin.json 的 `(name, permissions)`。
+///
+/// 缺文件 / 解析失败 / 无 `permissions` 键 → `(None, None)`。此时**既不能判安全
+/// 也不能拒载**（遗留插件本就没有 permissions 字段），交由 spawn 之后 init manifest
+/// 的三禁位闸兜底——宁可多一道闸，不可误伤存量插件。
+fn read_plugin_json_permissions(dir: &Path) -> (Option<String>, Option<PluginPermissions>) {
+    // 与 `read_plugin_json_meta` 同款：返回元组，错误用 `if let` 短路，不能用 `?`
+    let Ok(text) = std::fs::read_to_string(dir.join("plugin.json")) else {
+        return (None, None);
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return (None, None);
+    };
+    let name = v.get("name").and_then(|n| n.as_str()).map(String::from);
+    let perms = v
+        .get("permissions")
+        .and_then(|p| serde_json::from_value::<PluginPermissions>(p.clone()).ok());
+    (name, perms)
+}
+
 /// B15 信任锚点：从主机受控信任表（插件不可写）取某插件的**权威**期望哈希。
 ///
 /// 文件格式：`{"pins": {"<plugin-name>": "<sha256-hex>"}}`。
@@ -1058,6 +1108,66 @@ mod tests {
         std::fs::write(&bin, b"musicforge-binary").unwrap();
         // 无 plugin.json → 无 pin 无自声明 → 放行（遗留兼容）
         assert!(verify_plugin_integrity(&bin, None).is_ok());
+    }
+
+    // ---- P3-25（B14）：三禁位拒载前移到 spawn 之前 ----
+
+    /// plugin.json 声明三禁位 → **绝不执行**二进制。
+    ///
+    /// 断言要点：返回 `Forbidden` 而非 `Spawn`。此处“二进制”是不可执行的文本文件，
+    /// 一旦真的 spawn 必然以 `Spawn` 错误失败——故拿到 `Forbidden` 即证明未执行；
+    /// 再断言 work_dir 未创建（拒载发生在 create_dir_all 之前）。
+    #[test]
+    fn forbidden_permissions_rejected_before_spawn() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("plugin");
+        std::fs::write(&bin, b"not-a-real-binary").unwrap();
+        std::fs::write(
+            dir.path().join("plugin.json"),
+            r#"{"name":"evil","api_version":"1.0.0","kind":"ai","network":false,
+                "permissions":{"network":false,"delete_source_file":true}}"#,
+        )
+        .unwrap();
+        let wd = dir.path().join("work");
+        let err = PluginProcess::spawn(&bin, "1.x", &wd, None).unwrap_err();
+        assert!(
+            matches!(err, PluginHostError::Forbidden { .. }),
+            "应在 spawn 之前拒载，实际: {err}"
+        );
+        assert_eq!(err.code(), "MF-PLUGIN-FORBIDDEN");
+        assert!(!wd.exists(), "拒载不得创建 work_dir");
+    }
+
+    /// 反向：未声明 permissions 的遗留插件不得被前闸误伤（仍走到 spawn）。
+    #[test]
+    fn no_permissions_declared_is_not_rejected_pre_spawn() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("plugin");
+        std::fs::write(&bin, b"not-a-real-binary").unwrap();
+        std::fs::write(
+            dir.path().join("plugin.json"),
+            r#"{"name":"legacy","api_version":"1.0.0","kind":"ai","network":false}"#,
+        )
+        .unwrap();
+        let wd = dir.path().join("work");
+        let err = PluginProcess::spawn(&bin, "1.x", &wd, None).unwrap_err();
+        assert!(
+            !matches!(err, PluginHostError::Forbidden { .. }),
+            "无 permissions 声明不得被前闸拒载，实际: {err}"
+        );
+    }
+
+    #[test]
+    fn read_permissions_parses_forbidden_bits() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("plugin.json"),
+            r#"{"name":"p","permissions":{"network":false,"upload_audio":true}}"#,
+        )
+        .unwrap();
+        let (name, perms) = read_plugin_json_permissions(dir.path());
+        assert_eq!(name.as_deref(), Some("p"));
+        assert!(perms.expect("permissions 应解析成功").has_forbidden());
     }
 
     /// 稳定审计 C14 回归：不存在路径的**符号链接祖先**逃逸被拒（TOCTOU）。
