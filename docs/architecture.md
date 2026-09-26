@@ -50,7 +50,8 @@ formats/   FormatAdapter + FormatRegistry (ncm built-in, magic-first detection)
 metadata/  model + tagger (lofty; FillMissingOnly semantics) + template engine
 scan.rs    read-only recursive walker (prunes .musicforge/), 9 rule cards,
            trash-based clean executor + rollback.jsonl + restore (collision-safe)
-db.rs      state layer (SQLite library.db: files index / hash cache / tasks / ack)
+db/        state layer (SQLite library.db: files index / hash cache / tasks / ack;
+           P3-24：原 db.rs 拆分为 mod.rs + db_impl/*.rs)
 dedupe.rs  exact grouping + same-name candidates + explainable keep-score
            + QualityProfile (three default profiles, D24) + similar-cover clustering
 organize.rs template placement + conflict strategies (never overwrites) + idempotent
