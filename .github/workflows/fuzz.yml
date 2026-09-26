@@ -1,0 +1,77 @@
+name: Fuzz (nightly)
+
+# P3-29（X17）：解析器模糊测试在 nightly 跑，与 stable 的 clippy/test 门禁解耦——
+# 不阻塞 PR（仅定时触发 + 手动触发）。覆盖目标见 fuzz/fuzz_targets/：
+#   ncm_header      · NCM 头解析（docs/threat-model.md §Parser memory corruption）
+#   cue_parse       · CUE 文本解析
+#   metadata_parse  · metadata JSON 解析
+#   protocol_parse  · 插件协议 NDJSON 解析（不可信插件进程，X17）
+# 每个目标只验证「不崩溃」：畸形输入走 Err，不得 panic / 越界。
+#
+# 为什么独立 workflow 而非并入 ci.yml：cargo-fuzz/libfuzzer-sys 需 nightly + sanitizer，
+# 而仓库 rust-toolchain.toml pinned 1.98.0 stable；合并会拖垮主门禁。故独立且夜间跑。
+
+on:
+  schedule:
+    # 每日 UTC 04:17（避开整点峰值）
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+# 统一 bash（与 ci.yml 一致）
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly（覆盖仓库 pinned stable）
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly
+          override: true
+          components: rust-src
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            target
+          key: ${{ runner.os }}-cargo-fuzz-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@fa23953489c080190314742a9b907f8e97c6767c # v2
+        with:
+          tool: cargo-fuzz
+
+      # 每个目标限时跑（max_total_time）；发现崩溃 cargo-fuzz 会非零退出 → job 红。
+      # 不阻塞 PR：本 workflow 独立调度，ci.yml 不依赖它。
+      - name: Fuzz ncm_header
+        run: cargo fuzz run ncm_header -- -max_total_time=120
+
+      - name: Fuzz cue_parse
+        run: cargo fuzz run cue_parse -- -max_total_time=120
+
+      - name: Fuzz metadata_parse
+        run: cargo fuzz run metadata_parse -- -max_total_time=120
+
+      - name: Fuzz protocol_parse
+        run: cargo fuzz run protocol_parse -- -max_total_time=120
+
+      - name: 崩溃产物上传（如有）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: fuzz/artifacts/**/crash-*
+          if-no-files-found: ignore
