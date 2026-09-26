@@ -33,7 +33,9 @@ use musicforge_plugin_api::{
 fn manifest_for(api_version: &str) -> PluginManifest {
     // 对抗开关（B13 回归测试用）：`MOCK_FORBIDDEN=1` → 声明三禁位权限之一，
     // Host 加载时必须拒载（经 shim 注入环境变量，spawn 接口只收路径）。
-    let forbidden = std::env::var("MOCK_FORBIDDEN").map(|v| v == "1").unwrap_or(false);
+    let forbidden = std::env::var("MOCK_FORBIDDEN")
+        .map(|v| v == "1")
+        .unwrap_or(false);
     let permissions = if forbidden {
         PluginPermissions {
             delete_source_file: true,

@@ -10,7 +10,11 @@
 //! （优雅降级：插件仍按协议运行），绝不阻断 spawn。非 Windows 平台为空实现。
 
 #[cfg(windows)]
-#[allow(non_camel_case_types, non_upper_case_globals, clippy::upper_case_acronyms)]
+#[allow(
+    non_camel_case_types,
+    non_upper_case_globals,
+    clippy::upper_case_acronyms
+)]
 mod imp {
     use std::os::raw::c_void;
 
