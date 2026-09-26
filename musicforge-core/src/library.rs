@@ -59,7 +59,7 @@ type Parsed = (TrackInput, bool, bool);
 /// **B6 根因修复**。扫描对权限被拒的目录是**静默跳过**（P8 partial
 /// authorization 语义），此时「未出现在本次 run」**不等于**「文件已删除」——
 /// 照旧清理会把这些目录下的 likes / play_history（用户不可再生数据，见
-/// `db.rs` 顶部注释）永久删除。抽成纯函数以便单测：「权限被拒」在 CI 各平台
+/// `db/mod.rs` 顶部注释）永久删除。抽成纯函数以便单测：「权限被拒」在 CI 各平台
 /// 上难以稳定构造。
 fn should_purge_stale(report: &ScanReport) -> bool {
     report.unauthorized_dirs.is_empty()
@@ -103,9 +103,19 @@ pub fn index_library(
 
     let run_id = now_secs();
     // 先入库（move 掉已统计的解析结果），再按 run 标记清陈旧行
+    let parsed_len = parsed.len();
     let inputs: Vec<TrackInput> = parsed.into_iter().map(|(t, _, _)| t).collect();
     let indexed = db.upsert_tracks_batch(&inputs, run_id)?;
-    let removed = if should_purge_stale(&report) {
+    // A1/B1 最小覆盖守卫：只有「本次确实扫到音频」且「解析结果与音频项一一对应」
+    // 才允许按 run 清理陈旧行。否则 `indexed_at < run_id` 会命中**未被本次 run
+    // 刷新**的行并误删：
+    //   - 空 run（0 音频：盘未挂载 / 目录不可读 / 文件全判 Junk）→ 命中整源，
+    //     清空该源全部曲目（A1）；
+    //   - 解析丢帧（worker panic / 锁中毒）→ 未入库曲目被当陈旧删除（B1）。
+    // 与 `should_purge_stale`（防未授权目录被误判为已删除）属同一类
+    // 「本次 run 覆盖度不可区分」守卫。
+    let covered = !audio.is_empty() && parsed_len == audio.len();
+    let removed = if covered && should_purge_stale(&report) {
         db.remove_stale_tracks(source_id, run_id, retain_likes_history)?
     } else {
         0
@@ -143,7 +153,13 @@ fn parallel_parse(items: &[&ScanItem], source_id: i64, jobs: usize) -> Vec<Parse
             });
         }
     });
-    collected.into_inner().unwrap_or_default()
+    // B1：Mutex 中毒（worker panic）时不得用 `unwrap_or_default()` —— 那会把
+    // 「状态损坏」当成「无数据」，静默丢弃已解析结果并返回成功（indexed=0）。
+    // 中毒时取回已收集的数据（符合上方「仍不放弃已解析数据」的注释意图）；
+    // 能否安全清理陈旧行由上层 `covered` 守卫判定。
+    collected
+        .into_inner()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// 单文件：基础字段（扫描已有）+ 标签字段（lofty 读取，失败降级）。

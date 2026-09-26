@@ -40,7 +40,9 @@ fn index_reads_properties_and_aggregates() {
     make_wav(&dir.path().join("track-two.wav"), 4000);
 
     let db = Db::open_in_memory().unwrap();
-    let sid = db.upsert_source(dir.path().to_str().unwrap(), None).unwrap();
+    let sid = db
+        .upsert_source(dir.path().to_str().unwrap(), None)
+        .unwrap();
     let out = index_library(&db, sid, dir.path(), &opts(), false).unwrap();
 
     assert_eq!(out.audio, 2);
@@ -53,12 +55,19 @@ fn index_reads_properties_and_aggregates() {
     let tracks = db.list_tracks(10, 0).unwrap();
     assert_eq!(tracks.len(), 2);
     let first = &tracks[0];
-    assert_eq!(first.title.as_deref(), Some("track-one"), "无标签时 title 退化为文件名");
+    assert_eq!(
+        first.title.as_deref(),
+        Some("track-one"),
+        "无标签时 title 退化为文件名"
+    );
     assert_eq!(first.sample_rate, Some(8000), "采样率来自真实属性读取");
     assert_eq!(first.channels, Some(1));
     assert_eq!(first.bit_depth, Some(16));
     let d = first.duration_ms.unwrap();
-    assert!((400..=600).contains(&d), "0.5s 素材时长应在合理区间，实际 {d}ms");
+    assert!(
+        (400..=600).contains(&d),
+        "0.5s 素材时长应在合理区间，实际 {d}ms"
+    );
     assert!(first.is_lossless, "wav 在识别集合内 → 应为无损容器");
 
     let st = db.library_stats().unwrap();
@@ -75,7 +84,9 @@ fn corrupt_audio_degrades_without_aborting() {
     std::fs::write(dir.path().join("broken.flac"), b"this is not a flac").unwrap();
 
     let db = Db::open_in_memory().unwrap();
-    let sid = db.upsert_source(dir.path().to_str().unwrap(), None).unwrap();
+    let sid = db
+        .upsert_source(dir.path().to_str().unwrap(), None)
+        .unwrap();
     let out = index_library(&db, sid, dir.path(), &opts(), false).unwrap();
 
     assert_eq!(out.audio, 2);
@@ -104,7 +115,9 @@ fn rescan_removes_deleted_files() {
     make_wav(&dir.path().join("b.wav"), 4000);
 
     let db = Db::open_in_memory().unwrap();
-    let sid = db.upsert_source(dir.path().to_str().unwrap(), None).unwrap();
+    let sid = db
+        .upsert_source(dir.path().to_str().unwrap(), None)
+        .unwrap();
     index_library(&db, sid, dir.path(), &opts(), false).unwrap();
     assert_eq!(db.count_tracks().unwrap(), 2);
 
@@ -116,4 +129,62 @@ fn rescan_removes_deleted_files() {
     assert_eq!(out.removed, 1, "已删除的 a.wav 应被清理");
     assert_eq!(db.count_tracks().unwrap(), 1);
     assert!(db.list_tracks(10, 0).unwrap()[0].path.ends_with("b.wav"));
+}
+
+/// A1 回归：空索引 run（扫到 0 首音频）不得清理该源已存在的曲目。
+/// 修复前 `indexed_at < run_id` 的陈旧判定无最小覆盖守卫，0 首 run 会命中整源
+/// 并清空全部曲目（retain=false 时连 likes/play_history 一并删除）。
+#[test]
+fn empty_run_does_not_purge_existing_tracks() {
+    let dir = tempfile::tempdir().unwrap();
+    make_wav(&dir.path().join("a.wav"), 4000);
+
+    let db = Db::open_in_memory().unwrap();
+    let sid = db
+        .upsert_source(dir.path().to_str().unwrap(), None)
+        .unwrap();
+    let out1 = index_library(&db, sid, dir.path(), &opts(), false).unwrap();
+    assert_eq!(out1.audio, 1);
+    assert_eq!(out1.indexed, 1);
+    assert_eq!(db.count_tracks().unwrap(), 1);
+
+    // 空 run：索引一个没有任何音频的目录（模拟盘未挂载 / 全判 Junk / 目录不可读）
+    let empty = tempfile::tempdir().unwrap();
+    let out2 = index_library(&db, sid, empty.path(), &opts(), false).unwrap();
+    assert_eq!(out2.audio, 0, "空目录应扫到 0 首");
+    assert_eq!(out2.indexed, 0);
+    assert_eq!(out2.removed, 0, "A1：空 run 不得清理陈旧行");
+    assert_eq!(
+        db.count_tracks().unwrap(),
+        1,
+        "A1：原有曲目在空 run 后必须保留"
+    );
+}
+
+/// B3 回归：历史计数必须与列表同源（排除孤儿行）。
+/// 造一条孤儿 play_history（曲目被 retain=true 删除后残留），count_history_filtered
+/// 此前统计全表（含孤儿）→ 计数虚高、虚拟化越界；修复后应与 list_history 长度相等。
+#[test]
+fn history_count_excludes_orphans() {
+    let dir = tempfile::tempdir().unwrap();
+    make_wav(&dir.path().join("a.wav"), 4000);
+
+    let db = Db::open_in_memory().unwrap();
+    let sid = db
+        .upsert_source(dir.path().to_str().unwrap(), None)
+        .unwrap();
+    index_library(&db, sid, dir.path(), &opts(), false).unwrap();
+    let tid = db.list_tracks(10, 0).unwrap()[0].id;
+
+    db.record_play(tid, 1_700_000_000, 500).unwrap();
+    // retain=true 删除曲目 → play_history 成为孤儿
+    db.remove_tracks(&[tid], true).unwrap();
+
+    // 孤儿历史不应被计数（INNER JOIN tracks 永不含孤儿）
+    assert_eq!(
+        db.count_history_filtered(None).unwrap(),
+        0,
+        "B3：孤儿历史不计"
+    );
+    assert_eq!(db.list_history(10).unwrap().len(), 0, "B3：列表不含孤儿");
 }
