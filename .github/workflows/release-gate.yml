@@ -31,6 +31,13 @@ jobs:
   supply-chain:
     uses: ./.github/workflows/reusable-supply-chain.yml
 
+  # P3-28：tag 路径也必须跑与分支**完全相同**的 GUI 前端门禁。此前 GUI 测试只在
+  # scripts/release-check.sh 内联（与 ci.yml 的 guardrails 是两套定义，会漂移）。
+  # 现复用同一份 reusable-gui-tests.yml；release-check.sh 仍负责 CHANGELOG/tag 身份等
+  # 发布专属检查（其内 vitest 调用作为防御性重复，与 shared gate 互为冗余）。
+  gui-tests:
+    uses: ./.github/workflows/reusable-gui-tests.yml
+
   release-gate:
     runs-on: ubuntu-latest
     steps:
