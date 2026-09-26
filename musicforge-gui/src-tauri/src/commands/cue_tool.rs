@@ -18,7 +18,11 @@ use tauri_plugin_dialog::DialogExt;
 fn audio_ext_of(cue: &Path) -> Option<String> {
     let sheet = musicforge_core::cue::parse_cue_file(cue).ok()?;
     let dir = cue.parent().unwrap_or(Path::new("."));
-    let ext = dir.join(sheet.file?).extension()?.to_str()?.to_ascii_lowercase();
+    let ext = dir
+        .join(sheet.file?)
+        .extension()?
+        .to_str()?
+        .to_ascii_lowercase();
     Some(ext)
 }
 

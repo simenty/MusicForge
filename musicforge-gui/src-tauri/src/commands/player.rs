@@ -2,7 +2,7 @@
 // （引擎在 crate::audio；本层只做 DTO 转换与 State 取用）。
 use tauri::State;
 
-use crate::audio::{PlayerHandle, PlayMode, PlayerSnapshot, QueueItem};
+use crate::audio::{PlayMode, PlayerHandle, PlayerSnapshot, QueueItem};
 
 /// 队列项 DTO（前端从曲目行构造，camelCase 对齐 TS 侧）。
 #[derive(serde::Deserialize)]
@@ -87,7 +87,11 @@ pub fn player_set_volume(state: State<'_, PlayerHandle>, volume: f32) -> Result<
 
 /// 队列内重排（P6.15）：`from` 移到 `to` 前（越界/相等由引擎忽略）。
 #[tauri::command]
-pub fn player_queue_move(state: State<'_, PlayerHandle>, from: usize, to: usize) -> Result<(), String> {
+pub fn player_queue_move(
+    state: State<'_, PlayerHandle>,
+    from: usize,
+    to: usize,
+) -> Result<(), String> {
     state.queue_move(from, to)
 }
 
@@ -99,7 +103,10 @@ pub fn player_queue_remove(state: State<'_, PlayerHandle>, index: usize) -> Resu
 
 /// 追加到队尾（P6.16）。
 #[tauri::command]
-pub fn player_queue_append(state: State<'_, PlayerHandle>, items: Vec<QueueItemDto>) -> Result<(), String> {
+pub fn player_queue_append(
+    state: State<'_, PlayerHandle>,
+    items: Vec<QueueItemDto>,
+) -> Result<(), String> {
     state.queue_append(items.into_iter().map(Into::into).collect())
 }
 
@@ -111,7 +118,10 @@ pub fn player_queue_clear(state: State<'_, PlayerHandle>) -> Result<(), String> 
 
 /// 插入到当前曲目之后（P6.17）：「下一首播放」。
 #[tauri::command]
-pub fn player_queue_insert_next(state: State<'_, PlayerHandle>, items: Vec<QueueItemDto>) -> Result<(), String> {
+pub fn player_queue_insert_next(
+    state: State<'_, PlayerHandle>,
+    items: Vec<QueueItemDto>,
+) -> Result<(), String> {
     state.queue_insert_next(items.into_iter().map(Into::into).collect())
 }
 

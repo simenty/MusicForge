@@ -12,8 +12,7 @@
 use std::time::Duration;
 
 use souvlaki::{
-    MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition,
-    PlatformConfig,
+    MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition, PlatformConfig,
 };
 
 use crate::audio::PlayerHandle;
@@ -85,7 +84,7 @@ fn run(handle: PlayerHandle, hwnd: Option<*mut std::ffi::c_void>) {
                     duration: s.duration_ms.map(|d| Duration::from_millis(d as u64)),
                 });
                 let progress = Some(MediaPosition(Duration::from_millis(
-                    s.position_ms.max(0) as u64,
+                    s.position_ms.max(0) as u64
                 )));
                 let _ = controls.set_playback(if s.state == "playing" {
                     MediaPlayback::Playing { progress }

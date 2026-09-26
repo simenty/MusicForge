@@ -144,8 +144,7 @@ mod tests {
                 .as_deref()
                 .map(|s| !s.trim().is_empty())
                 .unwrap_or(false)
-                || d
-                    .plain_lyrics
+                || d.plain_lyrics
                     .as_deref()
                     .map(|s| !s.trim().is_empty())
                     .unwrap_or(false);

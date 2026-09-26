@@ -104,28 +104,46 @@ impl Default for PlayerSnapshot {
 
 /// 引擎命令。
 enum Cmd {
-    Play { items: Vec<QueueItem>, index: usize },
+    Play {
+        items: Vec<QueueItem>,
+        index: usize,
+    },
     Toggle,
     Pause,
     Stop,
     Next,
     Prev,
     /// 跳到队列中的指定位置（队列抽屉点选）
-    Jump { index: usize },
-    Seek { ms: i64 },
+    Jump {
+        index: usize,
+    },
+    Seek {
+        ms: i64,
+    },
     SetVolume(f32),
     /// 队列内重排（from→to；越界/相等忽略）。保持当前曲目不变、播放进度不中断。
-    QueueMove { from: usize, to: usize },
+    QueueMove {
+        from: usize,
+        to: usize,
+    },
     /// 从队列移除指定位置（移除当前曲目则从其开头重新加载；否则保持播放）。
-    QueueRemove { index: usize },
+    QueueRemove {
+        index: usize,
+    },
     /// 追加到队尾（P6.16）：不改动当前播放项，播放进度不受影响。
-    QueueAppend { items: Vec<QueueItem> },
+    QueueAppend {
+        items: Vec<QueueItem>,
+    },
     /// 清空队列（P6.16）：停止播放并清空。
     QueueClear,
     /// 插入到当前曲目之后（P6.17）：「下一首播放」，不改动当前项。
-    QueueInsertNext { items: Vec<QueueItem> },
+    QueueInsertNext {
+        items: Vec<QueueItem>,
+    },
     /// 设置播放模式（P6.18）：normal / shuffle / repeatOne / repeatAll
-    SetMode { mode: PlayMode },
+    SetMode {
+        mode: PlayMode,
+    },
 }
 
 /// 引擎 → 解码线程的消息（解码 I/O 移出引擎/命令线程，避免阻塞 pause/seek/stop——B9）。
@@ -451,7 +469,7 @@ impl Engine {
                 self.mode = mode;
                 self.shared.lock_snapshot().play_mode = mode;
             }
-            }
+        }
     }
 
     // 解码已移至独立解码线程（`DecodeWorker`），引擎线程不再 `pump`——
@@ -521,7 +539,9 @@ impl Engine {
             *g = None;
         }
         let (stream, tx) = build_output(spec.0, spec.1, Arc::clone(&self.shared))?;
-        stream.play().map_err(|e| format!("音频输出启动失败: {e}"))?;
+        stream
+            .play()
+            .map_err(|e| format!("音频输出启动失败: {e}"))?;
         self.stream = Some(stream);
         if let Ok(mut g) = self.out_tx.lock() {
             *g = Some(tx);
@@ -665,7 +685,9 @@ impl Engine {
         let rate = self.stream_spec.map(|(r, _)| r).unwrap_or(48_000) as u64;
         let ch = self.stream_spec.map(|(_, c)| c).unwrap_or(2) as u64;
         let frames = (ms as u64) * rate / 1000;
-        self.shared.samples_played.store(frames * ch, Ordering::Relaxed);
+        self.shared
+            .samples_played
+            .store(frames * ch, Ordering::Relaxed);
         let _ = self.decode_tx.send(DecodeMsg::Seek { ms });
     }
 
@@ -795,7 +817,8 @@ impl Engine {
         self.sync_queue_meta();
     }
 
-    fn set_idle(&mut self) {        let mut s = self.shared.lock_snapshot();
+    fn set_idle(&mut self) {
+        let mut s = self.shared.lock_snapshot();
         s.state = "idle";
         s.track_id = None;
         s.title = None;
@@ -976,8 +999,9 @@ fn build_output(
 
     match build_typed::<f32>(&device, &cfg, Arc::clone(&shared)) {
         Ok(pair) => Ok(pair),
-        Err(_) => build_typed::<i16>(&device, &cfg, shared)
-            .map_err(|e| format!("无法建立音频输出: {e}")),
+        Err(_) => {
+            build_typed::<i16>(&device, &cfg, shared).map_err(|e| format!("无法建立音频输出: {e}"))
+        }
     }
 }
 
@@ -1048,11 +1072,11 @@ impl ChunkConsumer {
                 // 饱和减（B8 兜底）：即便记账与产量因极端时序出现不一致，release
                 // 下裸 `fetch_sub` 下溢会回绕成天文数字 → `pump` 的
                 // `in_flight > MAX_IN_FLIGHT` 从此永真 → 解码被背压永久掐死。
-                let _ = shared.in_flight.fetch_update(
-                    Ordering::Relaxed,
-                    Ordering::Relaxed,
-                    |v| Some(v.saturating_sub(take)),
-                );
+                let _ = shared
+                    .in_flight
+                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+                        Some(v.saturating_sub(take))
+                    });
                 shared
                     .samples_played
                     .fetch_add(take as u64, Ordering::Relaxed);
@@ -1128,7 +1152,9 @@ impl SymDecoder {
             .format(&hint, mss, &Default::default(), &Default::default())
             .map_err(|e| format!("无法识别的音频格式: {e}"))?;
         let format = probed.format;
-        let track = format.default_track().ok_or_else(|| "没有可播放的音轨".to_string())?;
+        let track = format
+            .default_track()
+            .ok_or_else(|| "没有可播放的音轨".to_string())?;
         let track_id = track.id;
         let decoder = symphonia::default::get_codecs()
             .make(&track.codec_params, &Default::default())
@@ -1572,7 +1598,7 @@ mod ffmpeg_tests {
         };
         e.queue = vec![mk(1), mk(2), mk(3)];
         e.index = 0; // 正在听 track1
-        // 在 track1 后插 track9 → [1,9,2,3]，当前项仍是 track1（index 0 不变）
+                     // 在 track1 后插 track9 → [1,9,2,3]，当前项仍是 track1（index 0 不变）
         e.insert_next(vec![mk(9)]);
         assert_eq!(
             e.queue.iter().map(|x| x.track_id).collect::<Vec<_>>(),
@@ -1697,7 +1723,10 @@ mod ffmpeg_tests {
             "0.2s @44.1k 应约 8820 帧，实际 {frames}"
         );
         let rms = (energy / total as f64).sqrt();
-        assert!(rms > 0.2 && rms < 1.0, "440Hz 正弦 RMS 应约 0.7，实际 {rms:.3}");
+        assert!(
+            rms > 0.2 && rms < 1.0,
+            "440Hz 正弦 RMS 应约 0.7，实际 {rms:.3}"
+        );
 
         // seek：从头 100ms 起 → 约 4410 帧
         d.seek(100).unwrap();
@@ -1751,7 +1780,12 @@ mod ffmpeg_tests {
         let (decode_tx, decode_rx) = std::sync::mpsc::channel::<DecodeMsg>();
         let (event_tx, event_rx) = std::sync::mpsc::channel::<WorkerEvent>();
         let shared = std::sync::Arc::new(Shared::new());
-        let worker = DecodeWorker { rx: decode_rx, event_tx, out_tx, shared };
+        let worker = DecodeWorker {
+            rx: decode_rx,
+            event_tx,
+            out_tx,
+            shared,
+        };
         let handle = std::thread::Builder::new()
             .name("test-decode".into())
             .spawn(move || worker.run())
@@ -1788,7 +1822,11 @@ mod ffmpeg_tests {
         drop(decode_tx); // 触发 worker 退出
         let total = drain.join().unwrap();
         // Chunk.data 是 Vec<i16>（样本数，非字节）；0.1s 立体声 44.1k = 8820 样本
-        assert_eq!(total, frames * channels as usize, "worker 应产出全部样本（解码在独立线程）");
+        assert_eq!(
+            total,
+            frames * channels as usize,
+            "worker 应产出全部样本（解码在独立线程）"
+        );
         let _ = handle.join();
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1895,7 +1933,11 @@ mod audio_state_tests {
         let mut buf = [0f32; 4];
         c.fill(&mut buf, &shared, &rx);
 
-        assert_eq!(shared.in_flight.load(Ordering::Relaxed), 0, "消费完毕应归零");
+        assert_eq!(
+            shared.in_flight.load(Ordering::Relaxed),
+            0,
+            "消费完毕应归零"
+        );
         assert_eq!(shared.samples_played.load(Ordering::Relaxed), 4);
         assert!(
             buf.iter().all(|&s| (s - 0.5).abs() < 1e-6),

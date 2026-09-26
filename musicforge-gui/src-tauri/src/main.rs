@@ -146,9 +146,7 @@ fn main() {
             }
             // P6.6：全局快捷键注册（Ctrl+Alt+Space；被占用时静默降级）
             {
-                use tauri_plugin_global_shortcut::{
-                    Code, GlobalShortcutExt, Modifiers, Shortcut,
-                };
+                use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
                 let sc = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::Space);
                 let _ = app.global_shortcut().register(sc);
             }

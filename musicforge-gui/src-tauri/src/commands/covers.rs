@@ -104,7 +104,9 @@ fn de_score_lenient<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D
 
 /// 相关度闸：<60 视为误配；缺字段或非法值保守放行（MB 偶有省略）。
 fn score_ok(score: Option<&str>) -> bool {
-    score.and_then(|s| s.parse::<i32>().ok()).is_none_or(|s| s >= 60)
+    score
+        .and_then(|s| s.parse::<i32>().ok())
+        .is_none_or(|s| s >= 60)
 }
 
 /// 为单个专辑抓取封面。返回缓存文件路径；未找到封面 → `Ok(None)`；
@@ -188,7 +190,10 @@ pub async fn cover_fetch(album_id: i64) -> Result<Option<String>, String> {
         Some(ct) if ct.contains("webp") => "webp",
         _ => "jpg",
     };
-    let bytes = resp.bytes().await.map_err(|e| format!("封面下载失败：{e}"))?;
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("封面下载失败：{e}"))?;
     if bytes.len() < 512 {
         return Ok(None); // 可疑小文件不落盘
     }
@@ -229,7 +234,11 @@ pub async fn cover_set_local(album_id: i64, src_path: String) -> Result<String, 
         .map(|e| e.to_ascii_lowercase())
         .filter(|e| matches!(e.as_str(), "png" | "jpg" | "jpeg" | "webp"))
         .ok_or_else(|| format!("不支持的图片格式：{src_path}"))?;
-    let ext = if ext == "jpeg" { "jpg".to_string() } else { ext };
+    let ext = if ext == "jpeg" {
+        "jpg".to_string()
+    } else {
+        ext
+    };
     let bytes = std::fs::read(src).map_err(|e| format!("读取图片失败：{e}"))?;
     if bytes.len() < 512 {
         return Err("图片文件过小，已拒绝".to_string());

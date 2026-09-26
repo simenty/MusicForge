@@ -62,28 +62,26 @@ pub async fn plan_batch(args: BatchArgs) -> Result<Vec<serde_json::Value>, Strin
     // B10：同上——`recursive` 会展开目录，属磁盘遍历。
     let rows = tauri::async_runtime::spawn_blocking(move || {
         let inputs: Vec<PathBuf> = args.inputs.iter().map(|p| PathBuf::from(&p.path)).collect();
-        Ok::<_, String>(
-            musicforge_cli::plan_only(
-                &inputs,
-                args.recursive,
-                &args.template,
-                args.out_dir.as_deref().map(Path::new),
-            ),
-        )
+        Ok::<_, String>(musicforge_cli::plan_only(
+            &inputs,
+            args.recursive,
+            &args.template,
+            args.out_dir.as_deref().map(Path::new),
+        ))
     })
     .await
     .map_err(|e| format!("任务执行失败：{e}"))??;
     Ok(rows
-    .into_iter()
-    .map(|i| {
-        serde_json::json!({
-            "source": i.source,
-            "target": i.target,
-            "format": i.format,
-            "error": i.error,
+        .into_iter()
+        .map(|i| {
+            serde_json::json!({
+                "source": i.source,
+                "target": i.target,
+                "format": i.format,
+                "error": i.error,
+            })
         })
-    })
-    .collect())
+        .collect())
 }
 
 /// 曲库扫描（P3 切片四）：只读扫描目录并分类，返回垃圾/孤立/命名异常清单。

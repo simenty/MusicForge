@@ -6,7 +6,8 @@
 
 /// 打开默认状态库（本地配置目录；D16「库不放网络位置」守卫在 core 内）。
 pub(crate) fn open_db() -> Result<musicforge_core::db::Db, String> {
-    musicforge_core::db::Db::open(&musicforge_core::db::default_db_path()).map_err(|e| e.to_string())
+    musicforge_core::db::Db::open(&musicforge_core::db::default_db_path())
+        .map_err(|e| e.to_string())
 }
 
 /// 曲目行 → 前端 JSON（camelCase；分页契约见 `list_tracks`）。
@@ -254,9 +255,11 @@ pub fn sources_add(path: String, label: Option<String>) -> Result<serde_json::Va
 #[tauri::command]
 pub fn sources_remove(id: i64) -> Result<serde_json::Value, String> {
     let db = open_db()?;
-    let retain = musicforge_core::config::AppConfig::load(&musicforge_core::config::AppConfig::default_path())
-        .map_err(|e| e.to_string())?
-        .retain_likes_history;
+    let retain = musicforge_core::config::AppConfig::load(
+        &musicforge_core::config::AppConfig::default_path(),
+    )
+    .map_err(|e| e.to_string())?
+    .retain_likes_history;
     let removed = db.remove_source(id, retain).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({ "removedTracks": removed }))
 }
@@ -320,9 +323,11 @@ pub fn unlike_tracks(ids: Vec<i64>) -> Result<usize, String> {
 /// P6.22：从资料库移除指定曲目（仅删索引行；不动文件）。破坏性，调用方须确认。
 pub fn remove_tracks(ids: Vec<i64>) -> Result<usize, String> {
     let db = open_db()?;
-    let retain = musicforge_core::config::AppConfig::load(&musicforge_core::config::AppConfig::default_path())
-        .map_err(|e| e.to_string())?
-        .retain_likes_history;
+    let retain = musicforge_core::config::AppConfig::load(
+        &musicforge_core::config::AppConfig::default_path(),
+    )
+    .map_err(|e| e.to_string())?
+    .retain_likes_history;
     db.remove_tracks(&ids, retain).map_err(|e| e.to_string())
 }
 
