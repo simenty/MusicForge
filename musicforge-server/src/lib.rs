@@ -16,13 +16,15 @@
 //! - `MUSICFORGE_UI_DIR`（默认 exe 同级 `ui/`）：SPA 资源目录
 
 use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
+use tokio::sync::Semaphore;
 
 use axum::body::Body;
+use axum::extract::DefaultBodyLimit;
 use axum::http::{Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post, Router};
-use axum::extract::DefaultBodyLimit;
 use serde_json::json;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -622,36 +624,51 @@ impl ServerState {
     }
 }
 
-/// B12：在途 `/api` 请求计数（并发闸状态）。
+/// B12：在途 `/api` 请求计数（并发闸状态，保留用于可观测）。
 static API_INFLIGHT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// B12 并发闸：`/api/*` 最多同时放行 [`SERVER_MAX_CONCURRENCY`] 个请求，
-/// 超出者**立即 503**（而非排队——无上界的等待队列本身就是一个 DoS 面）。
+/// B5 修复：并发闸底层用 `tokio::sync::Semaphore`——天然有界等待、不在 CPU 上
+/// 自旋，且可加总等待超时（超时返回 503，避免无界排队成为 DoS 面）。
+/// 原实现 CAS + `yield_now()` 忙等在满负荷下 CPU 饱和且无超时（报告 B5）。
+static CONCURRENCY_SEM: OnceLock<Arc<Semaphore>> = OnceLock::new();
+
+fn concurrency_sem() -> &'static Arc<Semaphore> {
+    CONCURRENCY_SEM.get_or_init(|| Arc::new(Semaphore::new(SERVER_MAX_CONCURRENCY)))
+}
+
+/// B12 并发闸：`/api/*` 最多同时放行 [`SERVER_MAX_CONCURRENCY`] 个请求。
 ///
 /// 背景：`/api/batch` 单次可在 `spawn_blocking` 内起到 10 个 OS 线程，无闸时
 /// N 个并发请求 = 最多 10N 个线程 + 阻塞池排队。
 ///
 /// **作用域**：只挂在 `/api` nest 上——`/api/health`（生命周期探测）与静态
 /// 资源在外层 Router，不参与计数，业务繁忙时不会误报“服务不可用”。
-/// 自实现计数而非引入 `tower::limit`，是为了不动依赖 feature。
 async fn concurrency_limit(req: Request<Body>, next: Next) -> Response {
-    use std::sync::atomic::Ordering;
-    // 配额用尽时**排队等待**而非拒绝：硬拒会凭空制造一种客户端必须处理的
-    // 新失败模式（随机 503），与既有行为不兼容（tower ConcurrencyLimit 亦
-    // 采用队列语义）。CAS 而非「load + fetch_add」，避免并发下略微超限。
-    loop {
-        let cur = API_INFLIGHT.load(Ordering::Acquire);
-        if cur < SERVER_MAX_CONCURRENCY
-            && API_INFLIGHT
-                .compare_exchange_weak(cur, cur + 1, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-        {
-            break;
+    let sem = concurrency_sem();
+    // 有界等待 + 总超时：Semaphore 在额度内自动排队（不忙等 CPU）；超时返回 503
+    // 而非无限挂起（无界等待队列本身即 DoS 面，报告 B5）。
+    let permit = match tokio::time::timeout(std::time::Duration::from_secs(30), sem.acquire()).await
+    {
+        Ok(Ok(p)) => p,
+        Ok(Err(_closed)) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"ok": false, "code": "MF-API-UNAVAILABLE", "message": "服务并发槽位已关闭，请稍后重试"})),
+            )
+                .into_response();
         }
-        tokio::task::yield_now().await;
-    }
+        Err(_elapsed) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"ok": false, "code": "MF-API-BUSY", "message": "服务繁忙，请求等待超时，请稍后重试"})),
+            )
+                .into_response();
+        }
+    };
+    API_INFLIGHT.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
     let res = next.run(req).await;
-    API_INFLIGHT.fetch_sub(1, Ordering::AcqRel);
+    API_INFLIGHT.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    drop(permit);
     res
 }
 
@@ -686,12 +703,14 @@ pub fn build_router(state: ServerState) -> Router {
                         })),
                     )
                 })
+                // B5：并发闸移到鉴权**之后**——auth 在外层先拦截未鉴权请求，
+                // 已鉴权请求才进入并发闸占槽（未鉴权请求不再消耗并发额度，防 DoS）。
+                // B12 语义保留：auth_disabled 时 auth 直接放行仍进入闸，额度约束依然生效。
+                .layer(middleware::from_fn(concurrency_limit))
                 .layer(middleware::from_fn_with_state(
                     state.clone(),
                     auth_middleware,
                 ))
-                // B12：并发闸在 nest 最外层 → 无论鉴权开关如何都生效
-                .layer(middleware::from_fn(concurrency_limit)),
         )
         .fallback_service(spa_service(ui_dir))
         // 静态资源缓存策略（2026-09-12 真机问题根治）：`no-cache` = 每次协商（304 极廉价），
@@ -894,7 +913,10 @@ mod tests {
         let m = mask_token(t);
         assert!(m.starts_with("0123"), "保留前 4 位便于核对");
         assert!(m.ends_with("cdef"), "保留后 4 位便于核对");
-        assert!(!m.contains("456789"), "中段必须被遮蔽（原 token 不得完整落日志）");
+        assert!(
+            !m.contains("456789"),
+            "中段必须被遮蔽（原 token 不得完整落日志）"
+        );
         assert!(m.len() < t.len(), "中段被压缩为固定 4 个 *");
         // 过短 token：全遮蔽，不泄露任何字符
         assert_eq!(mask_token("abc"), "***");

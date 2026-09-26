@@ -863,10 +863,27 @@ pub async fn trash_restore(
     if let Err(resp) = ensure_allowed(&state, manifest_path) {
         return resp;
     }
-    let in_trash = manifest_path
+    // B4 修复：拒绝路径穿越（`..` 段），并优先基于 `canonicalize` 后的**真实**路径判断；
+    // 杜绝纯词法 `in_trash` 被 `..` 绕过（如 `a/.musicforge/../../../etc/x.jsonl` 词法含
+    // `.musicforge` 但真实落点在回收站外，可借 restore 读/还原任意路径）。
+    // canonicalize 失败时（如清单文件尚未落盘）回退到原始路径继续判断，不因文件不存在而拒绝合法清单。
+    if manifest_path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return err(
+            StatusCode::FORBIDDEN,
+            "MF-TRASH-MANIFEST-INVALID",
+            "manifest 路径不得包含 '..' 穿越段",
+        );
+    }
+    let canonical = manifest_path
+        .canonicalize()
+        .unwrap_or_else(|_| manifest_path.to_path_buf());
+    let in_trash = canonical
         .components()
         .any(|c| c.as_os_str() == ".musicforge")
-        && manifest_path.extension().and_then(|e| e.to_str()) == Some("jsonl");
+        && canonical.extension().and_then(|e| e.to_str()) == Some("jsonl");
     if !in_trash {
         return err(
             StatusCode::FORBIDDEN,
@@ -874,8 +891,8 @@ pub async fn trash_restore(
             "manifest 必须是 .musicforge 回收站/回滚目录内的 *.jsonl 清单",
         );
     }
-    let manifest = manifest.to_string(); // owned（借用不得跨 await）
-                                         // AUD-5：还原含批量文件搬移——spawn_blocking
+    let manifest = canonical.to_string_lossy().into_owned(); // owned（真实/canonical 路径）
+                                                             // AUD-5：还原含批量文件搬移——spawn_blocking
     let restore_result =
         tokio::task::spawn_blocking(move || restore_from_trash(std::path::Path::new(&manifest)))
             .await;
@@ -1189,6 +1206,58 @@ mod tests {
             StatusCode::FORBIDDEN,
             "合法路径不得被校验层拦截"
         );
+    }
+
+    /// B4（审计 P1）回归：manifest 词法含 `.musicforge` 但借 `..` 段将真实落点穿出回收站
+    /// 时，必须 403。修复前纯词法判定 `in_trash` 会放行（路径穿越 / 任意文件还原）。
+    /// `..` 段在 `canonicalize` 之前即被 `ParentDir` 检查拒绝（跨平台）。
+    #[tokio::test]
+    async fn trash_restore_rejects_manifest_path_traversal() {
+        let app = build_router(state_with(None));
+        let res = app
+            .clone()
+            .oneshot(req(
+                "POST",
+                "/api/trash/restore",
+                Some(
+                    json!({"manifest": "a/.musicforge/../../etc/x.jsonl", "confirm": true})
+                        .to_string(),
+                ),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        let v = body_json(res).await;
+        assert_eq!(v["code"], "MF-TRASH-MANIFEST-INVALID");
+    }
+
+    /// B5（审计 P1）回归：并发请求经并发闸后应在有限时间内全部完成——不忙等自旋、
+    /// 不在鉴权层外占槽。发 50 个并发 `GET /api/version`（> `SERVER_MAX_CONCURRENCY`），
+    /// 全部应在 15s 内返回 200（不挂起、不永久排队）。
+    #[tokio::test]
+    async fn concurrent_requests_complete_within_bounds() {
+        let app = build_router(state_with(None));
+        let mut handles = Vec::new();
+        for _ in 0..50 {
+            let app = app.clone();
+            handles.push(tokio::spawn(async move {
+                app.oneshot(req("GET", "/api/version", None)).await.unwrap()
+            }));
+        }
+        let mut saw_ok = 0;
+        for h in handles {
+            let res = tokio::time::timeout(std::time::Duration::from_secs(15), h)
+                .await
+                .expect("请求任务不应挂起")
+                .expect("spawn 任务应成功");
+            assert!(
+                res.status().is_success(),
+                "并发请求预期 200，实得 {}",
+                res.status()
+            );
+            saw_ok += 1;
+        }
+        assert_eq!(saw_ok, 50);
     }
 
     // ---------------------------------------------------------------- batch --
