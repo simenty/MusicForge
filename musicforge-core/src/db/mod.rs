@@ -1009,6 +1009,62 @@ mod tests {
         let recovered = mutex.into_inner().unwrap_or_else(|p| p.into_inner());
         assert_eq!(recovered, vec![1, 2, 3]);
     }
+
+    /// C1 回归：歌单含重复 `track_id`（同一曲多行不同 position）时，拖拽排序
+    /// 必须成功而非整事务回滚。修复前写回用 `track_id` 定位，重复行被一次性
+    /// SET 成同一 position 中途撞 PK（`UNIQUE constraint failed`）→ 排序永久不可用。
+    #[test]
+    fn playlist_move_with_duplicate_track_id_succeeds() {
+        let db = Db::open_in_memory().unwrap();
+        let sid = db.upsert_source("/m", None).unwrap();
+        db.upsert_tracks_batch(
+            &[TrackInput {
+                source_id: sid,
+                path: "/m/a.wav".into(),
+                size: 1024,
+                title: Some("A".into()),
+                ..Default::default()
+            }],
+            1,
+        )
+        .unwrap();
+        let id_a = db.list_tracks(10, 0).unwrap()[0].id;
+        db.upsert_tracks_batch(
+            &[TrackInput {
+                source_id: sid,
+                path: "/m/b.wav".into(),
+                size: 1024,
+                title: Some("B".into()),
+                ..Default::default()
+            }],
+            2,
+        )
+        .unwrap();
+        let id_b = db.list_tracks(10, 0).unwrap()[1].id;
+        let pid = db.create_playlist("dup").unwrap();
+        // 直接插入重复 track_id 歌单（[A, A, B]，position 0/1/2）
+        for (pos, tid) in [(0i64, id_a), (1, id_a), (2, id_b)] {
+            db.conn
+                .execute(
+                    "INSERT INTO playlist_items(playlist_id, track_id, position) VALUES (?1, ?2, ?3)",
+                    [pid, tid, pos],
+                )
+                .unwrap();
+        }
+        // 拖拽第一个 A（pos 0）到末尾（to=2）：修复前应撞 PK 整事务回滚
+        db.playlist_move_track(pid, id_a, 2).unwrap();
+        let order: Vec<i64> = db
+            .playlist_tracks(pid)
+            .unwrap()
+            .iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(
+            order,
+            vec![id_a, id_b, id_a],
+            "C1：重复 track_id 拖拽后顺序应为 [A, B, A]"
+        );
+    }
 }
 
 /// 本地配置目录（Windows `%LOCALAPPDATA%\MusicForge`，

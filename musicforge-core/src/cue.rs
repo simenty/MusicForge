@@ -327,7 +327,20 @@ pub fn split_cue_ex(
                     "APE/WavPack/TAK 整轨切分需要 ffmpeg sidecar（未提供）".to_string(),
                 )
             })?;
-            let temp = out_dir.join(".mf-split-tmp.wav");
+            // C2 修复：目录创建必须早于写临时文件——原 `create_dir_all(out_dir)`
+            // 在下方 :347 才执行，out_dir 不存在时此处 export_custom 写 temp 直接
+            // 失败，整轨切分永久失败。临时名加 pid+纳秒唯一后缀，避免上次异常
+            // 残留的固定名 `.mf-split-tmp.wav` 触发 ffmpeg.rs 的覆盖守卫。
+            std::fs::create_dir_all(out_dir)?;
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let temp = out_dir.join(format!(
+                ".mf-split-tmp-{}-{}.wav",
+                std::process::id(),
+                nanos
+            ));
             ff.export_custom(&source, &temp, &["-c:a", "pcm_s24le"])?;
             let pcm = decode_to_pcm(&temp);
             let _ = std::fs::remove_file(&temp);
@@ -500,4 +513,49 @@ fn write_track_tags(
         .save_to_path(path, WriteOptions::default())
         .map_err(|e| NcmError::Lossless(e.to_string()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ffmpeg::Ffmpeg;
+    use crate::NcmError;
+    use std::fs;
+    use tempfile::tempdir;
+
+    /// C2 回归：输出目录存在且含上次残留的固定名临时文件 `.mf-split-tmp.wav` 时，
+    /// CUE 整轨切分不得因覆盖守卫返回 `OutputExists`。修复前临时名固定为
+    /// `.mf-split-tmp.wav`（与残留同名）→ `export_custom` 命中覆盖守卫 → 整轨
+    /// 切分永久失败，需人工删残留。修复后用 pid+纳秒唯一名避开。
+    /// 本机无 ffmpeg 时 `export_custom` 走 Command 失败分支（非 OutputExists），
+    /// 同样验证守卫未被残留名触发（buggy 版会直接命中 OutputExists）。
+    #[test]
+    fn cue_split_ignores_stale_fixed_temp_name() {
+        // 源目录：非真 APE 整轨（ext=.ape 触发 sidecar 解码分支）+ 对应 CUE
+        let src = tempdir().unwrap();
+        let ape = src.path().join("disc.ape");
+        fs::write(&ape, b"not-a-real-ape-bytes").unwrap();
+        let cue = src.path().join("disc.cue");
+        fs::write(
+            &cue,
+            "FILE \"disc.ape\" WAVE\n  TRACK 01 AUDIO\n    INDEX 01 00:00:00\n",
+        )
+        .unwrap();
+
+        // 输出目录存在且含上次残留的固定名临时文件
+        let out = tempdir().unwrap();
+        fs::write(out.path().join(".mf-split-tmp.wav"), b"stale").unwrap();
+
+        // 直接构造 Ffmpeg（不探测 PATH，确保走到 export_custom 的覆盖守卫检查）
+        let ff = Ffmpeg {
+            path: "ffmpeg".into(),
+        };
+        let res = split_cue_ex(&cue, out.path(), None, Some(&ff), |_, _| "t01".to_string());
+
+        assert!(
+            !matches!(res, Err(NcmError::OutputExists { .. })),
+            "C2：残留固定名不应触发覆盖守卫，实际错误: {:?}",
+            res.err()
+        );
+    }
 }

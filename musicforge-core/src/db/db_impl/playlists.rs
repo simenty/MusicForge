@@ -173,40 +173,46 @@ impl Db {
             .unchecked_transaction()
             .map_err(|e| NcmError::Db(e.to_string()))?;
         // ① 读全序（按 position）
-        let mut ids: Vec<i64> = {
+        // ① 读全序（track_id + 原 position）
+        // C1 修复：记录原 position，写回时用「抬区间后的唯一 position」定位，
+        // 而非 track_id——歌单含重复 track_id（同一曲多行不同 position）时，用
+        // track_id 定位会把多行一次性 SET 成同一 position，中途撞 PK 致整事务回滚。
+        let mut items: Vec<(i64, i64)> = {
             let mut stmt = tx
                 .prepare(
-                    "SELECT track_id FROM playlist_items WHERE playlist_id = ?1 ORDER BY position",
+                    "SELECT track_id, position FROM playlist_items WHERE playlist_id = ?1 ORDER BY position",
                 )
                 .map_err(|e| NcmError::Db(e.to_string()))?;
             let rows = stmt
-                .query_map([playlist_id], |r| r.get::<_, i64>(0))
+                .query_map([playlist_id], |r| {
+                    Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+                })
                 .map_err(|e| NcmError::Db(e.to_string()))?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| NcmError::Db(e.to_string()))?;
             rows
         };
-        let Some(pos) = ids.iter().position(|&x| x == track_id) else {
+        let Some(pos) = items.iter().position(|&(tid, _)| tid == track_id) else {
             return Ok(()); // 不在歌单 → 空操作
         };
-        let to = to_index.clamp(0, (ids.len() as i64 - 1).max(0)) as usize;
+        let to = to_index.clamp(0, (items.len() as i64 - 1).max(0)) as usize;
         if pos == to {
             return Ok(());
         }
         // ② 新顺序
-        let moved = ids.remove(pos);
-        ids.insert(to, moved);
+        let moved = items.remove(pos);
+        items.insert(to, moved);
         // ③ 抬到过渡区间（脱离 0..n-1，消除约束冲突）
         tx.execute(
             "UPDATE playlist_items SET position = position + 100000 WHERE playlist_id = ?1",
             [playlist_id],
         )
         .map_err(|e| NcmError::Db(e.to_string()))?;
-        // ④ 按新顺序写回
-        for (i, id) in ids.iter().enumerate() {
+        // ④ 按新顺序写回：用抬区间后的**唯一** position 定位（C1 修复）
+        for (i, &(_, old_pos)) in items.iter().enumerate() {
             tx.execute(
-                "UPDATE playlist_items SET position = ?1 WHERE playlist_id = ?2 AND track_id = ?3",
-                params![i as i64, playlist_id, id],
+                "UPDATE playlist_items SET position = ?1 WHERE playlist_id = ?2 AND position = ?3",
+                params![i as i64, playlist_id, old_pos + 100000],
             )
             .map_err(|e| NcmError::Db(e.to_string()))?;
         }

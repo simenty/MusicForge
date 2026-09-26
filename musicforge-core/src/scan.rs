@@ -469,7 +469,24 @@ pub fn scan_library(root: &Path, options: &ScanOptions) -> Result<ScanReport, Nc
                         }
                     };
                     let Some((dir, depth)) = task else { break };
-                    let outcome = scan_one_dir(dir.clone(), root, options);
+                    // C4 修复：scan_one_dir 可能因畸形输入 / 标签解析 panic。用 catch_unwind
+                    // 兜底：任一 worker panic 时递减 `remaining` 并跳过该目录，避免 remaining
+                    // 永不归零导致其余 worker 永久阻塞在 cv.wait()（进程挂死）。
+                    let outcome =
+                        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            scan_one_dir(dir.clone(), root, options)
+                        })) {
+                            Ok(o) => o,
+                            Err(_) => {
+                                let mut st = match state.lock() {
+                                    Ok(g) => g,
+                                    Err(p) => p.into_inner(),
+                                };
+                                st.remaining -= 1;
+                                cv.notify_all();
+                                continue;
+                            }
+                        };
                     let mut st = match state.lock() {
                         Ok(g) => g,
                         Err(p) => p.into_inner(),
@@ -531,53 +548,39 @@ pub fn scan_library(root: &Path, options: &ScanOptions) -> Result<ScanReport, Nc
     // 孤儿歌词：.lrc 的 stem 在同目录无音频
     let audio_stems =
         |dir: &Path| -> HashSet<String> { dir_audio.get(dir).cloned().unwrap_or_default() };
-    let mut orphan_lyrics: Vec<ScanItem> = Vec::new();
-    for item in report
-        .items
-        .iter()
-        .filter(|i| i.category == Category::Lyrics)
-    {
-        let dir = item.path.parent().unwrap_or(Path::new(""));
-        let stem = item.path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-        if !audio_stems(dir).contains(stem) {
-            orphan_lyrics.push(ScanItem {
-                path: item.path.clone(),
-                category: Category::Junk,
-                rule_id: Some("MF-CLEAN-005"),
-                size: item.size,
-                mtime: item.mtime,
-            });
+    // C3 修复：孤儿歌词**就地改写**原条目（category→Junk、rule_id→MF-CLEAN-005），
+    // 不 append 新条目——原 append 方案让原 Lyrics 条目与新 Junk 条目同路径并存，
+    // 导致 items 双计、分类计数虚高。改写后同路径仅一条且分类自洽
+    // （原 Lyrics 计数回退、Junk 计数 +1）。
+    for item in report.items.iter_mut() {
+        if item.category == Category::Lyrics {
+            let dir = item.path.parent().unwrap_or(Path::new(""));
+            let stem = item.path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+            if !audio_stems(dir).contains(stem) {
+                item.category = Category::Junk;
+                item.rule_id = Some("MF-CLEAN-005");
+                report.lyrics = report.lyrics.saturating_sub(1);
+                report.junk += 1;
+                *report.rule_hits.entry("MF-CLEAN-005").or_default() += 1;
+            }
         }
     }
-    for _ in &orphan_lyrics {
-        *report.rule_hits.entry("MF-CLEAN-005").or_default() += 1;
-        report.junk += 1;
-    }
-    report.items.extend(orphan_lyrics);
 
-    // 孤立封面：封面所在目录无任何音频
-    let mut orphan_covers: Vec<ScanItem> = Vec::new();
-    for item in report
-        .items
-        .iter()
-        .filter(|i| i.category == Category::Cover)
-    {
-        let dir = item.path.parent().unwrap_or(Path::new(""));
-        if audio_stems(dir).is_empty() && dir_audio.get(dir).map(|s| s.is_empty()).unwrap_or(true) {
-            orphan_covers.push(ScanItem {
-                path: item.path.clone(),
-                category: Category::Junk,
-                rule_id: Some("MF-CLEAN-006"),
-                size: item.size,
-                mtime: item.mtime,
-            });
+    // C3 修复：孤儿封面同样**就地改写**原条目，不 append 新条目（理由同上）。
+    for item in report.items.iter_mut() {
+        if item.category == Category::Cover {
+            let dir = item.path.parent().unwrap_or(Path::new(""));
+            if audio_stems(dir).is_empty()
+                && dir_audio.get(dir).map(|s| s.is_empty()).unwrap_or(true)
+            {
+                item.category = Category::Junk;
+                item.rule_id = Some("MF-CLEAN-006");
+                report.covers = report.covers.saturating_sub(1);
+                report.junk += 1;
+                *report.rule_hits.entry("MF-CLEAN-006").or_default() += 1;
+            }
         }
     }
-    for _ in &orphan_covers {
-        *report.rule_hits.entry("MF-CLEAN-006").or_default() += 1;
-        report.junk += 1;
-    }
-    report.items.extend(orphan_covers);
 
     // 零字节与非法字符等规则的 rule_hits 已在分类时计入；空目录单独计入
     if !report.empty_dirs.is_empty() {
@@ -629,7 +632,11 @@ pub fn refresh_hash_cache(db: &crate::db::Db, items: &[ScanItem]) -> HashRefresh
         }
         st.considered += 1;
         let key = item.path.to_string_lossy().into_owned();
-        let ext = item.path.extension().and_then(|e| e.to_str()).map(String::from);
+        let ext = item
+            .path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(String::from);
         let Some(mtime) = item.mtime else {
             // 退化：占位索引（mtime None 的行永远不可作缓存依据）
             batch.push((key, item.size as i64, None, ext, None));
