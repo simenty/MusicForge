@@ -31,6 +31,11 @@ fn self_declare_integrity(program: &std::path::Path) {
 
 /// P6a-R：插件 work_dir（X41 出站边界；e2e 共享临时目录，mock 仅 demo 写入）。
 fn wd() -> std::path::PathBuf {
+    // B6 适配：e2e 属于开发/CI 场景，启用开发模式让自声明哈希放行
+    // （生产默认拒载自证，仅显式 MF_PLUGIN_DEV 允许）。所有 spawn 都经 wd()，
+    // 故在此一次性开启，等价于「开发模式例外」的决策边界。
+    static DEV: std::sync::Once = std::sync::Once::new();
+    DEV.call_once(|| std::env::set_var("MF_PLUGIN_DEV", "1"));
     use std::sync::OnceLock;
     static WD: OnceLock<std::path::PathBuf> = OnceLock::new();
     WD.get_or_init(|| {

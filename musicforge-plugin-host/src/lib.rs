@@ -80,8 +80,14 @@ pub fn try_acquire_plugin_slot() -> Option<PluginSlotGuard> {
 pub enum PluginHostError {
     Spawn(String),
     Handshake(String),
-    ApiIncompatible { plugin: String, host_range: String },
-    Timeout { method: String, ms: u64 },
+    ApiIncompatible {
+        plugin: String,
+        host_range: String,
+    },
+    Timeout {
+        method: String,
+        ms: u64,
+    },
     Protocol(String),
     Io(std::io::Error),
     Gone,
@@ -97,12 +103,16 @@ pub enum PluginHostError {
     ///
     /// 与下面 `spawn` 中握手**之后**的 B13 闸不同：本变体只在 **spawn 之前**
     /// 返回——插件二进制**一次都没有被执行**（消除「恶意插件已执行一次任意代码」）。
-    Forbidden { name: String },
+    Forbidden {
+        name: String,
+    },
     /// P3-26（默认拒载）：完整性**无从校验**——既无主机信任表 pin，plugin.json
     /// 也未声明 `hash_sha256`。此前这里是「告警放行」，等于加载期校验形同虚设。
     ///
     /// 放行只有一条路：在主机受控的 `plugins_trust.json` 中为该插件 pin 哈希。
-    Untrusted { name: String },
+    Untrusted {
+        name: String,
+    },
 }
 
 impl std::fmt::Display for PluginHostError {
@@ -224,9 +234,10 @@ impl PluginProcess {
         // 在 **执行二进制之前**（任何 spawn / create_dir 之前）校验：
         // 1. 主机受控信任表存在该插件 pin → 权威，必须与二进制 SHA-256 一致，否则拒载
         //    （攻击者即便同时改了 plugin.json 也无法绕过——信任表不在插件目录）；
-        // 2. 无信任 pin → 回落 plugin.json 自声明 `hash_sha256`（一致放行，不一致拒载）；
+        // 2. 无信任 pin → 默认拒载自声明 `hash_sha256`（B6 修复：信任根自证不可信，
+        //    改二进制+改 hash 即可绕过）；仅显式开发模式(MF_PLUGIN_DEV)放行自证；
         // 3. 二者皆无 → 加载但告警（遗留兼容）。
-        verify_plugin_integrity(program, trust_store)?;
+        verify_plugin_integrity(program, trust_store, is_plugin_dev_mode())?;
 
         // P3-25（B14）：三禁位拒载**前移到 spawn 之前**——从 plugin.json 读 permissions。
         //
@@ -881,7 +892,10 @@ fn read_plugin_json_meta(dir: &Path) -> (Option<String>, Option<String>) {
         return (None, None);
     };
     let name = v.get("name").and_then(|n| n.as_str()).map(String::from);
-    let hash = v.get("hash_sha256").and_then(|h| h.as_str()).map(String::from);
+    let hash = v
+        .get("hash_sha256")
+        .and_then(|h| h.as_str())
+        .map(String::from);
     (name, hash)
 }
 
@@ -915,6 +929,14 @@ fn load_trust_pin(store: &Path, name: &str) -> Option<String> {
     v.get("pins")?.get(name)?.as_str().map(|s| s.to_string())
 }
 
+/// B6 开发模式判定：显式开启 `MF_PLUGIN_DEV=1`（或 `true`）时，允许 plugin.json
+/// 自声明哈希放行（不安全，仅本地调试）。生产默认关闭 → 自证不可信、直接拒载。
+fn is_plugin_dev_mode() -> bool {
+    std::env::var("MF_PLUGIN_DEV")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
 /// B15 + 信任锚点：加载期二进制完整性校验。
 ///
 /// 优先级：主机受控信任表 pin（权威）> plugin.json 自声明哈希 > 告警放行。
@@ -922,6 +944,7 @@ fn load_trust_pin(store: &Path, name: &str) -> Option<String> {
 fn verify_plugin_integrity(
     program: &Path,
     trust_store: Option<&Path>,
+    dev_mode: bool,
 ) -> Result<(), PluginHostError> {
     let Some(dir) = program.parent() else {
         return Ok(());
@@ -946,26 +969,34 @@ fn verify_plugin_integrity(
         }
     }
     // 注：此处 `?` 不可用——`PluginHostError` 未实现 `From<io::Error>`，
-    // 故下方两处均用 `match` 显式展开（与旧 spawn 闸门一致）。
-    // 2) 回落 plugin.json 自声明哈希
+    // 故下方均用 `match` 显式展开（与旧 spawn 闸门一致）。
+    // 2) 无 pin → B6 修复：不再默认信任 plugin.json 自声明哈希（信任根自证，
+    //    二进制与声明同处用户可写目录，改二进制 + 改 hash 即可绕过 → 任意代码执行）。
+    //    仅显式「开发模式」(`MF_PLUGIN_DEV=1/true`) 才放行自声明哈希（标注不安全，仅本地调试）。
     match self_hash {
-        Some(declared) => match PluginProcess::sha256_of(program) {
-            Ok(actual) if actual.eq_ignore_ascii_case(&declared) => Ok(()),
-            Ok(actual) => Err(PluginHostError::Integrity {
-                name: program.display().to_string(),
-                expected: declared,
-                actual,
-            }),
-            Err(e) => Err(PluginHostError::Integrity {
-                name: program.display().to_string(),
-                expected: declared,
-                actual: format!("(二进制不可读: {e})"),
-            }),
-        },
-        // 3) 二者皆无 → P3-26：**默认拒载**（此前为 warn 放行，等于加载期校验
-        //    形同虚设——攻击者替换二进制后无需改动任何声明即可通过）。
+        Some(declared) if dev_mode => {
+            tracing::warn!(
+                "开发模式：插件 {} 使用自声明哈希校验（不安全，仅本地调试）",
+                name.as_deref().unwrap_or("?")
+            );
+            match PluginProcess::sha256_of(program) {
+                Ok(actual) if actual.eq_ignore_ascii_case(&declared) => Ok(()),
+                Ok(actual) => Err(PluginHostError::Integrity {
+                    name: program.display().to_string(),
+                    expected: declared,
+                    actual,
+                }),
+                Err(e) => Err(PluginHostError::Integrity {
+                    name: program.display().to_string(),
+                    expected: declared,
+                    actual: format!("(二进制不可读: {e})"),
+                }),
+            }
+        }
+        // 3) 生产默认（无 pin 且非开发模式）：自证不可信，直接拒载。
         //    唯一放行途径是主机受控的 plugins_trust.json 中 pin 该插件哈希。
-        None => Err(PluginHostError::Untrusted {
+        //    P3-26：此前为 warn 放行，等于加载期校验形同虚设。
+        _ => Err(PluginHostError::Untrusted {
             name: name.unwrap_or_else(|| program.display().to_string()),
         }),
     }
@@ -1038,7 +1069,7 @@ mod tests {
     /// B15 回归（单元）：加载期完整性闸门 `verify_plugin_integrity` 全分支。
     /// 直接测闸门逻辑（不 spawn 二进制），覆盖自声明 / 信任表 / 缺失三态。
     #[test]
-    fn verify_integrity_self_declared_correct_loads() {
+    fn verify_integrity_self_declared_correct_loads_in_dev() {
         let dir = tempfile::tempdir().unwrap();
         let bin = dir.path().join("plugin");
         std::fs::write(&bin, b"musicforge-binary").unwrap();
@@ -1050,9 +1081,33 @@ mod tests {
             ),
         )
         .unwrap();
-        assert!(verify_plugin_integrity(&bin, None).is_ok());
+        // B6：仅开发模式(dev_mode=true)放行自声明哈希
+        assert!(verify_plugin_integrity(&bin, None, true).is_ok());
     }
 
+    /// B6 回归：生产默认(dev_mode=false)下，无 trust pin 的自声明哈希**不再**作为
+    /// 放行依据——即便自声明正确，也直接拒载（防止改二进制+改 hash 绕过 → 任意代码执行）。
+    #[test]
+    fn verify_integrity_self_declared_rejected_in_prod() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("plugin");
+        std::fs::write(&bin, b"musicforge-binary").unwrap();
+        let real = PluginProcess::sha256_of(&bin).unwrap();
+        std::fs::write(
+            dir.path().join("plugin.json"),
+            format!(
+                r#"{{"name":"p","api_version":"1.0.0","kind":"ai","network":false,"hash_sha256":"{real}"}}"#
+            ),
+        )
+        .unwrap();
+        let err = verify_plugin_integrity(&bin, None, false).unwrap_err();
+        assert!(
+            matches!(err, PluginHostError::Untrusted { .. }),
+            "生产默认必须拒载自证哈希，实际: {err}"
+        );
+    }
+
+    /// B6 回归：无 pin + 篡改哈希（自声明错误）→ 生产默认拒载。
     #[test]
     fn verify_integrity_self_declared_wrong_rejects() {
         let dir = tempfile::tempdir().unwrap();
@@ -1063,8 +1118,11 @@ mod tests {
             r#"{"name":"p","api_version":"1.0.0","kind":"ai","network":false,"hash_sha256":"deadbeef"}"#,
         )
         .unwrap();
-        let err = verify_plugin_integrity(&bin, None).unwrap_err();
-        assert!(matches!(err, PluginHostError::Integrity { .. }));
+        let err = verify_plugin_integrity(&bin, None, false).unwrap_err();
+        assert!(
+            matches!(err, PluginHostError::Untrusted { .. }),
+            "无 pin + 错误自声明必须拒载，实际: {err}"
+        );
     }
 
     /// P3-26：plugin.json 未声明 hash_sha256 且无 pin → **默认拒载**（原为 warn 放行）。
@@ -1078,7 +1136,7 @@ mod tests {
             r#"{"name":"p","api_version":"1.0.0","kind":"ai","network":false}"#,
         )
         .unwrap();
-        let err = verify_plugin_integrity(&bin, None).unwrap_err();
+        let err = verify_plugin_integrity(&bin, None, false).unwrap_err();
         assert!(
             matches!(err, PluginHostError::Untrusted { .. }),
             "无自声明哈希且无 pin 必须默认拒载，实际: {err}"
@@ -1086,7 +1144,7 @@ mod tests {
         assert_eq!(err.code(), "MF-PLUGIN-UNTRUSTED");
     }
 
-    /// B15 信任锚点回归（单元）：信任表 pin 为权威，覆盖自声明；无信任表回落自声明。
+    /// B15 信任锚点回归（单元）：信任表 pin 为权威，覆盖自声明；无信任表自证不可信。
     #[test]
     fn verify_integrity_trust_pin_overrides_self_declared() {
         let dir = tempfile::tempdir().unwrap();
@@ -1102,19 +1160,22 @@ mod tests {
         let trust = dir.path().join("plugins_trust.json");
         // ① 信任表 pin 正确 → 放行（权威覆盖自声明错误哈希）
         std::fs::write(&trust, format!(r#"{{"pins":{{"p":"{real}"}}}}"#)).unwrap();
-        assert!(verify_plugin_integrity(&bin, Some(&trust)).is_ok());
+        assert!(verify_plugin_integrity(&bin, Some(&trust), false).is_ok());
         // ② 信任表 pin 错误 → 拒载（信任表才是权威）
         std::fs::write(
             &trust,
             r#"{"pins":{"p":"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}}"#,
         )
         .unwrap();
-        let err = verify_plugin_integrity(&bin, Some(&trust)).unwrap_err();
+        let err = verify_plugin_integrity(&bin, Some(&trust), false).unwrap_err();
         assert!(matches!(err, PluginHostError::Integrity { .. }));
         assert_eq!(err.code(), codes::INTEGRITY);
-        // ③ 无信任表 → 回落自声明（此处自声明错误 → 拒载）
-        let err2 = verify_plugin_integrity(&bin, None).unwrap_err();
-        assert!(matches!(err2, PluginHostError::Integrity { .. }));
+        // ③ 无信任表 → B6 修复：自证不可信，直接拒载（非 dev 模式）
+        let err2 = verify_plugin_integrity(&bin, None, false).unwrap_err();
+        assert!(
+            matches!(err2, PluginHostError::Untrusted { .. }),
+            "无 pin 且非 dev 模式必须拒载自证，实际: {err2}"
+        );
     }
 
     /// P3-26：连 plugin.json 都没有 → 同样默认拒载。
@@ -1124,7 +1185,7 @@ mod tests {
         let bin = dir.path().join("plugin");
         std::fs::write(&bin, b"musicforge-binary").unwrap();
         // 无 plugin.json → 无 pin 无自声明 → 默认拒载
-        let err = verify_plugin_integrity(&bin, None).unwrap_err();
+        let err = verify_plugin_integrity(&bin, None, false).unwrap_err();
         assert!(
             matches!(err, PluginHostError::Untrusted { .. }),
             "无 plugin.json 必须默认拒载，实际: {err}"
@@ -1147,7 +1208,7 @@ mod tests {
         let trust = dir.path().join("plugins_trust.json");
         std::fs::write(&trust, format!(r#"{{"pins":{{"p":"{real}"}}}}"#)).unwrap();
         assert!(
-            verify_plugin_integrity(&bin, Some(&trust)).is_ok(),
+            verify_plugin_integrity(&bin, Some(&trust), false).is_ok(),
             "pin 正确即放行（默认拒载下的唯一放行途径）"
         );
     }
@@ -1164,7 +1225,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let bin = dir.path().join("plugin");
         std::fs::write(&bin, b"not-a-real-binary").unwrap();
-        // P3-26：先自声明正确哈希让完整性闸门放行，才能验证**其后**的三禁位前闸
+        // B6 修复后自声明不再默认放行，故用主机受控 trust pin 让完整性闸门放行，
+        // 才能验证其后（spawn 之前）的三禁位前闸。
         let real = PluginProcess::sha256_of(&bin).unwrap();
         std::fs::write(
             dir.path().join("plugin.json"),
@@ -1173,8 +1235,10 @@ mod tests {
             ),
         )
         .unwrap();
+        let trust = dir.path().join("plugins_trust.json");
+        std::fs::write(&trust, format!(r#"{{"pins":{{"evil":"{real}"}}}}"#)).unwrap();
         let wd = dir.path().join("work");
-        let err = PluginProcess::spawn(&bin, "1.x", &wd, None).unwrap_err();
+        let err = PluginProcess::spawn(&bin, "1.x", &wd, Some(&trust)).unwrap_err();
         assert!(
             matches!(err, PluginHostError::Forbidden { .. }),
             "应在 spawn 之前拒载，实际: {err}"
@@ -1189,7 +1253,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let bin = dir.path().join("plugin");
         std::fs::write(&bin, b"not-a-real-binary").unwrap();
-        // 同上：自声明正确哈希以通过完整性闸门，确保前闸放行后确实走到 spawn
+        // B6 修复后自声明不再默认放行，故用主机受控 trust pin 让完整性闸门放行，
+        // 确保前闸放行后确实走到 spawn（验证三禁位前闸不误伤遗留插件）。
         let real = PluginProcess::sha256_of(&bin).unwrap();
         std::fs::write(
             dir.path().join("plugin.json"),
@@ -1198,8 +1263,10 @@ mod tests {
             ),
         )
         .unwrap();
+        let trust = dir.path().join("plugins_trust.json");
+        std::fs::write(&trust, format!(r#"{{"pins":{{"legacy":"{real}"}}}}"#)).unwrap();
         let wd = dir.path().join("work");
-        let err = PluginProcess::spawn(&bin, "1.x", &wd, None).unwrap_err();
+        let err = PluginProcess::spawn(&bin, "1.x", &wd, Some(&trust)).unwrap_err();
         assert!(
             !matches!(err, PluginHostError::Forbidden { .. }),
             "无 permissions 声明不得被前闸拒载，实际: {err}"
