@@ -73,7 +73,11 @@ fn meta_predicates_roundtrip() {
     assert_eq!(db.list_albums().unwrap()[0].year, Some(1993));
     // 已有年份 → 守卫拒绝覆盖
     db.set_album_year(album_id, 2020).unwrap();
-    assert_eq!(db.list_albums().unwrap()[0].year, Some(1993), "不覆盖已有年份");
+    assert_eq!(
+        db.list_albums().unwrap()[0].year,
+        Some(1993),
+        "不覆盖已有年份"
+    );
 
     // 曲目封面查找：无封面 → None；补上 → Some
     let track_id = tracks[0].id;

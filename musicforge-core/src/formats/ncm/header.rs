@@ -344,8 +344,10 @@ mod tests {
         let mut b = Vec::new();
         b.extend_from_slice(&MAGIC);
         b.extend_from_slice(&[0x01, 0x70]); // version/gap（不校验）
-        // 密钥块
-        let rc4_key: Vec<u8> = (0..16u8).map(|i| i.wrapping_mul(7).wrapping_add(3)).collect();
+                                            // 密钥块
+        let rc4_key: Vec<u8> = (0..16u8)
+            .map(|i| i.wrapping_mul(7).wrapping_add(3))
+            .collect();
         let mut key_plain = NETEASE_PREFIX.to_vec();
         key_plain.extend_from_slice(&rc4_key);
         let enc = aes_enc(&CORE_KEY, &key_plain);

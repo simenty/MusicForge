@@ -134,10 +134,7 @@ pub fn export_playlists(
 ///
 /// 与 [`export_playlists`] 共用 [`render_m3u8`]——格式只有一份实现，不会漂移。
 /// `entries` = `(路径, 标题, 时长秒)`；时长未知用 -1。返回写入条目数。
-pub fn export_one_m3u8(
-    dst: &Path,
-    entries: &[(PathBuf, String, i64)],
-) -> Result<usize, NcmError> {
+pub fn export_one_m3u8(dst: &Path, entries: &[(PathBuf, String, i64)]) -> Result<usize, NcmError> {
     let items: Vec<PlaylistEntry> = entries
         .iter()
         .map(|(p, t, d)| PlaylistEntry {

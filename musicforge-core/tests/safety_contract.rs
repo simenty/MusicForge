@@ -12,7 +12,10 @@ use std::path::Path;
 
 #[test]
 fn nondestructive_applies_by_default() {
-    assert_eq!(resolve(OpClass::NonDestructive, &OpFlags::default()), Ok(ExecMode::Apply));
+    assert_eq!(
+        resolve(OpClass::NonDestructive, &OpFlags::default()),
+        Ok(ExecMode::Apply)
+    );
 }
 
 #[test]
@@ -32,7 +35,10 @@ fn nondestructive_dry_run_stays_dry() {
 #[test]
 fn destructive_defaults_to_dry_run() {
     assert_eq!(
-        resolve(OpClass::Destructive { high_risk: false }, &OpFlags::default()),
+        resolve(
+            OpClass::Destructive { high_risk: false },
+            &OpFlags::default()
+        ),
         Ok(ExecMode::DryRun)
     );
 }
@@ -95,7 +101,9 @@ fn dry_run_and_apply_conflict() {
 #[test]
 fn mode_note_strings() {
     assert!(mode_note(OpClass::NonDestructive, ExecMode::DryRun).contains("规划"));
-    assert!(mode_note(OpClass::Destructive { high_risk: false }, ExecMode::Apply).contains("修改/删除"));
+    assert!(
+        mode_note(OpClass::Destructive { high_risk: false }, ExecMode::Apply).contains("修改/删除")
+    );
 }
 
 // ---------------- 路径域 ----------------
@@ -112,7 +120,10 @@ fn empty_roots_means_no_constraint() {
 #[test]
 fn inside_root_allowed() {
     let r = roots(&["/data/music"]);
-    assert_eq!(ensure_allowed(&r, Path::new("/data/music/song.mp3")), Ok(()));
+    assert_eq!(
+        ensure_allowed(&r, Path::new("/data/music/song.mp3")),
+        Ok(())
+    );
     // 根自身也算放行
     assert_eq!(ensure_allowed(&r, Path::new("/data/music")), Ok(()));
 }

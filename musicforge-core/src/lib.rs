@@ -1,4 +1,4 @@
-﻿//! # musicforge-core
+//! # musicforge-core
 //!
 //! MusicForge 核心解密库：离线、流式、CRC 校验的网易云音乐 `.ncm` 解密。
 //!
@@ -31,11 +31,11 @@ pub mod formats;
 pub mod library;
 // P3-23：安全边界下沉（操作分级 + 路径域）的共享源；cli/server 原各自为政，
 // 逐步统一调用此处（tests/safety_contract.rs 钉住等价性基线）。
-pub mod safety;
 pub mod lossless;
 pub mod metadata;
 pub mod organize;
 pub mod playlist;
+pub mod safety;
 pub mod scan;
 pub mod stylecode;
 pub mod synth;

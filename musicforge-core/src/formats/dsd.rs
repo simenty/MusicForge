@@ -486,7 +486,7 @@ mod tests {
         f.write_all(&28u64.to_le_bytes()).unwrap();
         f.write_all(&0u64.to_le_bytes()).unwrap(); // total file size（探测不校验）
         f.write_all(&0u64.to_le_bytes()).unwrap(); // metadata ptr
-        // fmt chunk（52 字节）
+                                                   // fmt chunk（52 字节）
         f.write_all(b"fmt ").unwrap();
         f.write_all(&52u64.to_le_bytes()).unwrap();
         f.write_all(&1u32.to_le_bytes()).unwrap(); // version
@@ -495,12 +495,14 @@ mod tests {
         f.write_all(&1u32.to_le_bytes()).unwrap(); // channel num = 1
         f.write_all(&dsd_rate.to_le_bytes()).unwrap();
         f.write_all(&1u32.to_le_bytes()).unwrap(); // bits per sample
-        f.write_all(&((data.len() as u64) * 8).to_le_bytes()).unwrap(); // sample count（位）
+        f.write_all(&((data.len() as u64) * 8).to_le_bytes())
+            .unwrap(); // sample count（位）
         f.write_all(&block_size.to_le_bytes()).unwrap();
         f.write_all(&0u32.to_le_bytes()).unwrap(); // reserved
-        // data chunk
+                                                   // data chunk
         f.write_all(b"data").unwrap();
-        f.write_all(&(12 + data.len() as u64).to_le_bytes()).unwrap();
+        f.write_all(&(12 + data.len() as u64).to_le_bytes())
+            .unwrap();
         f.write_all(data).unwrap();
     }
 
@@ -546,7 +548,11 @@ mod tests {
         }
         r.seek_ms(0).unwrap();
         let again = r.read_pcm_f32(4).unwrap();
-        assert_eq!(again.len(), 4, "seek 后长度守恒（前段为 FIR 暂态，不做值断言）");
+        assert_eq!(
+            again.len(),
+            4,
+            "seek 后长度守恒（前段为 FIR 暂态，不做值断言）"
+        );
         // seek 到尾部 → 空
         r.seek_ms(100_000).unwrap();
         assert!(r.read_pcm_f32(4).unwrap().is_empty());
@@ -569,7 +575,10 @@ mod tests {
         assert_eq!(pcm.len(), 256);
         let steady = &pcm[STEADY..];
         let peak = steady.iter().fold(0f32, |m, v| m.max(v.abs()));
-        assert!(peak < 0.05, "带外 176.4kHz 应被低通抑制，实测稳态峰值 {peak}");
+        assert!(
+            peak < 0.05,
+            "带外 176.4kHz 应被低通抑制，实测稳态峰值 {peak}"
+        );
     }
 
     /// 构造最小 DFF：mono、byte 交错（mono 即普通字节流）。
@@ -669,11 +678,13 @@ mod tests {
         f.write_all(&channels.to_le_bytes()).unwrap(); // ← 被校验的字段
         f.write_all(&dsd_rate.to_le_bytes()).unwrap();
         f.write_all(&1u32.to_le_bytes()).unwrap(); // bits per sample
-        f.write_all(&((data.len() as u64) * 8).to_le_bytes()).unwrap();
+        f.write_all(&((data.len() as u64) * 8).to_le_bytes())
+            .unwrap();
         f.write_all(&block_size.to_le_bytes()).unwrap(); // ← 被校验的字段
         f.write_all(&0u32.to_le_bytes()).unwrap(); // reserved
         f.write_all(b"data").unwrap();
-        f.write_all(&(12 + data.len() as u64).to_le_bytes()).unwrap();
+        f.write_all(&(12 + data.len() as u64).to_le_bytes())
+            .unwrap();
         f.write_all(data).unwrap();
     }
 

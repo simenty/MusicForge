@@ -38,7 +38,8 @@ fn playlist_crud_and_order() {
 
     // 追加：重复与不存在的 id 均跳过
     assert_eq!(
-        db.playlist_add_tracks(pid, &[id_a, id_b, id_a, 999_999]).unwrap(),
+        db.playlist_add_tracks(pid, &[id_a, id_b, id_a, 999_999])
+            .unwrap(),
         2
     );
     assert_eq!(db.playlist_add_tracks(pid, &[id_c]).unwrap(), 1);
@@ -136,12 +137,12 @@ fn export_one_m3u8_roundtrip() {
     let dir = tempfile::tempdir().unwrap();
     let dst = dir.path().join("夜跑.m3u8");
     let entries = vec![
+        (dir.path().join("a.flac"), "第一首".to_string(), 251i64),
         (
-            dir.path().join("a.flac"),
-            "第一首".to_string(),
-            251i64,
+            std::path::PathBuf::from("C:\\elsewhere\\b.flac"),
+            "B".to_string(),
+            -1,
         ),
-        (std::path::PathBuf::from("C:\\elsewhere\\b.flac"), "B".to_string(), -1),
     ];
     let n = musicforge_core::playlist::export_one_m3u8(&dst, &entries).unwrap();
     assert_eq!(n, 2);
@@ -150,7 +151,10 @@ fn export_one_m3u8_roundtrip() {
     assert!(body.contains("#EXTINF:251,第一首\n"));
     assert!(body.contains("a.flac\n"), "同目录内应为相对路径");
     assert!(body.contains("#EXTINF:-1,B\n"));
-    assert!(body.contains("C:/elsewhere/b.flac"), "外部路径保持绝对（正斜杠）");
+    assert!(
+        body.contains("C:/elsewhere/b.flac"),
+        "外部路径保持绝对（正斜杠）"
+    );
 }
 
 /// 源删除（remove_source）连带清理歌单条目——P2 已有的级联语义回归。

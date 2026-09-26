@@ -138,10 +138,12 @@ pub fn ensure_allowed(allowed_roots: &[PathBuf], path: &Path) -> Result<(), Safe
             format!("路径越出允许根：{}", path.display()),
         )
     })?;
-    let allowed = allowed_roots.iter().any(|root| match normalize_components(root) {
-        Ok(rn) => target == rn || is_prefix(&rn, &target),
-        Err(_) => false,
-    });
+    let allowed = allowed_roots
+        .iter()
+        .any(|root| match normalize_components(root) {
+            Ok(rn) => target == rn || is_prefix(&rn, &target),
+            Err(_) => false,
+        });
     if allowed {
         Ok(())
     } else {
