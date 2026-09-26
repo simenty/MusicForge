@@ -29,6 +29,9 @@ pub mod error;
 pub mod ffmpeg;
 pub mod formats;
 pub mod library;
+// P3-23：安全边界下沉（操作分级 + 路径域）的共享源；cli/server 原各自为政，
+// 逐步统一调用此处（tests/safety_contract.rs 钉住等价性基线）。
+pub mod safety;
 pub mod lossless;
 pub mod metadata;
 pub mod organize;
