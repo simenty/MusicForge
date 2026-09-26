@@ -1634,8 +1634,9 @@ pub fn format_migrate(
         .join("work")
         .join(plugin);
     let trust_store = musicforge_core::db::local_config_dir().join("plugins_trust.json");
-    let mut p = musicforge_plugin_host::PluginProcess::spawn(&exe, ">=1,<2", &work_dir, Some(&trust_store))
-        .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
+    let mut p =
+        musicforge_plugin_host::PluginProcess::spawn(&exe, ">=1,<2", &work_dir, Some(&trust_store))
+            .map_err(|e| musicforge_core::NcmError::PluginNotFound(e.to_string()))?;
     plugins::ack_gate(
         p.manifest.ack_required,
         &p.manifest.name,
