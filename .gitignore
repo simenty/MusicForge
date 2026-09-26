@@ -49,3 +49,7 @@ docs/project-docs/
 
 # P8 fpk artifacts (local dist for real-device acceptance)
 dist-fpk/
+
+# P3-29 cargo-fuzz 产物（target / 语料由 fuzzer 自生成，不入库）
+fuzz/target/
+fuzz/corpus/

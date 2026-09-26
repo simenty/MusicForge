@@ -1,6 +1,9 @@
 [workspace]
 resolver = "2"
 members = ["musicforge-core", "musicforge-cli", "musicforge-gui/src-tauri", "musicforge-plugin-api", "musicforge-plugin-host", "musicforge-server"]
+# P3-29：cargo-fuzz 目标独立于 workspace——libfuzzer-sys 需 nightly + sanitizer，
+# 排除后不让其进入 `cargo build/test --workspace`（stable 工具链下会编译失败）。
+exclude = ["fuzz"]
 
 [workspace.package]
 license = "MIT"

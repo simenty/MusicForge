@@ -1,0 +1,21 @@
+[package]
+name = "musicforge-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.musicforge-core]
+path = "../musicforge-core"
+version = "0.11.0"
+
+[[bin]]
+name = "ncm_header"
+path = "fuzz_targets/ncm_header.rs"
+test = false
+doc = false
