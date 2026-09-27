@@ -228,3 +228,67 @@ fn transcode_to_fresh_dst_still_works_after_guard() {
     assert!(o.verified && dst.exists());
     std::fs::remove_dir_all(&root).ok();
 }
+
+/// P5a 验收「无 ffmpeg 三预设可用」门禁：纯 Rust 无损三路径（WAV→FLAC /
+/// FLAC→WAV / CUE 整轨切分）在**无 ffmpeg** 环境下必须全部成功。
+///
+/// 有损三预设（MP3/AAC/Opus，`LossyPreset`）按设计属 P5b 且必须 ffmpeg，
+/// 不在本门禁范围（无 ffmpeg 时报 `MF-FFMPEG-MISSING`，符合预期）。
+/// 门禁判定：`Ffmpeg::find()` 为 None 即本机处于无 ffmpeg 环境，此时三路径
+/// 全绿即证明 P5a 纯 Rust 无损不依赖 ffmpeg；若本机装了 ffmpeg，本用例退化为
+/// 常规回归（三路径仍须全绿）。
+#[test]
+fn lossless_paths_work_without_ffmpeg() {
+    use musicforge_core::cue::split_cue;
+    use musicforge_core::ffmpeg::Ffmpeg;
+
+    let ffmpeg_present = Ffmpeg::find(None).is_ok();
+    let root = uniq_root("noff");
+    std::fs::create_dir_all(&root).unwrap();
+
+    // 路径 1：WAV → FLAC
+    let src_wav = root.join("src.wav");
+    let pcm = sine(spec(16, 2), 2.0, 440.0, 0.6);
+    write_pcm(&src_wav, LosslessFormat::Wav, &pcm).unwrap();
+    let flac = root.join("out.flac");
+    transcode(&src_wav, &flac, LosslessFormat::Flac).unwrap();
+    assert!(flac.exists(), "WAV→FLAC 必须在无 ffmpeg 时可用");
+
+    // 路径 2：FLAC → WAV（回环逐样本一致）
+    let back = root.join("back.wav");
+    transcode(&flac, &back, LosslessFormat::Wav).unwrap();
+    assert_eq!(
+        decode_to_pcm(&back).unwrap(),
+        pcm,
+        "FLAC→WAV 回环须逐样本一致"
+    );
+
+    // 路径 3：CUE 整轨切分（WAV 源，纯 Rust 解码/编码）
+    let cue = root.join("src.cue");
+    std::fs::write(
+        &cue,
+        "FILE \"src.wav\" WAVE\n  TRACK 01 AUDIO\n    TITLE \"T1\"\n    INDEX 01 00:00:00\n  TRACK 02 AUDIO\n    TITLE \"T2\"\n    INDEX 01 00:01:00\n",
+    )
+    .unwrap();
+    let out = root.join("tracks");
+    let report = split_cue(&cue, &out, |n, t| {
+        format!("{:02} {}", n, t.title.as_deref().unwrap_or("unknown"))
+    })
+    .unwrap();
+    assert!(
+        report.failed.is_empty(),
+        "CUE 切分须在无 ffmpeg 时可用: {:?}",
+        report.failed
+    );
+    assert_eq!(report.tracks.len(), 2);
+
+    // 门禁语义显式化：无 ffmpeg 时三路径产物必须齐全
+    if !ffmpeg_present {
+        assert!(
+            flac.exists() && back.exists() && report.tracks.len() == 2,
+            "无 ffmpeg 环境下纯 Rust 无损三路径必须全部可用"
+        );
+    }
+
+    std::fs::remove_dir_all(&root).ok();
+}
