@@ -43,14 +43,29 @@ pub fn decode_bytes_to_utf8(bytes: &[u8]) -> String {
     // (tld, allow_utf8) -> &'static Encoding，置信度经 guess_assess 获取
     let mut detector = chardetng::EncodingDetector::new();
     detector.feed(bytes, true);
-    let (encoding, confident) = detector.guess_assess(None, true);
+    let (encoding, _confident) = detector.guess_assess(None, true);
     let (decoded, _, had_errors) = encoding.decode(bytes);
-    if !confident || had_errors {
-        // 检测置信度不足或仍有替换符：回退 GBK（中文 CUE 的历史主流编码）
-        let (fallback, _, _) = encoding_rs::GBK.decode(bytes);
-        return fallback.into_owned();
+    if !had_errors {
+        // P5a-6 修复：**解码无替换符即采纳**。此前条件为 `!confident || had_errors`
+        // ——BIG5 / Windows-125x 短文本常因 chardetng 置信度不足被误回落 GBK，
+        // 产出乱码（实测 BIG5「晴天」→「憾ぱ」），D21 要求的 BIG5 支持实际不可用。
+        // 「无解码错误」是比「统计置信度」更可靠的判据。
+        return decoded.into_owned();
     }
-    decoded.into_owned()
+    // 检测到替换符：按候选编码逐个尝试，取首个无解码错误者
+    // （中文主流 GBK → BIG5 → Windows-1252），全失败则兜底 GBK（保持历史行为）
+    for cand in [
+        encoding_rs::GBK,
+        encoding_rs::BIG5,
+        encoding_rs::WINDOWS_1252,
+    ] {
+        let (c, _, err) = cand.decode(bytes);
+        if !err {
+            return c.into_owned();
+        }
+    }
+    let (fallback, _, _) = encoding_rs::GBK.decode(bytes);
+    fallback.into_owned()
 }
 
 // ---------------------------------------------------------------- 解析 --
@@ -266,6 +281,9 @@ pub struct SplitReport {
     pub tracks: Vec<SplitTrack>,
     /// 时长校验失败而未写盘的轨号（1-based）
     pub failed: Vec<(u32, String)>,
+    /// D21「失败进 quarantine」：写入失败但已落盘半成品、被移入
+    /// `out_dir/.mf-quarantine/` 的轨（轨号, 隔离后路径）。
+    pub quarantined: Vec<(u32, PathBuf)>,
     pub sheet: CueSheet,
     pub source: PathBuf,
 }
@@ -417,17 +435,31 @@ pub fn split_cue_ex(
         let name = naming(i + 1, track);
         let safe = crate::template::sanitize(&name);
         let dst = out_dir.join(format!("{safe}.{}", out_format.extension()));
-        let _bytes = encode_pcm(&dst, out_format, &track_pcm)?;
-        write_track_tags(
-            &dst,
-            out_format,
-            track.title.as_deref(),
-            track.performer.as_deref().or(sheet.performer.as_deref()),
-            sheet.title.as_deref(),
-            track.number,
-            sheet.rem_date.as_deref(),
-            cover_bytes.as_deref(),
-        )?;
+        // D21「失败进 quarantine」：编码/写标签失败时，已落盘的半成品不得留在
+        // 输出目录冒充有效分轨——捕获错误 → 半成品移入 `.mf-quarantine/` →
+        // 记入 failed 后继续下一轨（单轨失败不再中断整个整轨切分）。
+        let written = (|| -> Result<(), NcmError> {
+            let _bytes = encode_pcm(&dst, out_format, &track_pcm)?;
+            write_track_tags(
+                &dst,
+                out_format,
+                track.title.as_deref(),
+                track.performer.as_deref().or(sheet.performer.as_deref()),
+                sheet.title.as_deref(),
+                track.number,
+                sheet.rem_date.as_deref(),
+                cover_bytes.as_deref(),
+            )
+        })();
+        if let Err(e) = written {
+            if let Some(q) = quarantine_partial(out_dir, &dst)? {
+                report.quarantined.push((track.number, q));
+            }
+            report
+                .failed
+                .push((track.number, format!("写入失败（产物已隔离）: {e}")));
+            continue;
+        }
 
         report.tracks.push(SplitTrack {
             index: i + 1,
@@ -438,6 +470,35 @@ pub fn split_cue_ex(
         });
     }
     Ok(report)
+}
+
+/// D21「失败进 quarantine」：把切分失败的半成品从输出目录移入
+/// `out_dir/.mf-quarantine/`，避免其留在输出目录被误当作有效分轨。
+///
+/// 文件未落盘（失败发生在编码之前）时返回 `Ok(None)`；移入成功返回隔离后路径，
+/// 供 `SplitReport::quarantined` 追溯。目录沿用 `.mf-` 隐藏前缀约定，
+/// 与正常分轨产物隔离且不污染输出目录。
+fn quarantine_partial(out_dir: &Path, dst: &Path) -> Result<Option<PathBuf>, NcmError> {
+    if !dst.exists() {
+        return Ok(None);
+    }
+    let qdir = out_dir.join(".mf-quarantine");
+    std::fs::create_dir_all(&qdir)?;
+    let file_name = dst
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "track".to_string());
+    let mut target = qdir.join(&file_name);
+    if target.exists() {
+        // 同名冲突：加纳秒后缀，绝不覆盖先前隔离物
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        target = qdir.join(format!("{nanos}-{file_name}"));
+    }
+    std::fs::rename(dst, &target).map_err(|e| NcmError::Lossless(e.to_string()))?;
+    Ok(Some(target))
 }
 
 /// 从整轨提取内嵌封面（首个图片；无封面 → None）。
@@ -557,5 +618,51 @@ mod tests {
             "C2：残留固定名不应触发覆盖守卫，实际错误: {:?}",
             res.err()
         );
+    }
+
+    /// D21「失败进 quarantine」：写入失败的半成品必须移出输出目录，
+    /// 落在 `.mf-quarantine/` 且内容不丢，便于追溯。
+    #[test]
+    fn quarantine_partial_moves_file_out_of_output_dir() {
+        let out = tempdir().unwrap();
+        let dst = out.path().join("t02.wav");
+        fs::write(&dst, b"half-written").unwrap();
+
+        let moved = quarantine_partial(out.path(), &dst).unwrap();
+        assert!(!dst.exists(), "半成品不得留在输出目录原位");
+        let q = moved.expect("应返回隔离后路径");
+        assert_eq!(
+            q.parent().unwrap().file_name().unwrap(),
+            ".mf-quarantine",
+            "隔离目录应为 .mf-quarantine"
+        );
+        assert!(q.exists(), "隔离物应存在");
+        assert_eq!(fs::read(&q).unwrap(), b"half-written");
+    }
+
+    /// 失败发生在编码之前（未落盘）时不产生隔离物。
+    #[test]
+    fn quarantine_partial_returns_none_when_absent() {
+        let out = tempdir().unwrap();
+        let dst = out.path().join("never-written.wav");
+        assert!(quarantine_partial(out.path(), &dst).unwrap().is_none());
+    }
+
+    /// 同名冲突绝不覆盖先前隔离物（否则追溯链断裂）。
+    #[test]
+    fn quarantine_partial_never_overwrites_existing() {
+        let out = tempdir().unwrap();
+        let qdir = out.path().join(".mf-quarantine");
+        fs::create_dir_all(&qdir).unwrap();
+        let existing = qdir.join("t02.wav");
+        fs::write(&existing, b"old").unwrap();
+
+        let dst = out.path().join("t02.wav");
+        fs::write(&dst, b"new").unwrap();
+        let q = quarantine_partial(out.path(), &dst).unwrap().unwrap();
+
+        assert_ne!(q, existing, "不得覆盖先前隔离物");
+        assert_eq!(fs::read(&existing).unwrap(), b"old", "先前隔离物内容不变");
+        assert_eq!(fs::read(&q).unwrap(), b"new");
     }
 }
