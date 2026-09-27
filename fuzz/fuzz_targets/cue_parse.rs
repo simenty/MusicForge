@@ -15,11 +15,13 @@
 //! cargo +nightly fuzz run cue_parse -- -max_total_time=60
 //! ```
 use libfuzzer_sys::fuzz_target;
-use musicforge_core::cue::parse_cue_text;
+use musicforge_core::cue::{decode_bytes_to_utf8, parse_cue_text};
 
 fuzz_target!(|data: &[u8]| {
-    // CUE 是文本；非 UTF-8 输入直接跳过（不 panic）。
-    if let Ok(text) = std::str::from_utf8(data) {
-        let _ = parse_cue_text(text);
-    }
+    // P5a-6 扩展：此前非 UTF-8 输入被直接跳过，`decode_bytes_to_utf8` 的编码
+    // 检测与解码路径（BOM、UTF-8 严格校验、chardetng 猜测 + GBK/BIG5/125x 候选
+    // 回落）**完全未被模糊测试覆盖**。现喂任意字节走完整解码路径，再解析。
+    // 无论解码/解析成功或失败都必须安全返回，不得 panic。
+    let text = decode_bytes_to_utf8(data);
+    let _ = parse_cue_text(&text);
 });
