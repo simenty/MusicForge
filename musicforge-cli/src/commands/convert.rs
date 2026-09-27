@@ -325,6 +325,9 @@ pub fn run_split_sub(
                     "failed": report.failed.iter().map(|(no, r)| serde_json::json!({
                         "track": no, "reason": r,
                     })).collect::<Vec<_>>(),
+                    "quarantined": report.quarantined.iter().map(|(no, p)| serde_json::json!({
+                        "track": no, "path": p.display().to_string(),
+                    })).collect::<Vec<_>>(),
                 });
                 println!("{}", serde_json::to_string_pretty(&o).unwrap_or_default());
             } else {
@@ -346,8 +349,15 @@ pub fn run_split_sub(
                 for (no, r) in &report.failed {
                     println!("  ✕ 轨 {no}: {r}");
                 }
+                for (no, p) in &report.quarantined {
+                    println!("  ⚠ 轨 {no} 产物已隔离 → {}", p.display());
+                }
                 if !report.failed.is_empty() {
-                    println!("失败轨未写盘（校验在写盘前完成）；请检查 CUE 与音频是否匹配。");
+                    if report.quarantined.is_empty() {
+                        println!("失败轨未写盘（校验在写盘前完成）；请检查 CUE 与音频是否匹配。");
+                    } else {
+                        println!("失败轨产物已隔离至 .mf-quarantine/；请检查 CUE 与音频是否匹配。");
+                    }
                 }
             }
             if report.failed.is_empty() {
