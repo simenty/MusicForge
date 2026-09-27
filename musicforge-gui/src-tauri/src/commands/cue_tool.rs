@@ -115,6 +115,9 @@ pub async fn cue_split(cue_path: String, out_dir: String) -> Result<serde_json::
         "failed": report.failed.iter().map(|(no, r)| serde_json::json!({
             "track": no, "reason": r,
         })).collect::<Vec<_>>(),
+        "quarantined": report.quarantined.iter().map(|(no, p)| serde_json::json!({
+            "track": no, "path": p.display().to_string(),
+        })).collect::<Vec<_>>(),
     }))
 }
 
