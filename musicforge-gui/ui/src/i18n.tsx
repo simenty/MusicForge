@@ -60,8 +60,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     try {
       document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+      // P7 审计：`index.html` 的 `<title>` 写死中文，切语言后标签页/窗口标题不变
+      // → 用当前语言的 `app.subtitle` 同步（与静态标题同格式 "MusicForge — …"）。
+      document.title = `MusicForge — ${DICTS[lang].app.subtitle}`;
     } catch {
-      // 无 DOM 的极端环境忽略：仅影响辅助技术发音，不影响功能与渲染
+      // 无 DOM 的极端环境忽略：仅影响辅助技术发音与窗口标题，不影响功能与渲染
     }
   }, [lang]);
 

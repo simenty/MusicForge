@@ -1,7 +1,7 @@
 // 首启引导（P5）：首次运行显示三步说明（选媒体源 → 扫描 → 播放）。
 // 标记存 localStorage——纯前端状态，无需后端参与；写失败（隐私模式等）
 // 只影响下次是否再显示，绝不影响功能。
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useLang } from "./i18n";
 
 export default function WelcomeGuide({ onGo }: { onGo: () => void }) {
@@ -14,17 +14,30 @@ export default function WelcomeGuide({ onGo }: { onGo: () => void }) {
     }
   });
 
-  if (!show) return null;
+  const close = useCallback(
+    (go: boolean) => {
+      try {
+        localStorage.setItem("mf.onboarded", "1");
+      } catch {
+        /* 隐私模式等：只影响下次是否再显示 */
+      }
+      setShow(false);
+      if (go) onGo();
+    },
+    [onGo]
+  );
 
-  const close = (go: boolean) => {
-    try {
-      localStorage.setItem("mf.onboarded", "1");
-    } catch {
-      /* 隐私模式等：只影响下次是否再显示 */
-    }
-    setShow(false);
-    if (go) onGo();
-  };
+  // Esc 关闭（P7 审计：遮罩此前仅鼠标可点关，纯键盘用户无法退出引导）
+  useEffect(() => {
+    if (!show) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [show, close]);
+
+  if (!show) return null;
 
   return (
     <div className="modal-mask" role="presentation" onClick={() => close(false)}>
