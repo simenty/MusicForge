@@ -263,6 +263,76 @@ describe("usePlayer (P2-21)", () => {
     expect(mockQueueClear).toHaveBeenCalled();
   });
 
+  // ---- 乐观更新回滚（P6.15 范式的补全）：此前只有 queueMove/queueRemove 回滚，
+  // 其余 4 个变更操作失败时前端已改、引擎未改 → 永久失同步且无提示。
+
+  it("playTracks：引擎失败必须回滚", async () => {
+    const { result } = renderHook(() => usePlayer());
+    await waitFor(() => expect(result.current.status).not.toBeNull());
+    await act(async () => {
+      await result.current.playTracks([track(1), track(2)], 0);
+    });
+    const before = result.current.queue.map((q) => q.trackId);
+    mockPlayQueue.mockRejectedValueOnce(new Error("boom"));
+    await act(async () => {
+      await result.current.playTracks([track(3)], 0);
+    });
+    expect(result.current.queue.map((q) => q.trackId)).toEqual(before);
+  });
+
+  it("queueAppend：引擎失败必须回滚", async () => {
+    const { result } = renderHook(() => usePlayer());
+    await waitFor(() => expect(result.current.status).not.toBeNull());
+    await act(async () => {
+      await result.current.playTracks([track(1)], 0);
+    });
+    mockQueueAppend.mockRejectedValueOnce(new Error("boom"));
+    await act(async () => {
+      await result.current.queueAppend([track(2)]);
+    });
+    expect(result.current.queue.map((q) => q.trackId)).toEqual([1]);
+  });
+
+  it("clearQueue：引擎失败必须回滚（否则前端显示空、引擎仍在播）", async () => {
+    const { result } = renderHook(() => usePlayer());
+    await waitFor(() => expect(result.current.status).not.toBeNull());
+    await act(async () => {
+      await result.current.playTracks([track(1), track(2)], 0);
+    });
+    mockQueueClear.mockRejectedValueOnce(new Error("boom"));
+    await act(async () => {
+      await result.current.clearQueue();
+    });
+    expect(result.current.queue.map((q) => q.trackId)).toEqual([1, 2]);
+  });
+
+  it("playNext：引擎失败必须回滚", async () => {
+    mockStatus.mockResolvedValue(snap({ queueIndex: 0 }));
+    const { result } = renderHook(() => usePlayer());
+    await waitFor(() => expect(result.current.status).not.toBeNull());
+    await act(async () => {
+      await result.current.playTracks([track(1), track(2)], 0);
+    });
+    mockQueueInsertNext.mockRejectedValueOnce(new Error("boom"));
+    await act(async () => {
+      await result.current.playNext([track(9)]);
+    });
+    expect(result.current.queue.map((q) => q.trackId)).toEqual([1, 2]);
+  });
+
+  it("queueRemove：越界索引直接不动（与引擎 remove_from_queue 同口径）", async () => {
+    const { result } = renderHook(() => usePlayer());
+    await waitFor(() => expect(result.current.status).not.toBeNull());
+    await act(async () => {
+      await result.current.playTracks([track(1), track(2)], 0);
+    });
+    await act(async () => {
+      await result.current.queueRemove(99);
+    });
+    expect(result.current.queue.map((q) => q.trackId)).toEqual([1, 2]);
+    expect(mockQueueRemove).not.toHaveBeenCalled();
+  });
+
   it("控制类操作直通引擎（toggle/next/prev/stop/setMode）", async () => {
     const { result } = renderHook(() => usePlayer());
     await waitFor(() => expect(result.current.status).not.toBeNull());

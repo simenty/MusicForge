@@ -150,9 +150,16 @@ export function usePlayer(): PlayerApi {
       artist: t.artist,
       durationMs: t.durationMs,
     }));
+    const prev = queueRef.current;
     setRestored(null); // 用户开始新播放：上次会话作废
     setQueue(items);
-    await playerPlayQueue(items, startIndex);
+    try {
+      await playerPlayQueue(items, startIndex);
+    } catch {
+      // 与 queueMove/queueRemove 同范式：失败必须回滚，否则前端队列与引擎
+      // **永久失同步**（用户看到的队列是假的，且没有任何提示）。
+      setQueue(prev);
+    }
   }, []);
 
 
@@ -208,6 +215,9 @@ export function usePlayer(): PlayerApi {
 
   const queueRemove = useCallback(async (index: number) => {
     const prev = queueRef.current;
+    // 与引擎 `remove_from_queue` 同口径：越界直接不动（两端都不产生差异，
+    // 避免「前端删了、引擎没删」的静默分歧）。
+    if (index < 0 || index >= prev.length) return;
     setQueue((q) => q.filter((_, i) => i !== index));
     try {
       await playerQueueRemove(index);
@@ -227,13 +237,25 @@ export function usePlayer(): PlayerApi {
       artist: t.artist,
       durationMs: t.durationMs,
     }));
+    const prev = queueRef.current;
     setQueue((q) => [...q, ...items]);
-    await playerQueueAppend(items);
+    try {
+      await playerQueueAppend(items);
+    } catch {
+      // 失败回滚：否则前端显示「已加入队列」而引擎实际没有，且不报错
+      setQueue(prev);
+    }
   }, []);
 
   const clearQueue = useCallback(async () => {
+    const prev = queueRef.current;
     setQueue([]);
-    await playerQueueClear();
+    try {
+      await playerQueueClear();
+    } catch {
+      // 失败回滚：否则前端显示空队列而引擎仍在播（且无任何提示）
+      setQueue(prev);
+    }
   }, []);
 
   // P6.17 下一首播放：插到当前曲目之后（index+1），前端副本与引擎同步 splice，保持同步。
@@ -248,14 +270,21 @@ export function usePlayer(): PlayerApi {
         artist: t.artist,
         durationMs: t.durationMs,
       }));
+      const prev = queueRef.current;
       setQueue((q) => {
         if (q.length === 0) return [...items];
-        const at = (status?.queueIndex ?? 0) + 1;
+        // 钳到队尾：与引擎 `insert_next` 的 `.min(self.queue.len())` 同口径。
+        // 快照最多滞后一个轮询周期（500ms），不钳会让两端算出不同插入点。
+        const at = Math.min((status?.queueIndex ?? 0) + 1, q.length);
         const next = [...q];
         next.splice(at, 0, ...items);
         return next;
       });
-      await playerQueueInsertNext(items);
+      try {
+        await playerQueueInsertNext(items);
+      } catch {
+        setQueue(prev); // 失败回滚
+      }
     },
     [status],
   );
