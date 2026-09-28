@@ -115,3 +115,44 @@ fn restore_with_occupied_target_goes_to_sibling_and_skips_missing() {
 
     std::fs::remove_dir_all(&root).ok();
 }
+
+/// PF-2（性能审计 2026-09-28）回归：plan 生成后源文件消失 → apply **跳过该项并计入
+/// `missing`，不中断整批**。
+///
+/// 该行为是把 `exists()` 检查从 plan 阶段推迟到 apply 的前提（旧实现靠 plan 阶段
+/// exists() 兜底，导致 100k 曲库 ≈ 4 万次 stat，Plan 逼近 §4.3 的 5s 预算）。
+#[test]
+fn missing_source_is_skipped_not_aborted() {
+    let root = uniq_root("pf2");
+    std::fs::create_dir_all(&root).unwrap();
+    let a = root.join("Thumbs.db");
+    let b = root.join("x.tmp");
+    std::fs::write(&a, b"a").unwrap();
+    std::fs::write(&b, b"b").unwrap();
+
+    let mut plan = plan_for(&root, &a);
+    plan.actions.push(CleanAction {
+        path: b.clone(),
+        rule_id: "MF-CLEAN-002",
+    });
+    // b 在 plan 之后消失（外部删除 / plan 由持久化报告重建的典型形态）
+    std::fs::remove_file(&b).unwrap();
+
+    let out = apply_clean_plan(&plan, "t-pf2").unwrap();
+    assert_eq!(out.moved, 1, "存在的源照常移入回收站");
+    assert_eq!(out.missing, 1, "消失的源计为 missing 并跳过，整批不中断");
+    assert!(!a.exists(), "a 已移入回收站");
+    assert!(
+        root.join(".musicforge/trash")
+            .join("t-pf2")
+            .join("Thumbs.db")
+            .exists(),
+        "a 落位回收站"
+    );
+
+    // 消失的项不写回滚行（无物可搬即无需回滚）
+    let rb = out.rollback_manifest.unwrap();
+    assert_eq!(restore_from_trash(&rb).unwrap(), 1, "仅 a 可还原");
+
+    std::fs::remove_dir_all(&root).ok();
+}

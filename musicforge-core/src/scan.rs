@@ -741,9 +741,14 @@ pub fn build_clean_plan(
         scan_root: scan_root.to_path_buf(),
         ..Default::default()
     };
+    // PF-2（性能审计 2026-09-28）：此处原本对**每个**命中规则的条目调用
+    // `item.path.exists()`——100k 曲库 ≈ 4 万次 stat，占 Plan 耗时 3.36s 的
+    // 绝大部分（§4.3 预算 5s，约 15 万项即超）。plan 紧接 scan 生成，文件必然存在；
+    // 故把存在性判定**推迟到 apply 阶段**（rename 自然报 NotFound 并跳过该项），
+    // 语义等价（不存在的文件同样不会被移动），Plan 由此降到百毫秒级。
     for item in &report.items {
         if let Some(rid) = item.rule_id {
-            if enabled_rules.contains(rid) && item.path.exists() {
+            if enabled_rules.contains(rid) {
                 plan.actions.push(CleanAction {
                     path: item.path.clone(),
                     rule_id: rid,
@@ -760,6 +765,9 @@ pub fn build_clean_plan(
 pub struct CleanOutcome {
     pub moved: usize,
     pub dirs_removed: usize,
+    /// PF-2：源文件在 apply 时已不存在（plan 之后被外部删除/移动）而**跳过**的
+    /// 动作数（不计入 `moved`，也不写回滚行——无物可搬即无需回滚）。
+    pub missing: usize,
     /// 回滚清单路径（`<trash>/<task_id>/rollback.jsonl`；from↔to 可整体还原）
     pub rollback_manifest: Option<PathBuf>,
 }
@@ -808,7 +816,17 @@ pub fn apply_clean_plan(plan: &CleanPlan, task_id: &str) -> Result<CleanOutcome,
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::rename(&action.path, &dest)?;
+        // PF-2：存在性判定推迟到此处——源文件在 plan 之后消失（被外部删除/移动、
+        // 或 plan 由跨进程/持久化报告重建）属预期边界，跳过该项并计数，
+        // **不中断整批**（原实现按 `?` 让整批失败，与 §4.7 崩溃安全取向不符）。
+        match std::fs::rename(&action.path, &dest) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                outcome.missing += 1;
+                continue;
+            }
+            Err(e) => return Err(e.into()),
+        }
         let line = serde_json::json!({
             "from": dest.display().to_string(),
             "to": action.path.display().to_string(),
