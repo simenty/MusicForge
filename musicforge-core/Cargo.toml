@@ -34,3 +34,6 @@ notify = "6.1"
 tempfile = "3"
 # P3：属性测试（仅测试依赖，不进产物；MIT/Apache 许可在 deny 白名单内）
 proptest = "1"
+# 性能专项基准：采样 PeakWorkingSetSize（§4.3 内存预算观测代理）。
+# 版本与 Cargo.lock 既有 0.59.0 对齐，不触发联网解析。
+windows-sys = { version = "0.59", features = ["Win32_System_ProcessStatus", "Win32_System_Threading"] }
