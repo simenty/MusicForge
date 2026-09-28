@@ -47,6 +47,9 @@ export const en: typeof zh = {
     navToolbox: "Toolbox",
     navPlugins: "Plugins",
     navSettings: "Settings",
+    // P7 audit fix: accessible names for the sidebar / menu button (were hardcoded Chinese)
+    navAria: "Main navigation",
+    openNav: "Open navigation",
     tokenPlaceholder: "Paste server token (required for API access)",
     // P0-2: section-level error boundary (render failure no longer blanks the whole app)
     errorTitle: "This module failed to render",
@@ -580,6 +583,11 @@ export const en: typeof zh = {
     cmdFileLabel: "Option 1: read the token file",
     cmdFile: "sudo cat <data-dir>/.token",
     cmdLogLabel: "Option 2: search the first-start log",
+    // P7 审计：这里保留中文 grep 模式是**刻意的跨层契约**，不是漏翻译——
+    // 服务端 `musicforge-server/src/main.rs` 首启无条件打印
+    // `=== MusicForge 首启：已生成随机访问 token ===`，且 fpk 把 stdout 重定向进
+    // `logs/server.log`。若把本串改成英文，grep 匹配不到日志行、命令直接失效。
+    // 正解：上游把该日志改为语言中立后，zh/en 两侧同步改；在此之前请勿本地化。
     cmdLog: 'sudo grep -A1 "随机访问 token" <data-dir>/logs/server.log',
     where:
       "Then paste it into the “server token” field at the top right — it saves and applies immediately.",

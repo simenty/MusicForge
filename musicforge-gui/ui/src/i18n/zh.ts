@@ -51,6 +51,10 @@ export const zh = {
     navToolbox: "工具箱",
     navPlugins: "插件",
     navSettings: "设置",
+    // P7 审计修复：侧栏与菜单按钮的可访问名——此前在组件里硬编码中文，
+    // 切到英文后屏幕阅读器仍按中文朗读（图标按钮的唯一可访问名却不可本地化）。
+    navAria: "主导航",
+    openNav: "打开导航",
     tokenPlaceholder: "粘贴服务端 token（未配置则功能不可用）",
     // P0-2：分区级错误边界（渲染异常降级，不再整页白屏）
     errorTitle: "此模块渲染出错",
@@ -567,6 +571,9 @@ export const zh = {
     cmdFileLabel: "方式一：读取 token 文件",
     cmdFile: "sudo cat <数据目录>/.token",
     cmdLogLabel: "方式二：从首启日志查找",
+    // P7 审计：本串必须与服务端 `main.rs` 首启日志字面一致（fpk 把 stdout 重定向进
+    // server.log）。英文侧同理保留中文模式——若上游把日志改为语言中立，
+    // zh/en 两侧必须**同步**修改，否则 grep 失配。详见 en.ts 同键注释。
     cmdLog: 'sudo grep -A1 "随机访问 token" <数据目录>/logs/server.log',
     where: "取到后，粘贴到页面顶部右侧的「server token」输入框——自动保存并立即生效。",
     hint: "提示：数据目录可在下方「服务端信息」中查看（data_dir）；fnOS 默认在 /vol1/@appdata/musicforge 或 /vol1/@appcenter/musicforge/data。",

@@ -1,5 +1,6 @@
 // 排序切换条（P6.21）：分段按钮组，复用 .btn.sm 外观。
 import type { TrackSortField } from "./lib/types";
+import { useLang } from "./i18n";
 
 export default function SortControl({
   value,
@@ -14,8 +15,9 @@ export default function SortControl({
   /** P1-14：排序失效时的显式提示（null = 无）。失效必须可见——绝不能静默回退。 */
   note?: string | null;
 }) {
+  const { t } = useLang();
   return (
-    <div className="sort-ctrl" role="group" aria-label="排序">
+    <div className="sort-ctrl" role="group" aria-label={t.sort.label}>
       {fields.map((f) => (
         <button
           key={f.value}

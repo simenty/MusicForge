@@ -279,7 +279,20 @@ export default function App() {
   return (
     <div className="window">
       {fatal && (
-        <div className="fatal" onClick={() => setFatal(null)} title={t.app.clickToClose}>
+        <div
+          className="fatal"
+          onClick={() => setFatal(null)}
+          title={t.app.clickToClose}
+          role="alert"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            // P7 审计修复：此前只能用鼠标关闭——纯键盘用户无法消除该横幅。
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              setFatal(null);
+            }
+          }}
+        >
           <b>{t.app.fatalTitle}</b>
           <pre>{fatal}</pre>
         </div>
@@ -313,7 +326,7 @@ export default function App() {
         </div>
       )}
       {/* ---------- 左侧栏（布局吸收：品牌 + 主导航 + 曲库治理分组常驻） ---------- */}
-      <aside className={"sidebar" + (navOpen ? " open" : "")} aria-label="主导航">
+      <aside className={"sidebar" + (navOpen ? " open" : "")} aria-label={t.app.navAria}>
         <div className="brand">
           <span className="logo">
             <IconConvert size={18} />
@@ -589,7 +602,7 @@ export default function App() {
       {/* ---------- 右区：顶栏 + 内容 ---------- */}
       <div className="main-wrap">
         <header className="titlebar">
-          <button className="icon-btn menu-toggle" onClick={() => setNavOpen(true)} aria-label="打开导航">
+          <button className="icon-btn menu-toggle" onClick={() => setNavOpen(true)} aria-label={t.app.openNav}>
             <IconMenu />
           </button>
           <strong className="tb-title">{viewLabel}</strong>
@@ -1092,7 +1105,7 @@ export default function App() {
       />
 
       {toast && (
-        <div className="toast" onClick={() => setToast(null)}>
+        <div className="toast" onClick={() => setToast(null)} role="status" aria-live="polite">
           {toast}
         </div>
       )}

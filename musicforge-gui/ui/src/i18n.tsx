@@ -4,6 +4,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -52,6 +53,18 @@ const I18nContext = createContext<I18nContextValue | null>(null);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>(detectLang);
+
+  // P7 审计修复：`<html lang>` 必须随语言切换同步——`index.html` 静态写死
+  // `lang="zh-CN"`，若不同步，切到英文后屏幕阅读器仍用中文语音朗读英文界面
+  // （辅助技术按文档语言选发音人/断词规则）。
+  useEffect(() => {
+    try {
+      document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+    } catch {
+      // 无 DOM 的极端环境忽略：仅影响辅助技术发音，不影响功能与渲染
+    }
+  }, [lang]);
+
   const value = useMemo<I18nContextValue>(
     () => ({
       lang,
