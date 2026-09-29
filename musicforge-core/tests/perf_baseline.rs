@@ -24,13 +24,15 @@ use std::time::Instant;
 
 use musicforge_core::db::Db;
 use musicforge_core::scan::{
-    build_clean_plan, refresh_hash_cache, scan_library, Category, RULE_CARDS, ScanOptions,
+    build_clean_plan, refresh_hash_cache, scan_library, Category, ScanOptions, RULE_CARDS,
 };
 use tempfile::TempDir;
 
 /// 采样进程峰值工作集（Windows）。§4.3「哈希内存≤64MB」的观测代理。
 fn peak_ws_mb() -> Option<f64> {
-    use windows_sys::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
+    use windows_sys::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+    };
     use windows_sys::Win32::System::Threading::GetCurrentProcess;
     unsafe {
         let mut pmc: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
@@ -90,20 +92,30 @@ fn perf_baseline() {
     let n: usize = match std::env::var("MF_PERF_N").ok().and_then(|v| v.parse().ok()) {
         Some(v) if v > 0 => v,
         _ => {
-            eprintln!("[perf_baseline] 跳过：未设置 MF_PERF_N（如 10000）。常规测试套件不跑此基准。");
+            eprintln!(
+                "[perf_baseline] 跳过：未设置 MF_PERF_N（如 10000）。常规测试套件不跑此基准。"
+            );
             return;
         }
     };
 
     println!("\n===== MusicForge 性能基线 (N={n}) =====");
     println!("profile: release (opt-level=\"z\", lto, panic=abort) — 即实际分发档");
-    println!("机器: {} 逻辑核", std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0));
+    println!(
+        "机器: {} 逻辑核",
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(0)
+    );
 
     // --- 生成 fixture ---
     let t0 = Instant::now();
     let tmp = gen_fixture(n);
     let gen_ms = t0.elapsed().as_secs_f64() * 1000.0;
-    println!("\n[fixture] 生成 {n} 文件耗时 {gen_ms:.1} ms @ {}", tmp.path().display());
+    println!(
+        "\n[fixture] 生成 {n} 文件耗时 {gen_ms:.1} ms @ {}",
+        tmp.path().display()
+    );
 
     let jobs = if ScanOptions::default().parallel_jobs == 0 {
         std::thread::available_parallelism()
@@ -125,9 +137,7 @@ fn perf_baseline() {
     let audio = report.audio;
     let junk = report.junk;
     let other = report.other;
-    println!(
-        "\n[scan] 首扫 {n} 文件 = {scan_s:.3} s  (预算: 10k<10s / 100k<120s)",
-    );
+    println!("\n[scan] 首扫 {n} 文件 = {scan_s:.3} s  (预算: 10k<10s / 100k<120s)",);
     println!(
         "       分类: audio={audio} junk={junk} other={other} | 扫描目录={} 文件={}",
         report.scanned_dirs, report.scanned_files
@@ -149,7 +159,11 @@ fn perf_baseline() {
 
     // --- 哈希：冷（全 miss→流式 sha256）/ 热（全命中，D17 L1）---
     let db = Db::open_in_memory().expect("db");
-    let audio_items: usize = report.items.iter().filter(|i| i.category == Category::Audio).count();
+    let audio_items: usize = report
+        .items
+        .iter()
+        .filter(|i| i.category == Category::Audio)
+        .count();
     let bytes_total = audio_items as u64 * 4096; // 合成音频单文件 4KB
 
     let t = Instant::now();
@@ -170,9 +184,7 @@ fn perf_baseline() {
     let warm = refresh_hash_cache(&db, &report.items);
     let warm_ms = t.elapsed().as_secs_f64() * 1000.0;
     let mem_after_warm = peak_ws_mb();
-    println!(
-        "\n[hash-warm] 增量命中（D17 L1，零文件读取） = {warm_ms:.1} ms",
-    );
+    println!("\n[hash-warm] 增量命中（D17 L1，零文件读取） = {warm_ms:.1} ms",);
     println!(
         "             hashed={} cache_hits={} skipped={}",
         warm.hashed, warm.cache_hits, warm.skipped

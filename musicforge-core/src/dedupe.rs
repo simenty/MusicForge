@@ -109,8 +109,36 @@ pub struct ScoreBreakdown {
     pub has_cover: bool,
     /// 完整性侧车（`<file>.musicforge.json`）存在且 size+sha256 双一致 → +20
     pub verified: bool,
-    /// 降级说明（解析失败等；计入 reason，绝不静默）
-    pub notes: Vec<String>,
+    /// 降级说明（解析失败等；计入 reason，绝不静默）。locale 中立，渲染时按语言展开。
+    pub notes: Vec<DedupeNote>,
+}
+
+/// 展示语言（仅影响评分明细 / 牺牲理由的文案）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Locale {
+    Zh,
+    En,
+}
+
+/// 评分降级说明（locale 中立；渲染时按语言展开，避免把中文塞进数据层）。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum DedupeNote {
+    #[default]
+    Empty,
+    /// 属性解析失败（含底层错误原文，技术细节不译）。
+    AttrParseFailed(String),
+}
+
+impl DedupeNote {
+    pub fn render(&self, locale: Locale) -> String {
+        match self {
+            DedupeNote::Empty => String::new(),
+            DedupeNote::AttrParseFailed(e) => match locale {
+                Locale::Zh => format!("属性解析失败（按未知计 0 分）: {e}"),
+                Locale::En => format!("Attribute parse failed (scored as unknown: 0): {e}"),
+            },
+        }
+    }
 }
 
 impl ScoreBreakdown {
@@ -147,7 +175,12 @@ impl ScoreBreakdown {
 
     /// 明细展开（牺牲项 reason 的组成部分；与 [`Self::total`] 同源，可复算）。
     pub fn detail(&self, max_sample_rate: u32, max_bit_depth: u32) -> String {
-        self.detail_with(&PROFILE_FIDELITY, max_sample_rate, max_bit_depth)
+        self.detail_with_locale(
+            &PROFILE_FIDELITY,
+            max_sample_rate,
+            max_bit_depth,
+            Locale::Zh,
+        )
     }
 
     /// D24：按指定画像展开明细（与 [`Self::total_with`] 同源同权重，可复算）。
@@ -157,42 +190,71 @@ impl ScoreBreakdown {
         max_sample_rate: u32,
         max_bit_depth: u32,
     ) -> String {
-        let mut parts: Vec<String> = Vec::new();
-        parts.push(if self.lossless {
-            format!("无损+{}", p.w_lossless)
+        self.detail_with_locale(p, max_sample_rate, max_bit_depth, Locale::Zh)
+    }
+
+    /// D24 + 语言：按指定画像与语言展开明细。中文与 [`Self::detail_with`] 完全一致；
+    /// 英文把各项权重标签与 `notes` 一并译为英文（数字权重本身不变）。
+    pub fn detail_with_locale(
+        &self,
+        p: &QualityProfile,
+        max_sample_rate: u32,
+        max_bit_depth: u32,
+        locale: Locale,
+    ) -> String {
+        let w_lossless = if self.lossless { p.w_lossless } else { 0 };
+        let w_sr = if max_sample_rate > 0 && self.sample_rate == max_sample_rate {
+            p.w_sample_rate
         } else {
-            "无损+0".to_string()
-        });
-        parts.push(format!(
-            "采样率+{}",
-            if max_sample_rate > 0 && self.sample_rate == max_sample_rate {
-                p.w_sample_rate
-            } else {
-                0
-            }
-        ));
-        parts.push(format!(
-            "位深+{}",
-            if max_bit_depth > 0 && self.bit_depth == max_bit_depth {
-                p.w_bit_depth
-            } else {
-                0
-            }
-        ));
-        parts.push(format!("标签+{}", if self.has_tags { p.w_tags } else { 0 }));
-        parts.push(format!(
-            "封面+{}",
-            if self.has_cover { p.w_cover } else { 0 }
-        ));
-        parts.push(format!(
-            "校验+{}",
-            if self.verified { p.w_verified } else { 0 }
-        ));
+            0
+        };
+        let w_bd = if max_bit_depth > 0 && self.bit_depth == max_bit_depth {
+            p.w_bit_depth
+        } else {
+            0
+        };
+        let w_tags = if self.has_tags { p.w_tags } else { 0 };
+        let w_cover = if self.has_cover { p.w_cover } else { 0 };
+        let w_verified = if self.verified { p.w_verified } else { 0 };
+        let (l_lossless, l_sr, l_bd, l_tags, l_cover, l_verified, sep) = match locale {
+            Locale::Zh => ("无损", "采样率", "位深", "标签", "封面", "校验", "；"),
+            Locale::En => (
+                "Lossless",
+                "Sample rate",
+                "Bit depth",
+                "Tags",
+                "Cover",
+                "Verified",
+                "; ",
+            ),
+        };
+        let parts = [
+            format!("{l_lossless}+{w_lossless}"),
+            format!("{l_sr}+{w_sr}"),
+            format!("{l_bd}+{w_bd}"),
+            format!("{l_tags}+{w_tags}"),
+            format!("{l_cover}+{w_cover}"),
+            format!("{l_verified}+{w_verified}"),
+        ];
         let mut s = parts.join(" ");
         for n in &self.notes {
-            s.push_str(&format!("；{n}"));
+            let r = n.render(locale);
+            if !r.is_empty() {
+                s.push_str(sep);
+                s.push_str(&r);
+            }
         }
         s
+    }
+
+    /// 便捷：用默认画像（D24 固定权重）按语言展开明细，无需调用方持有 `QualityProfile`。
+    pub fn detail_locale(
+        &self,
+        max_sample_rate: u32,
+        max_bit_depth: u32,
+        locale: Locale,
+    ) -> String {
+        self.detail_with_locale(&PROFILE_FIDELITY, max_sample_rate, max_bit_depth, locale)
     }
 }
 
@@ -238,7 +300,7 @@ fn score_file(path: &Path, size: u64, sha256: &str) -> ScoreBreakdown {
             });
             sc.has_cover = tagged.tags().iter().any(|t| !t.pictures().is_empty());
         }
-        Err(e) => sc.notes.push(format!("属性解析失败（按未知计 0 分）: {e}")),
+        Err(e) => sc.notes.push(DedupeNote::AttrParseFailed(format!("{e}"))),
     }
     sc
 }
@@ -347,24 +409,61 @@ impl DupGroup {
 
     /// D24：按指定画像展开牺牲项 reason（与 [`Self::sacrifice_reason`] 同构，可复算）。
     pub fn sacrifice_reason_with(&self, p: &QualityProfile, f: &DedupeFile) -> String {
+        self.sacrifice_reason_with_locale(p, f, Locale::Zh)
+    }
+
+    /// D24 + 语言：按指定画像与语言展开牺牲项 reason。中文与 [`Self::sacrifice_reason_with`]
+    /// 完全一致；英文把模板（含平局说明）译为英文，`sha256` 截断与得分不变。
+    pub fn sacrifice_reason_with_locale(
+        &self,
+        p: &QualityProfile,
+        f: &DedupeFile,
+        locale: Locale,
+    ) -> String {
         let keep = self.keep_with(p);
         let (mr, md) = self.maxima();
         let tie = self
             .files
             .iter()
             .all(|x| x.score.total_with(p, mr, md) == keep.score.total_with(p, mr, md));
+        let (p1, p2, p3, p4, p5, p6) = match locale {
+            Locale::Zh => (
+                "完全重复（sha256 ",
+                "…）：得分 ",
+                " [",
+                "]；保留 ",
+                "（得分 ",
+                "）",
+            ),
+            Locale::En => (
+                "Exact duplicate (sha256 ",
+                "…): score ",
+                " [",
+                "]; keep ",
+                " (score ",
+                ")",
+            ),
+        };
         let mut r = format!(
-            "完全重复（sha256 {}…）：得分 {} [{}]；保留 {}（得分 {}）",
+            "{p1}{}{p2}{}{p3}{}{p4}{}{p5}{}{p6}",
             &self.sha256[..8.min(self.sha256.len())],
             f.score.total_with(p, mr, md),
-            f.score.detail_with(p, mr, md),
+            f.score.detail_with_locale(p, mr, md, locale),
             keep.path.display(),
             keep.score.total_with(p, mr, md),
         );
         if tie {
-            r.push_str("；全体平分，优先保留无 (N) 重复标记的文件名，仍平分取路径字典序最小");
+            r.push_str(match locale {
+                Locale::Zh => "；全体平分，优先保留无 (N) 重复标记的文件名，仍平分取路径字典序最小",
+                Locale::En => "; all tied: prefer the filename without the (N) duplicate marker; on continued tie, take the lexicographically smallest path",
+            });
         }
         r
+    }
+
+    /// 便捷：用默认画像（D24 固定权重）按语言展开牺牲项 reason，无需调用方持有 `QualityProfile`。
+    pub fn sacrifice_reason_locale(&self, f: &DedupeFile, locale: Locale) -> String {
+        self.sacrifice_reason_with_locale(&PROFILE_FIDELITY, f, locale)
     }
 }
 
@@ -416,30 +515,55 @@ impl SameNameGroup {
 
     /// 候选牺牲项 reason（仅报告；`--include-same-name` 时随 apply 进回收站）。
     pub fn candidate_reason(&self, f: &DedupeFile) -> String {
-        let keep = self.keep();
-        let (mr, md) = self.maxima();
-        format!(
-            "同名不同内容（{}.*）：得分 {} [{}]；建议保留 {}（得分 {}）",
-            self.stem,
-            f.score.total(mr, md),
-            f.score.detail(mr, md),
-            keep.path.display(),
-            keep.score.total(mr, md),
-        )
+        self.candidate_reason_with_locale(&PROFILE_FIDELITY, f, Locale::Zh)
     }
 
     /// D24：按指定画像展开候选牺牲项 reason（可复算）。
     pub fn candidate_reason_with(&self, p: &QualityProfile, f: &DedupeFile) -> String {
+        self.candidate_reason_with_locale(p, f, Locale::Zh)
+    }
+
+    /// D24 + 语言：按指定画像与语言展开候选牺牲项 reason。中文与 [`Self::candidate_reason_with`]
+    /// 完全一致；英文把模板译为英文，`sha256` 截断与得分不变。
+    pub fn candidate_reason_with_locale(
+        &self,
+        p: &QualityProfile,
+        f: &DedupeFile,
+        locale: Locale,
+    ) -> String {
         let keep = self.keep_with(p);
         let (mr, md) = self.maxima();
+        let (p1, p2, p3, p4, p5, p6) = match locale {
+            Locale::Zh => (
+                "同名不同内容（",
+                ".*）：得分 ",
+                " [",
+                "]；建议保留 ",
+                "（得分 ",
+                "）",
+            ),
+            Locale::En => (
+                "Same name but different content (",
+                ".*): score ",
+                " [",
+                "]; suggested keep ",
+                " (score ",
+                ")",
+            ),
+        };
         format!(
-            "同名不同内容（{}.*）：得分 {} [{}]；建议保留 {}（得分 {}）",
+            "{p1}{}{p2}{}{p3}{}{p4}{}{p5}{}{p6}",
             self.stem,
             f.score.total_with(p, mr, md),
-            f.score.detail_with(p, mr, md),
+            f.score.detail_with_locale(p, mr, md, locale),
             keep.path.display(),
             keep.score.total_with(p, mr, md),
         )
+    }
+
+    /// 便捷：用默认画像（D24 固定权重）按语言展开候选牺牲项 reason。
+    pub fn candidate_reason_locale(&self, f: &DedupeFile, locale: Locale) -> String {
+        self.candidate_reason_with_locale(&PROFILE_FIDELITY, f, locale)
     }
 }
 
