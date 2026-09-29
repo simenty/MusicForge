@@ -506,7 +506,7 @@ pub fn scan_library(root: &Path, options: &ScanOptions) -> Result<ScanReport, Nc
     });
 
     // 锁中毒恢复：任一 worker panic 都会污染这把锁，此处再 unwrap 会二次 panic。
-    let st = match state.into_inner() {
+    let mut st = match state.into_inner() {
         Ok(s) => s,
         Err(p) => p.into_inner(),
     };
@@ -535,11 +535,17 @@ pub fn scan_library(root: &Path, options: &ScanOptions) -> Result<ScanReport, Nc
         }
     }
     // X25 输出确定性：items / empty_dirs / unauthorized_dirs 全局按路径排序
-    report.items = st
-        .outcomes
-        .iter()
-        .flat_map(|o| o.items.iter().cloned())
-        .collect::<Vec<_>>();
+    // PF-1（性能审计 2026-09-29）：原实现 `.flat_map(|o| o.items.iter().cloned())`
+    // 把每个目录的 items **克隆**一份进 report.items，而 `st.outcomes` 此刻仍持有
+    // 原始副本 → 全量 items 同时在世两份（100k 实测净增 47.4MB 中约一半是这份冗余，
+    // 单份成本 ~180B/项，与 ScanItem 内联+路径堆分配的量级一致）。
+    // 改为**移出**：append + 预留精确容量，只有一份，且免除 Vec 倍增的容量浪费。
+    // 输出不变：移出顺序与原 flat_map 一致，随后同样全局按路径稳定排序。
+    let items_cap: usize = st.outcomes.iter().map(|o| o.items.len()).sum();
+    report.items = Vec::with_capacity(items_cap);
+    for o in st.outcomes.iter_mut() {
+        report.items.append(&mut o.items); // 移动，零克隆
+    }
     report.items.sort_by(|a, b| a.path.cmp(&b.path));
     report.empty_dirs.sort();
     report.unauthorized_dirs.sort();
@@ -625,6 +631,13 @@ pub fn refresh_hash_cache(db: &crate::db::Db, items: &[ScanItem]) -> HashRefresh
     // P1-10：先算（含文件读取）再**单事务**批量回写，避免十万文件 = 十万次
     // autocommit。文件读取在事务外进行（不长期持锁）；写入幂等（ON CONFLICT
     // DO UPDATE），整批失败可安全重试（增量缓存本就按 size+mtime 重算）。
+    // PF-1（性能审计 2026-09-29）：哈希缓存回写改为**分块刷盘**——每满
+    // `HASH_FLUSH_ROWS` 行即写一个事务。原实现把全部行攒在内存再一次写入
+    // （9 万音频 ≈ 20MB 常驻），是 §4.3「哈希内存≤64MB」的主要占用；分块后
+    // 常驻被钳在一块的大小。事务数仍只有 N/4096 次（远非逐行 autocommit），
+    // 且写入幂等（ON CONFLICT DO UPDATE），分块与整批在失败语义上等价
+    // （db 失败按既有策略忽略：缓存失败绝不影响扫描结论）。
+    const HASH_FLUSH_ROWS: usize = 4096;
     let mut batch: Vec<FileIndexRow> = Vec::new();
     for item in items {
         if item.category != Category::Audio {
@@ -654,6 +667,11 @@ pub fn refresh_hash_cache(db: &crate::db::Db, items: &[ScanItem]) -> HashRefresh
                 batch.push((key, item.size as i64, Some(mtime), ext, Some(sha)));
             }
             None => st.skipped += 1,
+        }
+        // 满一块即刷盘（PF-1：把常驻内存钳在一块大小，而非攒满全部行）
+        if batch.len() >= HASH_FLUSH_ROWS {
+            let _ = db.upsert_files_batch(&batch);
+            batch.clear();
         }
     }
     // 批量回写（DB 写入失败按既有策略忽略——缓存失败绝不影响扫描结论）
