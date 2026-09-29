@@ -60,6 +60,8 @@ function api(over: Partial<PlayerApi> = {}, status: Partial<PlayerSnapshot> | nu
     seek: vi.fn(async () => {}),
     setVolume: vi.fn(),
     stop: vi.fn(async () => {}),
+    queueDesynced: false,
+    resyncQueue: vi.fn(async () => {}),
   };
   return { ...base, ...over };
 }

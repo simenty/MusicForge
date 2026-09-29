@@ -52,6 +52,8 @@ function api(positionMs = 1000): PlayerApi {
     stop: vi.fn(async () => {}),
     mode: "normal",
     setMode: vi.fn(async () => {}),
+    queueDesynced: false,
+    resyncQueue: vi.fn(async () => {}),
   };
 }
 

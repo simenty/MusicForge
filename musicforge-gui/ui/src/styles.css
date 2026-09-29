@@ -1803,6 +1803,8 @@ code,
 .pb-vol input[type="range"] { width: 90px; }
 .pb-time { font-size: var(--fs-xs); color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pb-err { grid-column: 1 / -1; font-size: var(--fs-xs); color: var(--danger); }
+.pb-desync { grid-column: 1 / -1; font-size: var(--fs-xs); color: #c08a2d; display: flex; align-items: center; gap: 8px; }
+.pb-desync button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
 @media (max-width: 860px) {
   .player-bar { grid-template-columns: minmax(0, 1fr) auto; padding: 8px var(--sp-4); }
   .pb-right { display: none; }

@@ -351,4 +351,32 @@ describe("usePlayer (P2-21)", () => {
     expect(mockStop).toHaveBeenCalled();
     expect(mockSetMode).toHaveBeenCalledWith("shuffle");
   });
+
+  // ---- PQ-3：前端副本与引擎权威队列的失同步检测 + 主动修复 ----
+  it("PQ-3：引擎 queueLen 持续大于前端队列长度 → queueDesynced 置真", async () => {
+    // 真实失同步形态：引擎快照报告 3 首，但前端副本为空（用户看不到的孤儿队列）
+    mockStatus.mockResolvedValue(snap({ queueLen: 3, queueIndex: 0 }));
+    const { result } = renderHook(() => usePlayer());
+    // 连击 >= 2 才置真（过滤乐观更新后下一轮询尚未回写的瞬时不一致）；约 1 个轮询周期
+    await waitFor(() => expect(result.current.queueDesynced).toBe(true), { timeout: 3000 });
+  });
+
+  it("PQ-3：resyncQueue 以前端副本重建引擎队列并清零 desynced", async () => {
+    mockStatus.mockResolvedValue(snap({ queueLen: 3, queueIndex: 0 }));
+    const { result } = renderHook(() => usePlayer());
+    await waitFor(() => expect(result.current.queueDesynced).toBe(true), { timeout: 3000 });
+    // 前端先有一首，resync 应以该副本重建引擎队列（续播 index 0）
+    await act(async () => {
+      await result.current.playTracks([track(7)], 0);
+    });
+    mockStatus.mockResolvedValue(snap({ queueLen: 1, queueIndex: 0 }));
+    await act(async () => {
+      await result.current.resyncQueue();
+    });
+    expect(mockPlayQueue).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ trackId: 7 })]),
+      expect.any(Number),
+    );
+    expect(result.current.queueDesynced).toBe(false);
+  });
 });

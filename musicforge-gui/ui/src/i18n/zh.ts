@@ -376,6 +376,9 @@ export const zh = {
     like: "喜欢",
     unlike: "取消喜欢",
     errorPrefix: (msg: string) => `播放错误：${msg}`,
+    // PQ-3：前端队列副本与引擎权威队列失同步时的提示
+    queueDesynced: "队列与播放引擎不一致，可重新同步",
+    resync: "重新同步",
     desktopOnly: "播放需要桌面版",
     // —— P6 歌词（LRCLIB）——
     lyrics: "歌词",

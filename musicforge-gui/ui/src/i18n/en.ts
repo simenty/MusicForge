@@ -375,6 +375,9 @@ export const en: typeof zh = {
     like: "Like",
     unlike: "Unlike",
     errorPrefix: (msg: string) => `Playback error: ${msg}`,
+    // PQ-3: shown when the frontend queue copy is desynced from the engine
+    queueDesynced: "Queue is out of sync with the player engine — resync available",
+    resync: "Resync",
     desktopOnly: "Playback requires the desktop build",
     // —— P6 lyrics (LRCLIB) ——
     lyrics: "Lyrics",

@@ -422,6 +422,14 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
           {t.player.errorPrefix(status.error)}
         </div>
       )}
+      {player.queueDesynced && (
+        <div className="pb-desync" role="alert">
+          <span>{t.player.queueDesynced}</span>
+          <button type="button" onClick={() => void player.resyncQueue()}>
+            {t.player.resync}
+          </button>
+        </div>
+      )}
       </footer>
 
       {/* P6：歌词面板（LRCLIB；打开且未缓存时联网一次） */}

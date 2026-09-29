@@ -64,11 +64,20 @@ export interface PlayerApi {
   mode: PlayMode;
   /** 设置播放模式（P6.18） */
   setMode: (mode: PlayMode) => Promise<void>;
+  /** PQ-3：前端队列副本与引擎权威队列失同步（queueLen 持续比对不一致）→ 提示重新同步 */
+  queueDesynced: boolean;
+  /** PQ-3：以前端队列副本重建引擎队列并续播当前位置（主动修复失同步） */
+  resyncQueue: () => Promise<void>;
 }
 
 export function usePlayer(): PlayerApi {
   const [status, setStatus] = useState<PlayerSnapshot | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
+  // PQ-3：前端队列副本与引擎权威队列的失同步标志（审计报告 PQ-2：快照不含队列内容，
+  // 失同步为永久性且无提示，故需前端主动检测并提示）
+  const [queueDesynced, setQueueDesynced] = useState(false);
+  // 失同步连击计数：过滤「乐观更新后、下一轮询尚未回写」的瞬时不一致
+  const desyncStreak = useRef(0);
   // 队列旧值镜像（乐观更新失败回滚需要；与下方 statusRef 同写法）
   const queueRef = useRef(queue);
   queueRef.current = queue;
@@ -82,7 +91,18 @@ export function usePlayer(): PlayerApi {
     const tick = async () => {
       try {
         const s = await playerStatus();
-        if (alive.current) setStatus(s);
+        if (!alive.current) return;
+        setStatus(s);
+        // PQ-3：比对引擎快照 queueLen 与前端队列副本长度。不一致即前端副本与
+        // 引擎权威队列失同步（审计报告 PQ-2：快照不含队列内容，失同步为永久性
+        // 且无提示）。连击计数过滤乐观更新后、下一轮询尚未回写的瞬时不一致
+        // （通常 1 个轮询周期内引擎即应用成功，streak 不会到 2）。
+        if (queueRef.current.length !== s.queueLen) {
+          desyncStreak.current += 1;
+        } else {
+          desyncStreak.current = 0;
+        }
+        setQueueDesynced(desyncStreak.current >= 2);
       } catch {
         /* 引擎暂不可用：静默，下轮重试 */
       }
@@ -322,6 +342,22 @@ export function usePlayer(): PlayerApi {
     }, 120);
   }, []);
 
+  // PQ-3：以**前端队列副本**（显示权威源）重建引擎队列并续播当前位置。
+  // 检测到失同步后由用户主动触发——比让引擎单边修正更安全：前端副本才是
+  // 用户看到的顺序。重建会从此刻曲目开头续播。
+  const resyncQueue = useCallback(async () => {
+    const items = queueRef.current;
+    if (items.length === 0) return;
+    const idx = statusRef.current?.queueIndex ?? 0;
+    try {
+      await playerPlayQueue(items, idx);
+      desyncStreak.current = 0;
+      setQueueDesynced(false); // 重建成功：下一轮询收敛，立即清标志避免闪烁
+    } catch {
+      // 引擎不可用：保留 desynced 标志，提示不消失
+    }
+  }, []);
+
   return {
     status,
     playing: status?.state === "playing",
@@ -345,5 +381,7 @@ export function usePlayer(): PlayerApi {
     setVolume,
     stop,
     setMode,
+    queueDesynced,
+    resyncQueue,
   };
 }
