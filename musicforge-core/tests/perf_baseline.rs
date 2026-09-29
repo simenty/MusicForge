@@ -7,6 +7,10 @@
 //! cargo test --release --test perf_baseline -- --nocapture
 //! ```
 //!
+//! **回归门禁（PF-5）**：设置 `MF_PERF_N` 后测试即**断言**各项预算。阈值留足
+//! 机器间方差余量，只对「灾难性回归」报警（如 PF-1 的 2× 内存峰值、扫描/Plan
+//! 显著变慢），避免 CI 误红。任一断言失败 → 测试失败 → CI 转红。
+//!
 //! 设计要点：
 //! - 合成 fixture（非真实音频内容，仅体积/扩展名/命名以驱动分类与哈希 IO）；
 //! - 首扫 = `scan_library`（纯元数据遍历+分类，§4.3「N 扫描」主体）；
@@ -195,8 +199,36 @@ fn perf_baseline() {
         mem_after_scan, mem_after_cold, mem_after_warm
     );
 
-    // --- 结论摘要 ---
+    // --- 回归门禁（PF-5）---
+    // 本测试仅在设置 MF_PERF_N 时运行，故下方断言即门禁：一旦性能回归
+    // （如 PF-1 的 2× 内存峰值、扫描/Plan 显著变慢）测试即失败、CI 转红。
+    // 阈值留足机器间方差余量，只对「灾难性回归」报警，避免 CI 误红：
+    // - 内存：仅 Windows（peak_ws 唯一有效口径）断言 ≤85MB（观测 ~59MB，
+    //   2× 峰值 ~95MB 必触发；§4.3 预算为 64MB）；
+    // - 时间：预算 ×2 余量（扫描 100k<240s、Plan<10s、哈希热<2s）。
     let scan_budget = if n <= 10_000 { 10.0 } else { 120.0 };
+    let scan_gate = scan_budget * 2.0;
+    assert!(
+        scan_s <= scan_gate,
+        "[PERF-GATE] 首扫 {scan_s:.3}s 超过门禁 {scan_gate:.1}s（预算 {scan_budget}s ×2 余量）"
+    );
+    assert!(
+        plan_ms <= 10_000.0,
+        "[PERF-GATE] Plan {plan_ms:.1}ms 超过门禁 10000ms（预算 5000ms ×2 余量）"
+    );
+    assert!(
+        warm_ms <= 2000.0,
+        "[PERF-GATE] 哈希热 {warm_ms:.1}ms 超过门禁 2000ms"
+    );
+    if let Some(m) = mem_after_warm {
+        assert!(
+            m <= 85.0,
+            "[PERF-GATE] 哈希内存峰值 {m:.1}MB 超过门禁 85MB（§4.3 ≤64MB；观测 ~59MB，2× 峰值必触发）"
+        );
+    } else {
+        println!("[PERF-GATE] 内存峰值不可测（非 Windows），跳过内存门禁");
+    }
+
     println!(
         "\n===== 小结 =====\n  首扫: {scan_s:.3}s / 预算 {scan_budget}s -> {}\n  Plan: {plan_ms:.1}ms / 预算 5000ms -> {}\n  哈希内存: {:.1?}MB / 预算 64MB -> {}",
         if scan_s <= scan_budget { "PASS" } else { "FAIL" },
