@@ -50,6 +50,26 @@ export default function MediaHome({
       .catch((e: unknown) => setErr(String(e)));
   }, []);
 
+  // P2-16：playFrom 改为稳定 useCallback（依赖稳定原语），配合 TrackRow memo。
+  // 必须置于所有 early return 之前——否则触发分支渲染时 hook 数量不一致
+  // （react-hooks/rules-of-hooks 报错）。依赖（onPlay/recent/onQueue/onPlayNext/selApi）均在上方已就位。
+  const handlePlay = useCallback(
+    (tr: Track) => {
+      if (!onPlay) return;
+      const idx = recent.findIndex((x) => x.id === tr.id);
+      void onPlay(recent, idx >= 0 ? idx : 0);
+    },
+    [onPlay, recent]
+  );
+
+  // P2-16：行内动作稳定化，配合 TrackRow memo
+  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
+  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
+  const handleToggleSelect = useCallback(
+    (tr: Track) => selApi.toggle(String(tr.id)),
+    [selApi.toggle]
+  );
+
   if (!IS_DESKTOP) {
     return (
       <div className="media-empty">
@@ -90,24 +110,6 @@ export default function MediaHome({
       : hour < 18
         ? t.media.greetingAfternoon
         : t.media.greetingEvening;
-
-  // P2-16：playFrom 改为稳定 useCallback（依赖稳定原语），配合 TrackRow memo
-  const handlePlay = useCallback(
-    (tr: Track) => {
-      if (!onPlay) return;
-      const idx = recent.findIndex((x) => x.id === tr.id);
-      void onPlay(recent, idx >= 0 ? idx : 0);
-    },
-    [onPlay, recent]
-  );
-
-  // P2-16：行内动作稳定化，配合 TrackRow memo
-  const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
-  const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
-  const handleToggleSelect = useCallback(
-    (tr: Track) => selApi.toggle(String(tr.id)),
-    [selApi.toggle]
-  );
 
   // P6.19 批量操作：多选后批量加入队列 / 下一首播放（selApi 已在顶部初始化）
   const selectedTracks = recent.filter((x) => selApi.sel.has(String(x.id)));
