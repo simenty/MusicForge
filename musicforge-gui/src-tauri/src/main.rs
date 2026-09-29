@@ -708,7 +708,7 @@ mod tests {
         let err =
             format_migrate_core("kwm-migration", "C:/music/song.kwm", None, None).unwrap_err();
         assert!(err.contains("MF-PLUGIN-NOT-FOUND"), "{err}");
-        assert!(err.contains("建议"), "必须带可操作建议: {err}");
+        assert!(err.contains("suggestion"), "must include actionable suggestion: {err}");
         // output_dir 缺省 → 源父目录语义（不 panic）
         let err2 = format_migrate_core(
             "kwm-migration",
@@ -800,10 +800,10 @@ mod tests {
 
         // 空名拒绝
         let err = plugins_set_enabled_inner(&cfg_path, vec!["  ".into()]).unwrap_err();
-        assert!(err.contains("不得为空"), "{err}");
+        assert!(err.contains("must not be empty"), "{err}");
         // 重复名拒绝
         let err = plugins_set_enabled_inner(&cfg_path, vec!["a".into(), "a".into()]).unwrap_err();
-        assert!(err.contains("重复"), "{err}");
+        assert!(err.contains("duplicate"), "{err}");
         // 失败路径不得破坏既有配置
         let cfg2 = musicforge_core::config::AppConfig::load(&cfg_path).unwrap();
         assert_eq!(cfg2.plugins.enabled.len(), 2, "被拒绝的调用不得改写配置");

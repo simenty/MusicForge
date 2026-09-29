@@ -326,7 +326,7 @@ impl PlayerHandle {
     }
 
     fn send(&self, cmd: Cmd) -> Result<(), String> {
-        self.tx.send(cmd).map_err(|_| "播放引擎不可用".to_string())
+        self.tx.send(cmd).map_err(|_| "playback engine unavailable".to_string())
     }
 }
 
@@ -503,7 +503,7 @@ impl Engine {
     /// 解码线程报告解码器就绪：建/重建 cpal 流、开始播放、写历史（B9 解耦）。
     fn on_worker_ready(&mut self, spec: (u32, u16)) {
         if let Err(e) = self.ensure_stream(spec) {
-            self.fail(format!("音频输出启动失败: {e}"));
+            self.fail(format!("audio output failed to start: {e}"));
             return;
         }
         let tid = self.shared.lock_snapshot().track_id;
@@ -541,7 +541,7 @@ impl Engine {
         let (stream, tx) = build_output(spec.0, spec.1, Arc::clone(&self.shared))?;
         stream
             .play()
-            .map_err(|e| format!("音频输出启动失败: {e}"))?;
+            .map_err(|e| format!("audio output failed to start: {e}"))?;
         self.stream = Some(stream);
         if let Ok(mut g) = self.out_tx.lock() {
             *g = Some(tx);
@@ -882,7 +882,7 @@ impl DecodeWorker {
                                 Err(e) => {
                                     let _ = self
                                         .event_tx
-                                        .send(WorkerEvent::Error(format!("无法打开 {path}: {e}")));
+                                        .send(WorkerEvent::Error(format!("failed to open {path}: {e}")));
                                 }
                             }
                         }
@@ -891,7 +891,7 @@ impl DecodeWorker {
                                 if let Err(e) = d.seek(ms) {
                                     let _ = self
                                         .event_tx
-                                        .send(WorkerEvent::Error(format!("跳转失败: {e}")));
+                                        .send(WorkerEvent::Error(format!("seek failed: {e}")));
                                 }
                             }
                         }
@@ -933,7 +933,7 @@ impl DecodeWorker {
                                 Err(e) => {
                                     let _ = self
                                         .event_tx
-                                        .send(WorkerEvent::Error(format!("解码失败: {e}")));
+                                        .send(WorkerEvent::Error(format!("decode failed: {e}")));
                                     dec = None;
                                 }
                             }
@@ -968,7 +968,7 @@ fn build_output(
     let host = cpal::default_host();
     let device = host
         .default_output_device()
-        .ok_or_else(|| "系统没有可用的音频输出设备".to_string())?;
+        .ok_or_else(|| "no available audio output device on this system".to_string())?;
 
     // 支持性预检：错误信息比 cpal 的 BuildStreamError 更可操作
     let mut supported_range = false;
@@ -1000,7 +1000,7 @@ fn build_output(
     match build_typed::<f32>(&device, &cfg, Arc::clone(&shared)) {
         Ok(pair) => Ok(pair),
         Err(_) => {
-            build_typed::<i16>(&device, &cfg, shared).map_err(|e| format!("无法建立音频输出: {e}"))
+            build_typed::<i16>(&device, &cfg, shared).map_err(|e| format!("failed to build audio output: {e}"))
         }
     }
 }
@@ -1142,7 +1142,7 @@ impl SymDecoder {
     /// 打开文件并**预读首块**——采样率/声道以真实解码结果为准
     /// （容器头的 codec_params 可能缺失或与真实帧不符）。
     fn open(path: &Path) -> Result<Self, String> {
-        let file = std::fs::File::open(path).map_err(|e| format!("打开文件失败: {e}"))?;
+        let file = std::fs::File::open(path).map_err(|e| format!("failed to open file: {e}"))?;
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
         let mut hint = Hint::new();
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
@@ -1150,15 +1150,15 @@ impl SymDecoder {
         }
         let probed = symphonia::default::get_probe()
             .format(&hint, mss, &Default::default(), &Default::default())
-            .map_err(|e| format!("无法识别的音频格式: {e}"))?;
+            .map_err(|e| format!("unrecognized audio format: {e}"))?;
         let format = probed.format;
         let track = format
             .default_track()
-            .ok_or_else(|| "没有可播放的音轨".to_string())?;
+            .ok_or_else(|| "no playable tracks".to_string())?;
         let track_id = track.id;
         let decoder = symphonia::default::get_codecs()
             .make(&track.codec_params, &Default::default())
-            .map_err(|e| format!("不支持的编码: {e}"))?;
+            .map_err(|e| format!("unsupported codec: {e}"))?;
 
         let mut dec = Self {
             format,
@@ -1174,10 +1174,10 @@ impl SymDecoder {
         let first = dec.decode_next()?;
         match first {
             Some(data) => dec.pending = Some(data),
-            None => return Err("音频文件没有可解码的数据".to_string()),
+            None => return Err("audio file contains no decodable data".to_string()),
         }
         if dec.sample_rate == 0 || dec.channels == 0 {
-            return Err("未能确定音频参数".to_string());
+            return Err("failed to determine audio parameters".to_string());
         }
         Ok(dec)
     }
@@ -1204,7 +1204,7 @@ impl SymDecoder {
                     self.eof = true;
                     return Ok(None);
                 }
-                Err(e) => return Err(format!("读取数据包失败: {e}")),
+                Err(e) => return Err(format!("failed to read data packet: {e}")),
             };
             if packet.track_id() != self.track_id {
                 continue;
@@ -1228,7 +1228,7 @@ impl SymDecoder {
                         self.sample_buf = Some(SampleBuffer::<f32>::new(frames, spec));
                     }
                     let Some(buf) = self.sample_buf.as_mut() else {
-                        return Err("内部缓冲区初始化失败".to_string());
+                        return Err("internal buffer initialization failed".to_string());
                     };
                     buf.copy_interleaved_ref(audio_buf);
                     self.sample_rate = spec.rate;
@@ -1241,7 +1241,7 @@ impl SymDecoder {
                     self.eof = true;
                     return Ok(None);
                 }
-                Err(e) => return Err(format!("解码失败: {e}")),
+                Err(e) => return Err(format!("decode failed: {e}")),
             }
         }
     }
@@ -1280,7 +1280,7 @@ struct DsdDecoder {
 impl DsdDecoder {
     fn open(path: &Path) -> Result<Self, String> {
         let reader = musicforge_core::formats::dsd::DsdReader::open(path)
-            .map_err(|e| format!("DSD 打开失败: {e}"))?;
+            .map_err(|e| format!("failed to open DSD: {e}"))?;
         let out_rate = reader.out_rate;
         let channels = reader.channels as u16;
         Ok(Self {
@@ -1295,14 +1295,14 @@ impl DsdDecoder {
         let v = self
             .reader
             .read_pcm_f32(4096)
-            .map_err(|e| format!("DSD 解码失败: {e}"))?;
+            .map_err(|e| format!("DSD decode failed: {e}"))?;
         Ok(if v.is_empty() { None } else { Some(v) })
     }
 
     fn seek(&mut self, ms: i64) -> Result<(), String> {
         self.reader
             .seek_ms(ms)
-            .map_err(|e| format!("DSD 定位失败: {e}"))
+            .map_err(|e| format!("failed to seek DSD: {e}"))
     }
 }
 
@@ -1329,7 +1329,7 @@ impl ActiveDecoder {
             Ok(d) => Ok(Self::Sym(d)),
             Err(e) => FfmpegDecoder::open(path, 0)
                 .map(Self::Ff)
-                .map_err(|fe| format!("{e}；ffmpeg 回退失败：{fe}")),
+                .map_err(|fe| format!("{e}; ffmpeg fallback failed: {fe}")),
         }
     }
 
@@ -1427,11 +1427,11 @@ impl FfmpegDecoder {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|e| format!("启动 ffmpeg 失败: {e}"))?;
+            .map_err(|e| format!("failed to start ffmpeg: {e}"))?;
         let stdout = proc
             .stdout
             .take()
-            .ok_or_else(|| "ffmpeg stdout 不可用".to_string())?;
+            .ok_or_else(|| "ffmpeg stdout unavailable".to_string())?;
         Ok(Self {
             proc,
             stdout: std::io::BufReader::new(stdout),
@@ -1456,7 +1456,7 @@ impl FfmpegDecoder {
             match self.stdout.read(&mut buf[filled..]) {
                 Ok(0) => break,
                 Ok(n) => filled += n,
-                Err(e) => return Err(format!("读取 ffmpeg 输出失败: {e}")),
+                Err(e) => return Err(format!("failed to read ffmpeg output: {e}")),
             }
         }
         if filled == 0 {

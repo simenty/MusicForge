@@ -97,10 +97,10 @@ pub fn plugins_set_enabled_inner(
     for name in &enabled {
         let name = name.trim();
         if name.is_empty() {
-            return Err("插件名不得为空".to_string());
+            return Err("plugin name must not be empty".to_string());
         }
         if !seen.insert(name.to_string()) {
-            return Err(format!("重复的插件名: {name}"));
+            return Err(format!("duplicate plugin name: {name}"));
         }
     }
     let mut cfg =
@@ -122,7 +122,7 @@ pub fn plugins_set_enabled(enabled: Vec<String>) -> Result<serde_json::Value, St
 /// （格式迁移类：在授权工作根内读写文件）。
 pub fn plugins_acknowledge_inner(config_path: &Path, name: &str) -> Result<(), String> {
     if name.trim().is_empty() {
-        return Err("插件名不得为空".to_string());
+        return Err("plugin name must not be empty".to_string());
     }
     let mut cfg =
         musicforge_core::config::AppConfig::load(config_path).map_err(|e| e.to_string())?;
@@ -184,7 +184,7 @@ pub fn format_migrate_core(
             .unwrap_or_default(),
     };
     let output_path = musicforge_cli::format_migrate(plugin, source, &out_dir, None, ekey)
-        .map_err(|e| format!("{}: {e} | 建议: {}", e.code(), e.suggestion()))?;
+        .map_err(|e| format!("{}: {e} | suggestion: {}", e.code(), e.suggestion()))?;
     Ok(serde_json::json!({ "outputPath": output_path }))
 }
 

@@ -99,7 +99,7 @@ pub async fn cue_split(cue_path: String, out_dir: String) -> Result<serde_json::
         })
     })
     .await
-    .map_err(|e| format!("任务执行失败：{e}"))?
+    .map_err(|e| format!("task execution failed: {e}"))?
     .map_err(|e| e.to_string())?;
 
     Ok(serde_json::json!({

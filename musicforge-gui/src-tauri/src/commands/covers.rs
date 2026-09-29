@@ -119,7 +119,7 @@ pub async fn cover_fetch(album_id: i64) -> Result<Option<String>, String> {
         let a = albums
             .into_iter()
             .find(|a| a.id == album_id)
-            .ok_or_else(|| format!("专辑 {album_id} 不存在"))?;
+            .ok_or_else(|| format!("album {album_id} does not exist"))?;
         (a.title, a.artist.unwrap_or_default(), a.year)
     };
 
@@ -127,7 +127,7 @@ pub async fn cover_fetch(album_id: i64) -> Result<Option<String>, String> {
         .user_agent(UA)
         .timeout(Duration::from_secs(30))
         .build()
-        .map_err(|e| format!("HTTP 客户端初始化失败：{e}"))?;
+        .map_err(|e| format!("HTTP client init failed: {e}"))?;
 
     // ① MusicBrainz：release-group 搜索（取相关度过闸的第一条）
     throttle().await;
@@ -137,12 +137,12 @@ pub async fn cover_fetch(album_id: i64) -> Result<Option<String>, String> {
         .query(&[("query", q.as_str()), ("fmt", "json"), ("limit", "1")])
         .send()
         .await
-        .map_err(|e| format!("MusicBrainz 请求失败：{e}"))?
+        .map_err(|e| format!("MusicBrainz request failed: {e}"))?
         .error_for_status()
-        .map_err(|e| format!("MusicBrainz 返回错误：{e}"))?
+        .map_err(|e| format!("MusicBrainz returned an error: {e}"))?
         .json()
         .await
-        .map_err(|e| format!("MusicBrainz 响应解析失败：{e}"))?;
+        .map_err(|e| format!("failed to parse MusicBrainz response: {e}"))?;
 
     let Some(rg) = search
         .release_groups
@@ -174,13 +174,13 @@ pub async fn cover_fetch(album_id: i64) -> Result<Option<String>, String> {
         ))
         .send()
         .await
-        .map_err(|e| format!("Cover Art Archive 请求失败：{e}"))?;
+        .map_err(|e| format!("Cover Art Archive request failed: {e}"))?;
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
     }
     let resp = resp
         .error_for_status()
-        .map_err(|e| format!("Cover Art Archive 返回错误：{e}"))?;
+        .map_err(|e| format!("Cover Art Archive returned an error: {e}"))?;
     let ext = match resp
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
@@ -193,16 +193,16 @@ pub async fn cover_fetch(album_id: i64) -> Result<Option<String>, String> {
     let bytes = resp
         .bytes()
         .await
-        .map_err(|e| format!("封面下载失败：{e}"))?;
+        .map_err(|e| format!("cover download failed: {e}"))?;
     if bytes.len() < 512 {
         return Ok(None); // 可疑小文件不落盘
     }
 
     // ③ 落盘 + 写回 db（core 只存路径，不做 IO）
     let dir = covers_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| format!("无法创建封面目录：{e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create cover directory: {e}"))?;
     let path = dir.join(format!("{album_id}.{ext}"));
-    std::fs::write(&path, &bytes).map_err(|e| format!("封面写入失败：{e}"))?;
+    std::fs::write(&path, &bytes).map_err(|e| format!("failed to write cover: {e}"))?;
     let path_s = path.to_string_lossy().into_owned();
     {
         let db = open_db()?;
@@ -233,24 +233,24 @@ pub async fn cover_set_local(album_id: i64, src_path: String) -> Result<String, 
         .and_then(|e| e.to_str())
         .map(|e| e.to_ascii_lowercase())
         .filter(|e| matches!(e.as_str(), "png" | "jpg" | "jpeg" | "webp"))
-        .ok_or_else(|| format!("不支持的图片格式：{src_path}"))?;
+        .ok_or_else(|| format!("unsupported image format: {src_path}"))?;
     let ext = if ext == "jpeg" {
         "jpg".to_string()
     } else {
         ext
     };
-    let bytes = std::fs::read(src).map_err(|e| format!("读取图片失败：{e}"))?;
+    let bytes = std::fs::read(src).map_err(|e| format!("failed to read image: {e}"))?;
     if bytes.len() < 512 {
-        return Err("图片文件过小，已拒绝".to_string());
+        return Err("image file too small, rejected".to_string());
     }
     let dir = covers_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| format!("无法创建封面目录：{e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create cover directory: {e}"))?;
     // 换格式时旧文件会遗留——先清同专辑的旧封面
     for old_ext in ["jpg", "png", "webp"] {
         let _ = std::fs::remove_file(dir.join(format!("{album_id}.{old_ext}")));
     }
     let path = dir.join(format!("{album_id}.{ext}"));
-    std::fs::write(&path, &bytes).map_err(|e| format!("写入失败：{e}"))?;
+    std::fs::write(&path, &bytes).map_err(|e| format!("write failed: {e}"))?;
     let path_s = path.to_string_lossy().into_owned();
     let db = open_db()?;
     db.set_album_cover(album_id, &path_s)

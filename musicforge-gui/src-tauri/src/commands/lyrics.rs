@@ -74,22 +74,22 @@ pub async fn lyrics_fetch(track_id: i64) -> Result<Option<String>, String> {
         .user_agent(UA)
         .timeout(Duration::from_secs(20))
         .build()
-        .map_err(|e| format!("HTTP 客户端初始化失败：{e}"))?;
+        .map_err(|e| format!("HTTP client init failed: {e}"))?;
     let resp = client
         .get("https://lrclib.net/api/get")
         .query(&q)
         .send()
         .await
-        .map_err(|e| format!("歌词服务请求失败：{e}"))?;
+        .map_err(|e| format!("lyrics service request failed: {e}"))?;
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None); // 库里没有这首
     }
     let data: LrclibResp = resp
         .error_for_status()
-        .map_err(|e| format!("歌词服务返回错误：{e}"))?
+        .map_err(|e| format!("lyrics service returned an error: {e}"))?
         .json()
         .await
-        .map_err(|e| format!("歌词响应解析失败：{e}"))?;
+        .map_err(|e| format!("failed to parse lyrics response: {e}"))?;
     let Some(text) = data.synced_lyrics.or(data.plain_lyrics) else {
         return Ok(None);
     };
@@ -99,8 +99,8 @@ pub async fn lyrics_fetch(track_id: i64) -> Result<Option<String>, String> {
 
     // ④ 落盘（下次直接命中缓存）
     let dir = lyrics_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| format!("无法创建歌词目录：{e}"))?;
-    std::fs::write(&cache, &text).map_err(|e| format!("歌词写入失败：{e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create lyrics directory: {e}"))?;
+    std::fs::write(&cache, &text).map_err(|e| format!("failed to write lyrics: {e}"))?;
     Ok(Some(text))
 }
 

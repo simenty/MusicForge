@@ -275,7 +275,7 @@ pub async fn index_source(source_id: i64) -> Result<serde_json::Value, String> {
             .map_err(|e| e.to_string())?
             .into_iter()
             .find(|s| s.id == source_id)
-            .ok_or_else(|| format!("媒体源 {source_id} 不存在"))?;
+            .ok_or_else(|| format!("media source {source_id} does not exist"))?;
         // P9 审计修复：陈旧清理的保留策略取自配置，与 remove_source/remove_tracks
         // 同源——避免「配置说保留 likes/history、重扫却把它们删掉」。
         let retain = musicforge_core::config::AppConfig::load(
@@ -293,7 +293,7 @@ pub async fn index_source(source_id: i64) -> Result<serde_json::Value, String> {
         .map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| format!("任务执行失败：{e}"))??;
+    .map_err(|e| format!("task execution failed: {e}"))??;
     Ok(outcome_json(&out))
 }
 
@@ -464,6 +464,6 @@ pub async fn sources_add_and_index(
         Ok::<_, String>((id, out))
     })
     .await
-    .map_err(|e| format!("任务执行失败：{e}"))??;
+    .map_err(|e| format!("task execution failed: {e}"))??;
     Ok(serde_json::json!({ "id": id, "outcome": outcome_json(&out) }))
 }

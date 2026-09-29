@@ -93,12 +93,12 @@ pub async fn playlist_export(
             .into_iter()
             .find(|p| p.id == playlist_id)
             .map(|p| p.name)
-            .ok_or_else(|| format!("歌单 {playlist_id} 不存在"))?;
+            .ok_or_else(|| format!("playlist {playlist_id} does not exist"))?;
         let items = db.playlist_tracks(playlist_id).map_err(|e| e.to_string())?;
         (name, items)
     };
     if items.is_empty() {
-        return Err("歌单为空，无可导出内容".to_string());
+        return Err("playlist is empty, nothing to export".to_string());
     }
     let default_name = format!("{}.m3u8", musicforge_core::template::sanitize(&name));
     let chosen = app
@@ -111,7 +111,7 @@ pub async fn playlist_export(
     let Some(p) = chosen else {
         return Ok(None); // 用户取消
     };
-    let dst = p.into_path().map_err(|e| format!("保存路径无效：{e}"))?;
+    let dst = p.into_path().map_err(|e| format!("invalid save path: {e}"))?;
     let entries: Vec<(std::path::PathBuf, String, i64)> = items
         .iter()
         .map(|t| {

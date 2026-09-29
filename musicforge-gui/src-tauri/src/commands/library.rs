@@ -70,7 +70,7 @@ pub async fn plan_batch(args: BatchArgs) -> Result<Vec<serde_json::Value>, Strin
         ))
     })
     .await
-    .map_err(|e| format!("任务执行失败：{e}"))??;
+    .map_err(|e| format!("task execution failed: {e}"))??;
     Ok(rows
         .into_iter()
         .map(|i| {
@@ -119,7 +119,7 @@ pub async fn refresh_library(
         .map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| format!("任务执行失败：{e}"))??;
+    .map_err(|e| format!("task execution failed: {e}"))??;
     Ok(serde_json::json!({
         "dir": dir,
         "dbPath": db_path.display().to_string(),
@@ -149,7 +149,7 @@ pub async fn scan_library(dir: String, recursive: bool) -> Result<serde_json::Va
         .map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| format!("任务执行失败：{e}"))??;
+    .map_err(|e| format!("task execution failed: {e}"))??;
     Ok(serde_json::json!({
         "dir": dir,
         "scannedFiles": report.scanned_files,
@@ -204,7 +204,7 @@ pub async fn dedupe_scan(dir: String) -> Result<serde_json::Value, String> {
         .map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| format!("任务执行失败：{e}"))??;
+    .map_err(|e| format!("task execution failed: {e}"))??;
     let groups: Vec<serde_json::Value> = report
         .groups
         .iter()
@@ -279,13 +279,13 @@ pub fn dedupe_apply(
     sacrifice_paths: Vec<String>,
 ) -> Result<serde_json::Value, String> {
     let dir_canon =
-        std::fs::canonicalize(Path::new(&dir)).map_err(|e| format!("曲库目录不可读: {e}"))?;
+        std::fs::canonicalize(Path::new(&dir)).map_err(|e| format!("library directory not readable: {e}"))?;
     let mut actions = Vec::new();
     for p in &sacrifice_paths {
         let path = PathBuf::from(p);
-        let canon = std::fs::canonicalize(&path).map_err(|e| format!("路径不可读 {p}: {e}"))?;
+        let canon = std::fs::canonicalize(&path).map_err(|e| format!("path not readable {p}: {e}"))?;
         if !canon.is_file() {
-            return Err(format!("牺牲项不是文件: {p}"));
+            return Err(format!("sacrifice item is not a file: {p}"));
         }
         if !canon.starts_with(&dir_canon) {
             return Err(format!(

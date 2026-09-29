@@ -18,7 +18,7 @@ pub fn start_batch(
     {
         let mut cancel = lock_cancel(&state.cancel);
         if state.running.swap(true, Ordering::SeqCst) {
-            return Err("已有转换任务正在运行".to_string());
+            return Err("a conversion task is already running".to_string());
         }
         *cancel = Some(token.clone());
     }
@@ -198,7 +198,7 @@ pub async fn save_failures(
         .blocking_save_file();
 
     let path = match chosen {
-        Some(p) => p.into_path().map_err(|e| format!("保存路径无效：{e}"))?,
+        Some(p) => p.into_path().map_err(|e| format!("invalid save path: {e}"))?,
         None => return Ok(None), // 用户取消
     };
 
@@ -206,7 +206,7 @@ pub async fn save_failures(
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)
-                .map_err(|e| format!("无法创建目录 {}：{e}", parent.display()))?;
+                .map_err(|e| format!("failed to create directory {}: {e}", parent.display()))?;
         }
     }
 
@@ -233,7 +233,7 @@ pub async fn save_failures(
 
     summary
         .export_failures_csv(&path)
-        .map_err(|e| format!("写入失败清单出错：{e}"))?;
+        .map_err(|e| format!("failed to write failure manifest: {e}"))?;
 
     Ok(Some(path.to_string_lossy().into_owned()))
 }
