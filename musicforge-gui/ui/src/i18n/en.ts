@@ -50,6 +50,7 @@ export const en: typeof zh = {
     // P7 audit fix: accessible names for the sidebar / menu button (were hardcoded Chinese)
     navAria: "Main navigation",
     openNav: "Open navigation",
+    closeNav: "Close navigation",
     tokenPlaceholder: "Paste server token (required for API access)",
     // P0-2: section-level error boundary (render failure no longer blanks the whole app)
     errorTitle: "This module failed to render",

@@ -596,8 +596,17 @@ export default function App() {
         </nav>
       </aside>
 
-      {/* 窄屏抽屉遮罩 */}
-      {navOpen && <div className="nav-mask" onClick={() => setNavOpen(false)} aria-hidden="true"></div>}
+      {/* 窄屏抽屉遮罩：点击关闭 —— 用**原生 button**（可聚焦、可键盘触发、可被朗读），
+          替代原 `aria-hidden="true"` 的 div：后者对辅助技术隐藏却承担点击语义，
+          自相矛盾（A11Y-4）。 */}
+      {navOpen && (
+        <button
+          type="button"
+          className="nav-mask"
+          onClick={() => setNavOpen(false)}
+          aria-label={t.app.closeNav}
+        ></button>
+      )}
 
       {/* ---------- 右区：顶栏 + 内容 ---------- */}
       <div className="main-wrap">

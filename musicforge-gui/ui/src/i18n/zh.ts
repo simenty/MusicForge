@@ -55,6 +55,7 @@ export const zh = {
     // 切到英文后屏幕阅读器仍按中文朗读（图标按钮的唯一可访问名却不可本地化）。
     navAria: "主导航",
     openNav: "打开导航",
+    closeNav: "关闭导航",
     tokenPlaceholder: "粘贴服务端 token（未配置则功能不可用）",
     // P0-2：分区级错误边界（渲染异常降级，不再整页白屏）
     errorTitle: "此模块渲染出错",

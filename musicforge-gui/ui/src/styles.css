@@ -1687,7 +1687,8 @@ code,
 .menu-toggle { display: none; }
 .icon-btn { width: 32px; height: 32px; border-radius: var(--r-sm); display: grid; place-items: center; color: var(--text-dim); flex: none; }
 .icon-btn:hover { background: var(--surface-2); color: var(--text); }
-.nav-mask { display: none; }
+/* A11Y-4：遮罩由 div 改为原生 button（可聚焦/可键盘触发），故需重置按钮默认样式 */
+.nav-mask { display: none; border: 0; padding: 0; margin: 0; cursor: pointer; }
 
 /* ---- 窄屏（≤860）：侧栏转抽屉 ---- */
 @media (max-width: 860px) {
