@@ -29,6 +29,24 @@ export type Dict = typeof zh;
 
 const DICTS: Record<Lang, Dict> = { zh, en };
 
+/**
+ * P7 审计（I18N-4/5）：非 React 模块（如 `api.ts`）也要按当前语言取文案，但它们
+ * 拿不到 React context。这里维护一份**模块级镜像**，由 `I18nProvider` 在语言变化时
+ * 同步；未挂载 Provider 时（测试 / 极端环境）回退 `detectLang()`。
+ * 惰性读取——避免模块加载期就触碰 localStorage / navigator。
+ */
+let currentLang: Lang | null = null;
+
+/** 当前语言（**非 React 模块**用；React 组件请继续用 `useLang()`）。 */
+export function getLang(): Lang {
+  return currentLang ?? detectLang();
+}
+
+/** 非 React 模块取字典：`dict().api.serverOnlyOrganize`。 */
+export function dict(): Dict {
+  return DICTS[getLang()];
+}
+
 const LS_KEY = "mf.lang";
 
 /** 初始语言：手动覆盖 > 跟随系统。 */
@@ -58,6 +76,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   // `lang="zh-CN"`，若不同步，切到英文后屏幕阅读器仍用中文语音朗读英文界面
   // （辅助技术按文档语言选发音人/断词规则）。
   useEffect(() => {
+    currentLang = lang; // 同步模块级镜像（非 React 模块经 getLang() / dict() 读取）
     try {
       document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
       // P7 审计：`index.html` 的 `<title>` 写死中文，切语言后标签页/窗口标题不变

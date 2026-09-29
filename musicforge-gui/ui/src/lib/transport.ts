@@ -10,6 +10,9 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { type UnlistenFn } from "@tauri-apps/api/event";
 import { makeNonce, signRequest } from "./hmac";
+// P7 审计（I18N-4）：本层抛出的 `HttpApiError` message 会被面板 `String(e)` 直接
+// 渲染，此前硬编码中文。用 `dict()`（模块级语言镜像）取文案，随界面语言变化。
+import { dict } from "../i18n";
 
 export type { UnlistenFn };
 
@@ -82,7 +85,9 @@ export async function httpPost<T>(path: string, body?: unknown): Promise<T> {
     clearTimeout(timer);
     throw new HttpApiError(
       "MF-HTTP-FAILED",
-      `服务端不可达或超时（${e instanceof Error && e.name === "AbortError" ? "30s 超时" : String(e)}）`
+      dict().api.httpUnreachable(
+        e instanceof Error && e.name === "AbortError" ? dict().api.httpTimeout : String(e)
+      )
     );
   }
   clearTimeout(timer);
@@ -90,7 +95,7 @@ export async function httpPost<T>(path: string, body?: unknown): Promise<T> {
   try {
     v = (await res.json()) as typeof v;
   } catch {
-    throw new HttpApiError("MF-HTTP-FAILED", `服务端响应非 JSON（HTTP ${res.status}）`);
+    throw new HttpApiError("MF-HTTP-FAILED", dict().api.httpNotJson(res.status));
   }
   if (!v.ok) {
     throw new HttpApiError(v.code ?? "MF-HTTP-FAILED", v.message ?? `HTTP ${res.status}`);
@@ -113,7 +118,9 @@ export async function httpGet<T>(path: string): Promise<T> {
     clearTimeout(timer);
     throw new HttpApiError(
       "MF-HTTP-FAILED",
-      `服务端不可达或超时（${e instanceof Error && e.name === "AbortError" ? "30s 超时" : String(e)}）`
+      dict().api.httpUnreachable(
+        e instanceof Error && e.name === "AbortError" ? dict().api.httpTimeout : String(e)
+      )
     );
   }
   clearTimeout(timer);
@@ -121,7 +128,7 @@ export async function httpGet<T>(path: string): Promise<T> {
   try {
     v = (await res.json()) as typeof v;
   } catch {
-    throw new HttpApiError("MF-HTTP-FAILED", `服务端响应非 JSON（HTTP ${res.status}）`);
+    throw new HttpApiError("MF-HTTP-FAILED", dict().api.httpNotJson(res.status));
   }
   if (!v.ok) {
     throw new HttpApiError(v.code ?? "MF-HTTP-FAILED", v.message ?? `HTTP ${res.status}`);
@@ -140,6 +147,6 @@ export async function invoke<T>(
   if (IS_DESKTOP) return tauriInvoke<T>(cmd, args);
   throw new HttpApiError(
     "MF-DESKTOP-ONLY",
-    `功能 ${cmd} 需要桌面版：fnOS 服务端形态当前提供 扫描/格式迁移/整理/清洗 域`
+    dict().api.desktopOnlyCmd(cmd)
   );
 }

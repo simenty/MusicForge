@@ -589,6 +589,28 @@ export const zh = {
     staleHint:
       "若刷新后仍未恢复：按 Ctrl+F5（Windows）/ Cmd+Shift+R（macOS）强制重载，或清除该站点缓存。",
   },
+  // P7 审计（I18N-4/5）：`api.ts` 是非 React 模块，其面向用户的文案此前硬编码
+  // 中文或中英双语（fnOS 路径输入框 prompt、`MF-SERVER-ONLY` 错误）。现经
+  // `getLang()` / `dict()` 按当前语言取用，数据层保持 locale 中立。
+  api: {
+    promptNcmPath: "文件路径（NAS 完整路径）",
+    promptDirPath: (title: string) => `${title} — 目录完整路径`,
+    promptMigrate: (ext: string) => `待迁移文件完整路径（扩展名: ${ext}）`,
+    serverOnlyOrganize:
+      "整理为服务端形态能力（fnOS / 自建 server）；桌面版请用 CLI：musicforge organize",
+    serverOnlyClean:
+      "清洗为服务端形态能力（fnOS / 自建 server）；桌面版请用 CLI：musicforge clean",
+    serverOnlyTrash:
+      "回收站还原为服务端形态能力（fnOS / 自建 server）；桌面版请用 CLI：musicforge trash restore",
+    serverOnlyInfo: "服务端信息仅在服务端形态（fnOS / 自建 server）可用",
+    serverOnlySelfcheck: "服务端自检仅在服务端形态（fnOS / 自建 server）可用",
+    // transport.ts（I18N-4 剩余部分）：HTTP 传输层错误
+    httpUnreachable: (detail: string) => `服务端不可达或超时（${detail}）`,
+    httpTimeout: "30s 超时",
+    httpNotJson: (status: number) => `服务端响应非 JSON（HTTP ${status}）`,
+    desktopOnlyCmd: (cmd: string) =>
+      `功能 ${cmd} 需要桌面版：fnOS 服务端形态当前提供 扫描/格式迁移/整理/清洗 域`,
+  },
   dedupe: {
     toggle: "▍重复文件去重（组内对比 · 建议保留 · 可改选）",
     head: "重复文件去重（内容完全相同的文件，牺牲项进回收站）",

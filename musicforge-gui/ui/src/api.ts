@@ -8,6 +8,10 @@
 //   本文件            业务函数（批处理 / 插件 / 扫描 / 去重 / 治理 / 服务端元信息）
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+// P7 审计（I18N-4/5）：本模块是非 React 模块，拿不到 `useLang()` 上下文，
+// 故用 `dict()`（模块级语言镜像，由 I18nProvider 同步）取面向用户的文案，
+// 使 fnOS 路径输入框 prompt 与 MF-SERVER-ONLY 错误随界面语言变化。
+import { dict } from "./i18n";
 import {
   HttpApiError,
   IS_DESKTOP,
@@ -76,10 +80,7 @@ export async function collectFiles(
 export async function selectNcmFiles(startDir?: string): Promise<string[]> {
   if (!IS_DESKTOP) {
     // P8.2.6：fnOS 形态 = 路径输入框（NAS 路径如 /vol1/music/song.ncm；一次一个，可多次添加）
-    const v = window.prompt(
-      "File path (full NAS path) / 文件路径（NAS 完整路径）",
-      startDir ?? ""
-    );
+    const v = window.prompt(dict().api.promptNcmPath, startDir ?? "");
     const p = v?.trim();
     return p ? [p] : [];
   }
@@ -93,10 +94,7 @@ export async function selectDirectory(
 ): Promise<string | null> {
   if (!IS_DESKTOP) {
     // P8.2.6：fnOS 形态 = 路径输入框（返回类型与桌面同型：null=取消）
-    const v = window.prompt(
-      `${title} — full NAS path / 目录完整路径`,
-      startDir ?? ""
-    );
+    const v = window.prompt(dict().api.promptDirPath(title), startDir ?? "");
     const p = v?.trim();
     return p ? p : null;
   }
@@ -207,7 +205,7 @@ export async function selectMigrationFiles(
   if (!IS_DESKTOP) {
     // P8.2.6：fnOS 形态 = 路径输入框（单文件完整路径；目录迁移待 server 域扩展）
     const v = window.prompt(
-      `File to migrate (${extensions.join("/")}) / 待迁移文件完整路径（扩展名: ${extensions.join("/")})`,
+      dict().api.promptMigrate(extensions.join("/")),
       startDir ?? ""
     );
     const p = v?.trim();
@@ -325,10 +323,7 @@ export async function dedupeApply(
 /** `POST /api/organize/plan`：整理计划预览（只读，绝不移动） */
 export async function organizePlan(args: OrganizeArgs): Promise<OrganizePlan> {
   if (IS_DESKTOP) {
-    throw new HttpApiError(
-      "MF-SERVER-ONLY",
-      "整理为服务端形态能力（fnOS / 自建 server）；桌面版请用 CLI：musicforge organize"
-    );
+    throw new HttpApiError("MF-SERVER-ONLY", dict().api.serverOnlyOrganize);
   }
   return httpPost<OrganizePlan>("/api/organize/plan", {
     dir: args.dir,
@@ -341,10 +336,7 @@ export async function organizePlan(args: OrganizeArgs): Promise<OrganizePlan> {
 /** `POST /api/organize/apply`：执行整理（破坏类，confirm 强制） */
 export async function organizeApply(args: OrganizeArgs): Promise<OrganizeApplyResult> {
   if (IS_DESKTOP) {
-    throw new HttpApiError(
-      "MF-SERVER-ONLY",
-      "整理为服务端形态能力（fnOS / 自建 server）；桌面版请用 CLI：musicforge organize"
-    );
+    throw new HttpApiError("MF-SERVER-ONLY", dict().api.serverOnlyOrganize);
   }
   return httpPost<OrganizeApplyResult>("/api/organize/apply", {
     dir: args.dir,
@@ -358,10 +350,7 @@ export async function organizeApply(args: OrganizeArgs): Promise<OrganizeApplyRe
 /** `POST /api/clean/plan`：垃圾清洗计划预览（只读 dry-run）；rules 缺省 = 全部规则 */
 export async function cleanPlan(dir: string, rules?: string): Promise<CleanPlan> {
   if (IS_DESKTOP) {
-    throw new HttpApiError(
-      "MF-SERVER-ONLY",
-      "清洗为服务端形态能力（fnOS / 自建 server）；桌面版请用 CLI：musicforge clean"
-    );
+    throw new HttpApiError("MF-SERVER-ONLY", dict().api.serverOnlyClean);
   }
   return httpPost<CleanPlan>("/api/clean/plan", { dir, rules: rules || undefined });
 }
@@ -369,10 +358,7 @@ export async function cleanPlan(dir: string, rules?: string): Promise<CleanPlan>
 /** `POST /api/clean/apply`：执行清洗（进回收站可整体还原，confirm 强制） */
 export async function cleanApply(dir: string, rules?: string): Promise<CleanApplyResult> {
   if (IS_DESKTOP) {
-    throw new HttpApiError(
-      "MF-SERVER-ONLY",
-      "清洗为服务端形态能力（fnOS / 自建 server）；桌面版请用 CLI：musicforge clean"
-    );
+    throw new HttpApiError("MF-SERVER-ONLY", dict().api.serverOnlyClean);
   }
   return httpPost<CleanApplyResult>("/api/clean/apply", {
     dir,
@@ -389,10 +375,7 @@ export async function cleanApply(dir: string, rules?: string): Promise<CleanAppl
  */
 export async function trashRestore(manifest: string): Promise<{ restored: number }> {
   if (IS_DESKTOP) {
-    throw new HttpApiError(
-      "MF-SERVER-ONLY",
-      "回收站还原为服务端形态能力（fnOS / 自建 server）；桌面版请用 CLI：musicforge trash restore"
-    );
+    throw new HttpApiError("MF-SERVER-ONLY", dict().api.serverOnlyTrash);
   }
   return httpPost<{ restored: number }>("/api/trash/restore", { manifest, confirm: true });
 }
@@ -406,14 +389,14 @@ export async function trashRestore(manifest: string): Promise<{ restored: number
 
 export async function serverVersion(): Promise<ServerVersion> {
   if (IS_DESKTOP) {
-    throw new HttpApiError("MF-SERVER-ONLY", "服务端信息仅在服务端形态（fnOS / 自建 server）可用");
+    throw new HttpApiError("MF-SERVER-ONLY", dict().api.serverOnlyInfo);
   }
   return httpGet<ServerVersion>("/api/version");
 }
 
 export async function wizardStatus(): Promise<WizardStatus> {
   if (IS_DESKTOP) {
-    throw new HttpApiError("MF-SERVER-ONLY", "服务端自检仅在服务端形态（fnOS / 自建 server）可用");
+    throw new HttpApiError("MF-SERVER-ONLY", dict().api.serverOnlySelfcheck);
   }
   return httpGet<WizardStatus>("/api/wizard/status");
 }

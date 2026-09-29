@@ -604,6 +604,28 @@ export const en: typeof zh = {
     staleHint:
       "If it still fails: hard-reload with Ctrl+F5 (Windows) / Cmd+Shift+R (macOS), or clear this site's cache.",
   },
+  // P7 audit (I18N-4/5): `api.ts` is a non-React module; its user-facing strings
+  // (fnOS path prompts, MF-SERVER-ONLY errors) were hardcoded Chinese/bilingual.
+  api: {
+    promptNcmPath: "File path (full NAS path)",
+    promptDirPath: (title: string) => `${title} — full NAS path`,
+    promptMigrate: (ext: string) => `Full path of file to migrate (extensions: ${ext})`,
+    serverOnlyOrganize:
+      "Organize is a server-mode capability (fnOS / self-hosted server); on desktop use the CLI: musicforge organize",
+    serverOnlyClean:
+      "Clean is a server-mode capability (fnOS / self-hosted server); on desktop use the CLI: musicforge clean",
+    serverOnlyTrash:
+      "Trash restore is a server-mode capability (fnOS / self-hosted server); on desktop use the CLI: musicforge trash restore",
+    serverOnlyInfo: "Server info is only available in server mode (fnOS / self-hosted server)",
+    serverOnlySelfcheck:
+      "Server self-check is only available in server mode (fnOS / self-hosted server)",
+    // transport.ts (rest of I18N-4): HTTP transport-layer errors
+    httpUnreachable: (detail: string) => `Server unreachable or timed out (${detail})`,
+    httpTimeout: "30s timeout",
+    httpNotJson: (status: number) => `Non-JSON server response (HTTP ${status})`,
+    desktopOnlyCmd: (cmd: string) =>
+      `Feature ${cmd} requires the desktop build: fnOS server mode currently provides scan / format-migration / organize / clean`,
+  },
   dedupe: {
     toggle: "▍Duplicate finder (side-by-side · suggested keep · your call)",
     head: "Duplicate finder (byte-identical files; sacrificed copies go to the recycle bin)",
