@@ -86,7 +86,7 @@ pub fn resolve(class: OpClass, flags: &OpFlags) -> Result<ExecMode, SafetyError>
     if flags.dry_run && flags.apply {
         return Err(SafetyError::new(
             "MF-OP-CONFLICT",
-            "同时指定了 --dry-run 与 --apply：请只保留一个",
+            "both --dry-run and --apply were specified: keep only one",
         ));
     }
     if flags.dry_run {
@@ -102,7 +102,7 @@ pub fn resolve(class: OpClass, flags: &OpFlags) -> Result<ExecMode, SafetyError>
             if high_risk && !flags.yes {
                 return Err(SafetyError::new(
                     "MF-OP-NEEDS-YES",
-                    "高危操作：--apply 之外还需 --yes 才会真正执行",
+                    "high-risk operation: --yes is required in addition to --apply to actually execute",
                 ));
             }
             Ok(ExecMode::Apply)

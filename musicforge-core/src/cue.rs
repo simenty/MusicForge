@@ -397,7 +397,7 @@ pub fn split_cue_ex(
         if end <= start {
             report
                 .failed
-                .push((track.number, "采样区间为空（INDEX 边界异常）".to_string()));
+                .push((track.number, "sample range is empty (abnormal INDEX bounds)".to_string()));
             continue;
         }
         let samples = whole.samples[start..end].to_vec();
@@ -413,7 +413,7 @@ pub fn split_cue_ex(
                 if next_inter > whole.samples.len() {
                     report.failed.push((
                         track.number,
-                        "下一轨 INDEX 超出整轨长度（CUE 与音频不匹配）".to_string(),
+                        "next track INDEX exceeds whole-track length (CUE does not match the audio)".to_string(),
                     ));
                     continue;
                 }
@@ -423,7 +423,7 @@ pub fn split_cue_ex(
                     report.failed.push((
                         track.number,
                         format!(
-                            "单轨时长 {track_secs:.2}s 与 INDEX 差 {idx_secs:.2}s 偏差 ≥1s（CUE 与音频可能不匹配）"
+                            "track duration {track_secs:.2}s differs from INDEX delta {idx_secs:.2}s by ≥1s (CUE may not match the audio)"
                         ),
                     ));
                     continue;

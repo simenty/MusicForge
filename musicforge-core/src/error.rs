@@ -47,7 +47,7 @@ pub enum NcmError {
     EmptyKey,
 
     #[error(
-        "无法判定音频格式（元数据无 format 且魔数不匹配）：拒绝产出可能损坏的文件（硬约束 9）"
+        "cannot determine audio format (no format in metadata and magic bytes do not match): refusing to produce a possibly corrupt file (hard constraint 9)"
     )]
     UnknownFormat,
 

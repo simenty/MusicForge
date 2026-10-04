@@ -317,7 +317,7 @@ pub fn import_and_repair(
             }
             None => {
                 let reason = if candidates.is_empty() {
-                    "搜索根内无同名文件".to_string()
+                    "no same-name file found under the search root".to_string()
                 } else {
                     format!("{} same-name candidates cannot be uniquely located", candidates.len())
                 };

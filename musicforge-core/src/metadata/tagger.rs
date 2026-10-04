@@ -54,7 +54,7 @@ pub fn write_tags(
     // 「拒绝谎报成功」的交汇点：用 Err 取代原先的 `.expect(...)`。
     if tagged.tag(tag_type).is_none() || !tagged.tag_support(tag_type).is_writable() {
         return Err(NcmError::TagWrite(format!(
-            "容器 {:?} 不支持写入 {:?} 标签（输出 {}，元数据声明格式 {}）",
+            "container {:?} does not support writing {:?} tags (output {}, metadata declares format {})",
             tagged.file_type(),
             tag_type,
             target.display(),
@@ -65,7 +65,7 @@ pub fn write_tags(
         Some(t) => t,
         None => {
             return Err(NcmError::TagWrite(format!(
-                "无法为输出 {} 创建 {:?} 标签（容器 {:?}）",
+                "cannot create tag for output {} (tag type {:?}, container {:?})",
                 target.display(),
                 tag_type,
                 tagged.file_type()

@@ -391,7 +391,7 @@ impl Db {
             .map_err(|e| NcmError::Db(e.to_string()))?;
         if version > SCHEMA_VERSION {
             return Err(NcmError::Db(format!(
-                "状态库版本 {version} 高于本程序支持的 {SCHEMA_VERSION}：拒绝打开以免破坏数据（请升级 MusicForge 或迁移后重试）"
+                "state DB version {version} is newer than supported {SCHEMA_VERSION}: refusing to open to avoid damaging data (please upgrade MusicForge or migrate and retry)"
             )));
         }
         if version == SCHEMA_VERSION {
@@ -1099,7 +1099,7 @@ pub fn ensure_local_db_path(path: &Path) -> Result<(), NcmError> {
     let unc = s.starts_with(r"\\") || s.starts_with("//");
     if unc {
         return Err(NcmError::Db(format!(
-            "状态库不能放在网络位置（{s}）：SQLite 在网络挂载上锁不可靠，请改用本地配置目录"
+            "state DB must not reside on a network location ({s}): SQLite locking is unreliable on network mounts; use a local config directory instead"
         )));
     }
     Ok(())

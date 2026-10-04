@@ -481,7 +481,7 @@ fn mismatched_cue_rejects_tracks_without_writing() {
         report
             .failed
             .iter()
-            .any(|(n, r)| *n == 1 && r.contains("超出整轨长度")),
+            .any(|(n, r)| *n == 1 && r.contains("exceeds whole-track length")),
         "轨 1 应因 INDEX 越界被拒: {:?}",
         report.failed
     );
@@ -489,7 +489,7 @@ fn mismatched_cue_rejects_tracks_without_writing() {
         report
             .failed
             .iter()
-            .any(|(n, r)| *n == 2 && r.contains("采样区间为空")),
+            .any(|(n, r)| *n == 2 && r.contains("sample range is empty")),
         "轨 2 应因空区间被拒: {:?}",
         report.failed
     );

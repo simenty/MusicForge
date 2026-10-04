@@ -11,6 +11,10 @@ use std::path::{Path, PathBuf};
 
 fn temp_db(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("musicforge-db-test-{name}"));
+    // 先清后建：目录名固定，若上一轮用例在断言处失败（来不及执行结尾的清理），
+    // 残留库（如被抬高到 SCHEMA_VERSION+1 的库）会让下一轮在**建库**处就失败，
+    // 伪装成被测代码的回归。清空使每个用例都从干净状态开始。
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir.join("library.db")
 }
@@ -76,7 +80,7 @@ fn newer_schema_is_refused() {
     }
     // 注意：Db 未实现 Debug（rusqlite::Connection 不支持），故用 match 而非 unwrap_err
     match Db::open(&path) {
-        Err(NcmError::Db(msg)) => assert!(msg.contains("拒绝打开"), "错误信息应说明拒绝: {msg}"),
+        Err(NcmError::Db(msg)) => assert!(msg.contains("refusing to open"), "错误信息应说明拒绝: {msg}"),
         other => panic!("应返回 Db 错误，实际: {:?}", other.is_ok()),
     }
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
@@ -119,7 +123,7 @@ fn network_db_path_is_rejected() {
     let unc = Path::new(r"\\nas\music\library.db");
     let err = ensure_local_db_path(unc).unwrap_err();
     match err {
-        NcmError::Db(msg) => assert!(msg.contains("网络位置"), "应说明网络挂载风险: {msg}"),
+        NcmError::Db(msg) => assert!(msg.contains("network location"), "应说明网络挂载风险: {msg}"),
         other => panic!("应为 Db 错误，实际: {other:?}"),
     }
     assert!(ensure_local_db_path(Path::new("C:/tmp/library.db")).is_ok());

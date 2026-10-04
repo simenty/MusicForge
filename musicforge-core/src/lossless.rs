@@ -262,7 +262,7 @@ pub fn transcode(
     if out_pcm.spec != pcm.spec || out_pcm.samples != pcm.samples {
         let _ = std::fs::remove_file(dst);
         return Err(NcmError::Lossless(format!(
-            "回读校验失败：{} 的解码结果与源不一致（已删除未验证产物）",
+            "read-back verification failed: {} decodes differently from the source (unverified artifact deleted)",
             dst.display()
         )));
     }

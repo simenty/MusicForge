@@ -277,7 +277,7 @@ pub fn plan_organize(root: &Path, options: &OrganizeOptions) -> Result<OrganizeP
                     plan.items.push(OrganizeItem {
                         source: source.clone(),
                         note: Some(format!(
-                            "目标已存在，按 suffix 策略改名为 {}",
+                            "target already exists; renamed to {} per the suffix policy",
                             suffixed.display()
                         )),
                         target: suffixed,

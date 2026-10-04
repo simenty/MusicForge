@@ -168,7 +168,7 @@ impl Ffmpeg {
             return Ok(h * 3600.0 + m * 60.0 + s);
         }
         Err(NcmError::Lossless(format!(
-            "无法从 ffmpeg 输出解析时长（{path:?}）"
+            "cannot parse duration from ffmpeg output ({path:?})"
         )))
     }
 
@@ -264,7 +264,7 @@ fn verify_lossy_output(
     if !magic_ok {
         let _ = std::fs::remove_file(dst);
         return Err(NcmError::Lossless(format!(
-            "回读校验失败：{} 的容器魔数与目标格式不符（已删除未验证产物）",
+            "read-back verification failed: {} container magic does not match the target format (unverified artifact deleted)",
             dst.display()
         )));
     }
@@ -273,7 +273,7 @@ fn verify_lossy_output(
     if (d_src - d_dst).abs() >= 1.0 {
         let _ = std::fs::remove_file(dst);
         return Err(NcmError::Lossless(format!(
-            "回读校验失败：时长偏差 {:.2}s ≥1s（源 {:.2}s / 产物 {:.2}s，已删除未验证产物）",
+            "read-back verification failed: duration deviation {:.2}s ≥1s (source {:.2}s / artifact {:.2}s, unverified artifact deleted)",
             (d_src - d_dst).abs(),
             d_src,
             d_dst
