@@ -576,6 +576,16 @@ export async function playerStatus(): Promise<PlayerSnapshot> {
   return invoke<PlayerSnapshot>("player_status");
 }
 
+/**
+ * PQ-2：取引擎**权威队列**。
+ *
+ * 前端队列副本与引擎失同步后，可据此以引擎为准重建显示——补上 PQ-3 覆盖不到的
+ * 情形：前端副本本身丢失时，resync 没有可提交的副本，只能靠本命令把队列取回来。
+ */
+export async function playerQueue(): Promise<QueueItem[]> {
+  return invoke<QueueItem[]>("player_queue");
+}
+
 // ---------------------------------------------------------------------------
 // 行为域（P2：喜欢 / 播放历史；服务端形态经 invoke 显式降级 MF-DESKTOP-ONLY）
 // ---------------------------------------------------------------------------

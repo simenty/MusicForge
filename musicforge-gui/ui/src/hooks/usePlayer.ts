@@ -9,6 +9,7 @@ import {
   playerNext,
   playerPlayQueue,
   playerPrev,
+  playerQueue,
   playerQueueAppend,
   playerQueueClear,
   playerQueueInsertNext,
@@ -342,19 +343,35 @@ export function usePlayer(): PlayerApi {
     }, 120);
   }, []);
 
-  // PQ-3：以**前端队列副本**（显示权威源）重建引擎队列并续播当前位置。
-  // 检测到失同步后由用户主动触发——比让引擎单边修正更安全：前端副本才是
-  // 用户看到的顺序。重建会从此刻曲目开头续播。
+  // PQ-3 检测 + PQ-2 修复（**双向**）：
+  // - 前端副本**非空** → 以前端副本为准重建引擎队列并续播当前位置（前端副本才是
+  //   用户看到的顺序，比让引擎单边修正更安全；重建会从此刻曲目开头续播）；
+  // - 前端副本**为空**（副本丢失）——此前 resync 直接返回、无从下手（没有可提交的
+  //   副本），现经 PQ-2 的 playerQueue() 取回引擎**权威队列**并采纳为前端副本，
+  //   只恢复显示、不打断当前播放（不调 playQueue）。
   const resyncQueue = useCallback(async () => {
     const items = queueRef.current;
-    if (items.length === 0) return;
-    const idx = statusRef.current?.queueIndex ?? 0;
+    if (items.length > 0) {
+      const idx = statusRef.current?.queueIndex ?? 0;
+      try {
+        await playerPlayQueue(items, idx);
+        desyncStreak.current = 0;
+        setQueueDesynced(false); // 重建成功：下一轮询收敛，立即清标志避免闪烁
+        return;
+      } catch {
+        // 引擎不可用：保留 desynced 标志，提示不消失
+        return;
+      }
+    }
+    // 副本为空：向引擎取回权威队列（PQ-2）
     try {
-      await playerPlayQueue(items, idx);
+      const authoritative = await playerQueue();
+      if (!alive.current || authoritative.length === 0) return;
+      setQueue(authoritative);
       desyncStreak.current = 0;
-      setQueueDesynced(false); // 重建成功：下一轮询收敛，立即清标志避免闪烁
+      setQueueDesynced(false);
     } catch {
-      // 引擎不可用：保留 desynced 标志，提示不消失
+      // 取不回（引擎不可用）：保留 desynced 标志，提示不消失
     }
   }, []);
 

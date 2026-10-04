@@ -136,3 +136,13 @@ pub fn player_set_mode(state: State<'_, PlayerHandle>, mode: PlayMode) -> Result
 pub fn player_status(state: State<'_, PlayerHandle>) -> PlayerSnapshot {
     state.status()
 }
+
+/// PQ-2：取引擎**权威队列**。
+///
+/// 前端队列副本与引擎失同步后，可据此**以引擎为准重建显示**——这是 PQ-3
+/// （检测 + 用前端副本 resync）覆盖不到的情形：前端副本本身丢失时，
+/// resync 没有可提交的副本，只能靠本命令把队列取回来。
+#[tauri::command]
+pub fn player_queue(state: State<'_, PlayerHandle>) -> Result<Vec<QueueItem>, String> {
+    state.queue()
+}

@@ -35,7 +35,11 @@ use symphonia::core::probe::Hint;
 use symphonia::core::units::Time;
 
 /// 队列项（前端从曲目行构造，随 `player_play_queue` 一次性提交）。
-#[derive(Debug, Clone)]
+///
+/// PQ-2：新增 `Serialize`（camelCase）——`player_queue` 命令需把引擎**权威队列**
+/// 回传前端，供失同步后以引擎为准重建显示（PQ-3 只检测、无法自行修复）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QueueItem {
     pub track_id: i64,
     pub path: String,
@@ -143,6 +147,12 @@ enum Cmd {
     /// 设置播放模式（P6.18）：normal / shuffle / repeatOne / repeatAll
     SetMode {
         mode: PlayMode,
+    },
+    /// PQ-2：取回引擎**权威队列**。队列由引擎线程独占持有，故经响应通道回传。
+    /// 前端副本与引擎失同步后，用它以引擎为准重建显示——PQ-3 只能检测并提示，
+    /// 无法修复「前端副本丢失」的情形（那时 resync 无从下手：没有可提交的副本）。
+    GetQueue {
+        resp: Sender<Vec<QueueItem>>,
     },
 }
 
@@ -325,6 +335,17 @@ impl PlayerHandle {
         s
     }
 
+    /// 取引擎**权威队列**（PQ-2）。队列由引擎线程独占持有，故经命令通道请求、
+    /// 响应通道回传。带超时：引擎线程若已退出/卡死则显式失败，绝不无限阻塞
+    /// 调用方（前端轮询线程）。
+    pub fn queue(&self) -> Result<Vec<QueueItem>, String> {
+        let (resp_tx, resp_rx) = channel::<Vec<QueueItem>>();
+        self.send(Cmd::GetQueue { resp: resp_tx })?;
+        resp_rx
+            .recv_timeout(Duration::from_millis(500))
+            .map_err(|_| "playback engine unavailable".to_string())
+    }
+
     fn send(&self, cmd: Cmd) -> Result<(), String> {
         self.tx.send(cmd).map_err(|_| "playback engine unavailable".to_string())
     }
@@ -468,6 +489,11 @@ impl Engine {
             Cmd::SetMode { mode } => {
                 self.mode = mode;
                 self.shared.lock_snapshot().play_mode = mode;
+            }
+            // PQ-2：回传权威队列（克隆一份；队列只在此刻被读取，无并发改写）。
+            // 发送失败（调用方已放弃等待）直接忽略——不因此打断引擎主循环。
+            Cmd::GetQueue { resp } => {
+                let _ = resp.send(self.queue.clone());
             }
         }
     }

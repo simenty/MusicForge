@@ -13,6 +13,8 @@ vi.mock("../api", () => ({
   playerToggle: vi.fn(),
   playerNext: vi.fn(),
   playerPrev: vi.fn(),
+  // PQ-2：取回引擎权威队列
+  playerQueue: vi.fn(),
   playerJump: vi.fn(),
   playerQueueMove: vi.fn(),
   playerQueueRemove: vi.fn(),
@@ -30,6 +32,7 @@ import {
   playerNext,
   playerPlayQueue,
   playerPrev,
+  playerQueue,
   playerQueueAppend,
   playerQueueClear,
   playerQueueInsertNext,
@@ -51,6 +54,7 @@ const mockPlayQueue = vi.mocked(playerPlayQueue);
 const mockToggle = vi.mocked(playerToggle);
 const mockNext = vi.mocked(playerNext);
 const mockPrev = vi.mocked(playerPrev);
+const mockPlayerQueue = vi.mocked(playerQueue);
 const mockQueueMove = vi.mocked(playerQueueMove);
 const mockQueueRemove = vi.mocked(playerQueueRemove);
 const mockQueueAppend = vi.mocked(playerQueueAppend);
@@ -378,5 +382,27 @@ describe("usePlayer (P2-21)", () => {
       expect.any(Number),
     );
     expect(result.current.queueDesynced).toBe(false);
+  });
+
+  // ---- PQ-2：前端副本丢失时，从引擎取回权威队列（PQ-3 覆盖不到的方向）----
+  it("PQ-2：前端副本为空时 resyncQueue 从引擎取回权威队列并采纳", async () => {
+    // 形态：引擎有 3 首，前端副本为空（副本丢失）——旧实现会直接 return，无从修复
+    mockStatus.mockResolvedValue(snap({ queueLen: 3, queueIndex: 0 }));
+    mockPlayerQueue.mockResolvedValue([
+      { trackId: 1, path: "/a.flac", title: "a", artist: null, durationMs: null },
+      { trackId: 2, path: "/b.flac", title: "b", artist: null, durationMs: null },
+      { trackId: 3, path: "/c.flac", title: "c", artist: null, durationMs: null },
+    ]);
+    const { result } = renderHook(() => usePlayer());
+    await waitFor(() => expect(result.current.queueDesynced).toBe(true), { timeout: 3000 });
+    await act(async () => {
+      await result.current.resyncQueue();
+    });
+    // 采纳引擎权威队列恢复显示
+    expect(result.current.queue).toHaveLength(3);
+    expect(result.current.queue[0].trackId).toBe(1);
+    expect(result.current.queueDesynced).toBe(false);
+    // 只同步显示，不打断当前播放（未调 playQueue 重建）
+    expect(mockPlayQueue).not.toHaveBeenCalled();
   });
 });
