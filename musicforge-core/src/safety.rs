@@ -135,7 +135,7 @@ pub fn ensure_allowed(allowed_roots: &[PathBuf], path: &Path) -> Result<(), Safe
     let target = normalize_components(path).map_err(|_| {
         SafetyError::new(
             "MF-PATH-NOT-ALLOWED",
-            format!("路径越出允许根：{}", path.display()),
+            format!("path escapes allowed root: {}", path.display()),
         )
     })?;
     let allowed = allowed_roots
@@ -149,7 +149,7 @@ pub fn ensure_allowed(allowed_roots: &[PathBuf], path: &Path) -> Result<(), Safe
     } else {
         Err(SafetyError::new(
             "MF-PATH-NOT-ALLOWED",
-            format!("路径不在允许根内：{}", path.display()),
+            format!("path not within allowed root: {}", path.display()),
         ))
     }
 }

@@ -289,7 +289,7 @@ pub fn dedupe_apply(
         }
         if !canon.starts_with(&dir_canon) {
             return Err(format!(
-                "安全拒绝：牺牲项 {p} 位于曲库目录之外（已记录并阻止）"
+                "safety rejection: sacrifice item {p} is outside the library directory (logged and blocked)"
             ));
         }
         // action 用 canonical 路径：apply_clean_plan 按 strip_prefix(scan_root)

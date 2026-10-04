@@ -1013,7 +1013,7 @@ fn build_output(
     }
     if !supported_range {
         return Err(format!(
-            "输出设备不支持 {rate}Hz / {channels} 声道（重采样将在后续版本提供）"
+            "output device does not support {rate}Hz / {channels} channels (resampling will be provided in a later version)"
         ));
     }
 

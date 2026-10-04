@@ -101,7 +101,7 @@ impl Db {
             if let Err(e) = self.conn.execute("PRAGMA foreign_keys = ON", []) {
                 // 原操作已失败时保留其错误（诊断价值更高）；否则上报恢复失败。
                 if outcome.is_ok() {
-                    return Err(NcmError::Db(format!("恢复 foreign_keys 失败: {e}")));
+                    return Err(NcmError::Db(format!("failed to restore foreign_keys: {e}")));
                 }
             }
         }
@@ -166,7 +166,7 @@ impl Db {
             if let Err(e) = self.conn.execute("PRAGMA foreign_keys = ON", []) {
                 // 原操作已失败时保留其错误（诊断价值更高）；否则上报恢复失败。
                 if outcome.is_ok() {
-                    return Err(NcmError::Db(format!("恢复 foreign_keys 失败: {e}")));
+                    return Err(NcmError::Db(format!("failed to restore foreign_keys: {e}")));
                 }
             }
         }
@@ -360,7 +360,7 @@ impl Db {
             if let Err(e) = self.conn.execute("PRAGMA foreign_keys = ON", []) {
                 // 原操作已失败时保留其错误（诊断价值更高）；否则上报恢复失败。
                 if outcome.is_ok() {
-                    return Err(NcmError::Db(format!("恢复 foreign_keys 失败: {e}")));
+                    return Err(NcmError::Db(format!("failed to restore foreign_keys: {e}")));
                 }
             }
         }

@@ -254,10 +254,10 @@ pub fn run_watch(
                 }
             }
         })
-        .map_err(|e| NcmError::Db(format!("watch: 监听器创建失败: {e}")))?;
+        .map_err(|e| NcmError::Db(format!("watch: failed to create watcher: {e}")))?;
     watcher
         .watch(watch_dir, notify::RecursiveMode::Recursive)
-        .map_err(|e| NcmError::Db(format!("watch: 监听目录失败: {e}")))?;
+        .map_err(|e| NcmError::Db(format!("watch: failed to watch directory: {e}")))?;
     on_line(&format!(
         "watch: 已监听 {}（level={:?}，防抖 {}ms）——Ctrl-C 退出",
         watch_dir.display(),
@@ -277,7 +277,7 @@ pub fn run_watch(
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                return Err(NcmError::Db("watch: 事件通道断开".into()));
+                return Err(NcmError::Db("watch: event channel disconnected".into()));
             }
         }
         let now = std::time::SystemTime::now()

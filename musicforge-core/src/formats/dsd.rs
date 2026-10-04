@@ -85,7 +85,7 @@ fn open_layout(path: &Path) -> Result<Layout, NcmError> {
     match &magic {
         b"DSD " => parse_dsf(&mut r),
         b"FRM8" => parse_dff(&mut r),
-        _ => Err(bad(format!("不是 DSF/DFF 文件（魔数 {magic:?}）"))),
+        _ => Err(bad(format!("not a DSF/DFF file (magic {magic:?})"))),
     }
 }
 
@@ -114,7 +114,7 @@ fn parse_dsf<R: Read + Seek>(r: &mut R) -> Result<Layout, NcmError> {
         }
         let size = u64_le(&header[4..12]);
         if size < 12 {
-            return Err(bad("DSF chunk 长度非法".to_string()));
+            return Err(bad("DSF chunk length invalid".to_string()));
         }
         let body = r.stream_position()?;
         match &header[0..4] {
@@ -142,13 +142,13 @@ fn parse_dsf<R: Read + Seek>(r: &mut R) -> Result<Layout, NcmError> {
         ))?;
     }
     if channels == 0 || dsd_rate == 0 || block_size == 0 || data_bytes == 0 {
-        return Err(bad("DSF 头不完整（fmt/data 缺失）".to_string()));
+        return Err(bad("DSF header incomplete (fmt/data missing)".to_string()));
     }
     if channels > MAX_CHANNELS {
-        return Err(bad(format!("DSF 声道数超出上界: {channels}")));
+        return Err(bad(format!("DSF channel count exceeds limit: {channels}")));
     }
     if block_size > MAX_BLOCK_SIZE {
-        return Err(bad(format!("DSF block_size 超出上界: {block_size}")));
+        return Err(bad(format!("DSF block_size exceeds limit: {block_size}")));
     }
     let per_ch = (data_bytes / channels as u64).min(bits_per_ch.div_ceil(8));
     Ok(Layout {
@@ -167,7 +167,7 @@ fn parse_dff<R: Read + Seek>(r: &mut R) -> Result<Layout, NcmError> {
     let mut fh = [0u8; 12];
     r.read_exact(&mut fh)?;
     if &fh[8..12] != b"DSD " {
-        return Err(bad("FRM8 不是 DSD 表单".to_string()));
+        return Err(bad("FRM8 is not a DSD form".to_string()));
     }
     let mut channels = 0u32;
     let mut dsd_rate = 0u32;
@@ -207,7 +207,7 @@ fn parse_dff<R: Read + Seek>(r: &mut R) -> Result<Layout, NcmError> {
                             let mut c = [0u8; 4];
                             r.read_exact(&mut c)?;
                             if &c != b"DSD " {
-                                return Err(bad("DFF 使用了不支持的压缩方式".to_string()));
+                                return Err(bad("DFF uses an unsupported compression method".to_string()));
                             }
                         }
                         _ => {}
@@ -231,10 +231,10 @@ fn parse_dff<R: Read + Seek>(r: &mut R) -> Result<Layout, NcmError> {
         }
     }
     if channels == 0 || dsd_rate == 0 || data_bytes == 0 {
-        return Err(bad("DFF 头不完整（FS/CHNL/DSD 缺失）".to_string()));
+        return Err(bad("DFF header incomplete (FS/CHNL/DSD missing)".to_string()));
     }
     if channels > MAX_CHANNELS {
-        return Err(bad(format!("DFF 声道数超出上界: {channels}")));
+        return Err(bad(format!("DFF channel count exceeds limit: {channels}")));
     }
     Ok(Layout {
         kind: DsdKind::Dff,
@@ -645,13 +645,13 @@ mod tests {
         let p = dir.path().join("many.dsf");
         write_dsf_channels(&p, 2_822_400, 512, 9, &[0xAAu8; 512]);
         let e = probe_dsd(&p).unwrap_err();
-        assert!(format!("{e}").contains("声道数超出上界"), "实际错误: {e}");
+        assert!(format!("{e}").contains("channel count exceeds limit"), "实际错误: {e}");
 
         let p2 = dir.path().join("big.dsf");
         write_dsf_channels(&p2, 2_822_400, (1 << 20) + 1, 1, &[0xAAu8; 512]);
         let e2 = probe_dsd(&p2).unwrap_err();
         assert!(
-            format!("{e2}").contains("block_size 超出上界"),
+            format!("{e2}").contains("block_size exceeds limit"),
             "实际错误: {e2}"
         );
     }

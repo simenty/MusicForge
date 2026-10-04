@@ -613,7 +613,7 @@ mod tests {
             vec![outside.to_string_lossy().into_owned()],
         )
         .unwrap_err();
-        assert!(err.contains("安全拒绝"), "必须显式拒绝路径逃逸: {err}");
+        assert!(err.contains("safety rejection"), "必须显式拒绝路径逃逸: {err}");
         assert!(outside.exists(), "外部文件不得被动");
 
         let _ = std::fs::remove_dir_all(&base);

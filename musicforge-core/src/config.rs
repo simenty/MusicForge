@@ -73,7 +73,7 @@ impl AppConfig {
         let version = v.get("schema_version").and_then(|x| x.as_u64());
         let version = match version {
             Some(n) => u32::try_from(n)
-                .map_err(|_| NcmError::Config(format!("config.schema_version 越界: {n}")))?,
+                .map_err(|_| NcmError::Config(format!("config.schema_version out of range: {n}")))?,
             None => CONFIG_SCHEMA_VERSION,
         };
         if version > CONFIG_SCHEMA_VERSION {
@@ -110,10 +110,10 @@ impl AppConfig {
         let text = match std::fs::read_to_string(path) {
             Ok(t) => t,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
-            Err(e) => return Err(NcmError::Config(format!("读取 {}: {e}", path.display()))),
+            Err(e) => return Err(NcmError::Config(format!("read {}: {e}", path.display()))),
         };
         let v: serde_json::Value = serde_json::from_str(&text)
-            .map_err(|e| NcmError::Config(format!("解析 {}: {e}", path.display())))?;
+            .map_err(|e| NcmError::Config(format!("parse {}: {e}", path.display())))?;
         Self::from_value(&v)
     }
 
@@ -129,18 +129,18 @@ impl AppConfig {
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
                 std::fs::create_dir_all(parent)
-                    .map_err(|e| NcmError::Config(format!("创建 {}: {e}", parent.display())))?;
+                    .map_err(|e| NcmError::Config(format!("create {}: {e}", parent.display())))?;
             }
         }
         let text = serde_json::to_string_pretty(&self.to_value())?;
         let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
         let tmp = path.with_extension(format!("json.{}.{}.tmp", std::process::id(), seq));
         std::fs::write(&tmp, text)
-            .map_err(|e| NcmError::Config(format!("写入 {}: {e}", tmp.display())))?;
+            .map_err(|e| NcmError::Config(format!("write {}: {e}", tmp.display())))?;
         if let Err(e) = std::fs::rename(&tmp, path) {
             // 失败清理：唯一 tmp 残留无碍重试，但按项目「不留半成品」约定删除
             let _ = std::fs::remove_file(&tmp);
-            return Err(NcmError::Config(format!("重命名 {}: {e}", path.display())));
+            return Err(NcmError::Config(format!("rename {}: {e}", path.display())));
         }
         Ok(())
     }

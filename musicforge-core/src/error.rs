@@ -160,48 +160,48 @@ impl NcmError {
     /// 用户可操作建议（repair receipt：发生了什么 → 你可以怎么做）
     pub fn suggestion(&self) -> &'static str {
         match self {
-            NcmError::CrcMismatch { .. } => "文件头校验失败，文件已损坏或被截断。建议在网易云音乐中重新下载后重试。",
-            NcmError::BadMagic => "该文件不是 ncm 格式（或已损坏）。请确认来源后重试。",
+            NcmError::CrcMismatch { .. } => "Header verification failed: the file is corrupted or truncated. Please re-download it from NetEase Cloud Music and retry.",
+            NcmError::BadMagic => "This file is not in ncm format (or is corrupted). Please verify its source and retry.",
             NcmError::Truncated { .. } | NcmError::LengthOutOfRange { .. } | NcmError::EmptyKey => {
-                "文件结构异常，可能已损坏。建议重新获取源文件。"
+                "File structure is abnormal and may be corrupted. Please obtain the source file again."
             }
-            NcmError::Io(e) if e.kind() == std::io::ErrorKind::NotFound => "源文件在处理期间被移动或删除。请确认路径后重试。",
+            NcmError::Io(e) if e.kind() == std::io::ErrorKind::NotFound => "The source file was moved or deleted during processing. Please verify the path and retry.",
             NcmError::EmptyAudio => {
-                "音频负载为空：无音频数据可解密。该 ncm 文件可能不完整，建议在网易云音乐中重新下载后重试。"
+                "Audio payload is empty: no audio data to decrypt. The ncm file may be incomplete — please re-download it from NetEase Cloud Music and retry."
             }
             NcmError::UnknownFormat => {
-                "无法识别音频编码（元数据缺失且魔数不匹配）。本版本不猜测格式以免产出损坏文件；请确认文件来源是否完整。"
+                "Audio codec unrecognizable (metadata missing and magic bytes do not match). This version does not guess formats, to avoid producing corrupt files; please confirm the file source is complete."
             }
-            NcmError::TagRead(_) => "输出文件标签读取失败，文件可能已损坏或不完整。建议删除后重试转换。",
-            NcmError::TagWrite(_) => "标签写入失败，请检查输出文件是否被其他程序占用。",
+            NcmError::TagRead(_) => "Failed to read tags from the output file; it may be corrupted or incomplete. Please delete it and retry the conversion.",
+            NcmError::TagWrite(_) => "Failed to write tags; check whether the output file is locked by another program.",
             NcmError::Db(_) => {
-                "状态库异常：它只是可再生缓存，删除后会自动重建；但请勿将其放在网络挂载目录上。"
+                "State DB error: it is only a regenerable cache and will be rebuilt after deletion; but do not place it on a network-mounted directory."
             }
             NcmError::Lossless(_) => {
-                "无损转码失败：源文件可能损坏或包含不支持的 PCM 形态（如浮点 WAV）。源文件未被修改，可放心重试或更换目标格式。"
+                "Lossless transcoding failed: the source may be corrupted or contain an unsupported PCM form (e.g. float WAV). The source file was not modified — retry or choose a different target format."
             }
             NcmError::FfmpegMissing { .. } => {
-                "未找到 ffmpeg。安装方式：ffmpeg.org 下载后加入 PATH，或用 --ffmpeg-path 指定 ffmpeg 可执行文件位置。有损导出（MP3/AAC/Opus）依赖它。"
+                "ffmpeg not found. Install it from ffmpeg.org and add it to PATH, or specify the ffmpeg executable with --ffmpeg-path. Lossy export (MP3/AAC/Opus) depends on it."
             }
             NcmError::UpgradeBlocked => {
-                "有损源（MP3 等）转无损（FLAC/WAV）不会恢复已丢失的音质，属于伪升级，已拦截。如确有需要（如统一入库格式），加 --i-know-lossy-to-lossless。"
+                "Converting a lossy source (MP3, etc.) to lossless (FLAC/WAV) cannot restore lost quality — it is a pseudo-upgrade and was blocked. If you truly need it (e.g. to unify library format), pass --i-know-lossy-to-lossless."
             }
             NcmError::OutputExists { .. } => {
-                "目标文件已存在，本工具绝不覆盖。请更换输出目录，或先处理同名产物。"
+                "The target file already exists; this tool never overwrites. Choose a different output directory, or handle the same-named artifact first."
             }
             NcmError::Config(_) => {
-                "配置文件损坏或版本过高。修正内容，或删除 config.json 后由程序以默认配置重建（配置是可再生的）。"
+                "The config file is corrupted or its version is too new. Fix its contents, or delete config.json and let the program recreate it with defaults (config is regenerable)."
             }
             NcmError::PluginDisabled(_) => {
-                "插件因连续崩溃已被本会话禁用，或清单含禁止权限被拒载。重启程序或检查插件清单。"
+                "The plugin was disabled for this session due to repeated crashes, or its manifest contains forbidden permissions and was rejected. Restart the program or inspect the plugin manifest."
             }
             NcmError::PluginAckRequired(_) => {
-                "该插件属高风险类（如本地格式迁移），需先显式确认：musicforge plugins acknowledge <插件名>（或 GUI 等价操作）。"
+                "This plugin is high-risk (e.g. local format migration) and requires explicit acknowledgement: musicforge plugins acknowledge <plugin-name> (or the GUI equivalent)."
             }
             NcmError::PluginNotFound(_) => {
-                "插件运行时不可用。离线版不包含插件；请安装对应插件到白名单目录并启用后重试。"
+                "The plugin runtime is unavailable. The offline build contains no plugins; install the corresponding plugin into the whitelisted directory and enable it, then retry."
             }
-            _ => "请检查文件与目录权限后重试，或使用失败清单导出功能记录该文件。",
+            _ => "Please check file and directory permissions and retry, or use the failure-manifest export to record this file.",
         }
     }
 }

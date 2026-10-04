@@ -105,7 +105,7 @@ pub fn decode_to_pcm(path: &Path) -> Result<Pcm, NcmError> {
 /// 解码 WAV（整数 PCM 16/24/32 位；浮点 WAV 显式拒绝）。
 fn decode_wav(path: &Path) -> Result<Pcm, NcmError> {
     let mut reader = hound::WavReader::open(path)
-        .map_err(|e| NcmError::Lossless(format!("WAV 打开失败: {e}")))?;
+        .map_err(|e| NcmError::Lossless(format!("failed to open WAV: {e}")))?;
     let spec = reader.spec();
     if spec.sample_format == hound::SampleFormat::Float {
         return Err(NcmError::Lossless(format!(
@@ -120,7 +120,7 @@ fn decode_wav(path: &Path) -> Result<Pcm, NcmError> {
     };
     let mut samples = Vec::new();
     for s in reader.samples::<i32>() {
-        let s = s.map_err(|e| NcmError::Lossless(format!("WAV 样本读取失败: {e}")))?;
+        let s = s.map_err(|e| NcmError::Lossless(format!("failed to read WAV samples: {e}")))?;
         samples.push(s);
     }
     if samples.is_empty() {
@@ -135,7 +135,7 @@ fn decode_wav(path: &Path) -> Result<Pcm, NcmError> {
 /// 解码 FLAC（claxon）。
 fn decode_flac(path: &Path) -> Result<Pcm, NcmError> {
     let mut reader = claxon::FlacReader::open(path)
-        .map_err(|e| NcmError::Lossless(format!("FLAC 打开失败: {e}")))?;
+        .map_err(|e| NcmError::Lossless(format!("failed to open FLAC: {e}")))?;
     let si = reader.streaminfo();
     let spec = PcmSpec {
         channels: si.channels as u16,
@@ -144,7 +144,7 @@ fn decode_flac(path: &Path) -> Result<Pcm, NcmError> {
     };
     let mut samples = Vec::new();
     for s in reader.samples() {
-        let s = s.map_err(|e| NcmError::Lossless(format!("FLAC 样本读取失败: {e}")))?;
+        let s = s.map_err(|e| NcmError::Lossless(format!("failed to read FLAC samples: {e}")))?;
         samples.push(s);
     }
     if samples.is_empty() {
@@ -172,15 +172,15 @@ fn encode_wav(path: &Path, pcm: &Pcm) -> Result<u64, NcmError> {
         sample_format: hound::SampleFormat::Int,
     };
     let mut writer = hound::WavWriter::create(path, spec)
-        .map_err(|e| NcmError::Lossless(format!("WAV 创建失败: {e}")))?;
+        .map_err(|e| NcmError::Lossless(format!("failed to create WAV: {e}")))?;
     for s in &pcm.samples {
         writer
             .write_sample(*s)
-            .map_err(|e| NcmError::Lossless(format!("WAV 写入失败: {e}")))?;
+            .map_err(|e| NcmError::Lossless(format!("failed to write WAV: {e}")))?;
     }
     writer
         .finalize()
-        .map_err(|e| NcmError::Lossless(format!("WAV 收尾失败: {e}")))?;
+        .map_err(|e| NcmError::Lossless(format!("failed to finalize WAV: {e}")))?;
     file_len(path)
 }
 
@@ -189,7 +189,7 @@ fn encode_flac(path: &Path, pcm: &Pcm) -> Result<u64, NcmError> {
     use flacenc::error::Verify;
     let config = flacenc::config::Encoder::default()
         .into_verified()
-        .map_err(|(_, e)| NcmError::Lossless(format!("编码器配置校验失败: {e}")))?;
+        .map_err(|(_, e)| NcmError::Lossless(format!("encoder config validation failed: {e}")))?;
     let source = flacenc::source::MemSource::from_samples(
         &pcm.samples,
         pcm.spec.channels as usize,
@@ -197,11 +197,11 @@ fn encode_flac(path: &Path, pcm: &Pcm) -> Result<u64, NcmError> {
         pcm.spec.sample_rate as usize,
     );
     let stream = flacenc::encode_with_fixed_block_size(&config, source, config.block_size)
-        .map_err(|e| NcmError::Lossless(format!("FLAC 编码失败: {e}")))?;
+        .map_err(|e| NcmError::Lossless(format!("FLAC encoding failed: {e}")))?;
     let mut sink = flacenc::bitsink::ByteSink::new();
     stream
         .write(&mut sink)
-        .map_err(|e| NcmError::Lossless(format!("FLAC 比特流写出失败: {e}")))?;
+        .map_err(|e| NcmError::Lossless(format!("failed to write FLAC bitstream: {e}")))?;
     std::fs::write(path, sink.as_slice())?;
     file_len(path)
 }

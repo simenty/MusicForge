@@ -130,16 +130,16 @@ pub fn parse_style_code(path: &Path) -> Option<StyleCode> {
 /// 错误为 String：codebook 是 CLI 参数级输入，加载失败属用法错误
 /// （退出码 2），不进 NcmError 稳定码族。
 pub fn load_genre_map(path: &Path) -> Result<BTreeMap<String, String>, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("codebook 读取失败: {e}"))?;
+    let text = std::fs::read_to_string(path).map_err(|e| format!("failed to read codebook: {e}"))?;
     let v: serde_json::Value =
-        serde_json::from_str(&text).map_err(|e| format!("codebook 不是合法 JSON: {e}"))?;
+        serde_json::from_str(&text).map_err(|e| format!("codebook is not valid JSON: {e}"))?;
     let Some(obj) = v.as_object() else {
-        return Err("codebook 顶层必须是 JSON 对象".to_string());
+        return Err("codebook top level must be a JSON object".to_string());
     };
     let mut m = BTreeMap::new();
     for (k, val) in obj {
         let Some(s) = val.as_str() else {
-            return Err(format!("codebook 值必须是字符串: {k}"));
+            return Err(format!("codebook value must be a string: {k}"));
         };
         m.insert(k.clone(), s.to_string());
     }
@@ -246,7 +246,7 @@ pub fn apply_genre_writes(plan: &GenrePlan) -> (usize, usize) {
                 tagged.insert_tag(lofty::tag::Tag::new(ttype));
             }
             let Some(tag) = tagged.tag_mut(ttype) else {
-                return Err("无法取得可变标签".into());
+                return Err("cannot obtain mutable tag".into());
             };
             tag.insert_text(lofty::tag::ItemKey::Genre, genre.clone());
             tagged.save_to_path(path, lofty::config::WriteOptions::default())?;

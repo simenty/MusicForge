@@ -3,7 +3,7 @@ impl Db {
     pub fn create_playlist(&self, name: &str) -> Result<i64, NcmError> {
         let name = name.trim();
         if name.is_empty() {
-            return Err(NcmError::Db("歌单名称不能为空".to_string()));
+            return Err(NcmError::Db("playlist name must not be empty".to_string()));
         }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -80,7 +80,7 @@ impl Db {
             )
             .map_err(|e| NcmError::Db(e.to_string()))?;
         if exists == 0 {
-            return Err(NcmError::Db(format!("歌单 {playlist_id} 不存在")));
+            return Err(NcmError::Db(format!("playlist {playlist_id} does not exist")));
         }
         let mut have: std::collections::HashSet<i64> = {
             let mut stmt = tx
@@ -331,7 +331,7 @@ impl Db {
     pub fn playlist_rename(&self, playlist_id: i64, name: &str) -> Result<(), NcmError> {
         let name = name.trim();
         if name.is_empty() {
-            return Err(NcmError::Db("歌单名称不能为空".to_string()));
+            return Err(NcmError::Db("playlist name must not be empty".to_string()));
         }
         self.conn
             .execute(

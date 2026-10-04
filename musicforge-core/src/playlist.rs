@@ -319,7 +319,7 @@ pub fn import_and_repair(
                 let reason = if candidates.is_empty() {
                     "搜索根内无同名文件".to_string()
                 } else {
-                    format!("{} 个同名候选无法唯一定位", candidates.len())
+                    format!("{} same-name candidates cannot be uniquely located", candidates.len())
                 };
                 rep.unresolved.push((t.to_string(), reason));
                 // 审计不丢行：以注释保留在输出

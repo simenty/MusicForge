@@ -171,7 +171,7 @@ pub fn parse_cue_text(text: &str) -> Result<CueSheet, NcmError> {
                 let name = extract_quoted(rest)
                     .or_else(|| rest.split_whitespace().next().map(|s| s.to_string()))
                     .ok_or_else(|| {
-                        NcmError::Lossless(format!("CUE 第 {} 行 FILE 缺少文件名", lineno + 1))
+                        NcmError::Lossless(format!("CUE line {}: FILE missing filename", lineno + 1))
                     })?;
                 sheet.file = Some(name);
             }
@@ -184,7 +184,7 @@ pub fn parse_cue_text(text: &str) -> Result<CueSheet, NcmError> {
                     .next()
                     .and_then(|n| n.parse::<u32>().ok())
                     .ok_or_else(|| {
-                        NcmError::Lossless(format!("CUE 第 {} 行 TRACK 编号无法解析", lineno + 1))
+                        NcmError::Lossless(format!("CUE line {}: TRACK number unparsable", lineno + 1))
                     })?;
                 current = Some(CueTrack {
                     number,
@@ -224,11 +224,11 @@ pub fn parse_cue_text(text: &str) -> Result<CueSheet, NcmError> {
     }
 
     if sheet.tracks.is_empty() {
-        return Err(NcmError::Lossless("CUE 未包含任何 TRACK".to_string()));
+        return Err(NcmError::Lossless("CUE contains no TRACK".to_string()));
     }
     if sheet.file.is_none() {
         return Err(NcmError::Lossless(
-            "CUE 缺少 FILE 指令（未指定音频镜像）".to_string(),
+            "CUE missing FILE directive（未指定音频镜像）".to_string(),
         ));
     }
     Ok(sheet)
@@ -312,7 +312,7 @@ pub fn split_cue_ex(
     let audio_rel = sheet
         .file
         .as_deref()
-        .ok_or_else(|| NcmError::Lossless("CUE 缺少 FILE 指令".to_string()))?;
+        .ok_or_else(|| NcmError::Lossless("CUE missing FILE directive".to_string()))?;
     let cue_dir = cue_path.parent().unwrap_or(Path::new("."));
     let source = cue_dir.join(audio_rel);
     if !source.exists() {
@@ -457,7 +457,7 @@ pub fn split_cue_ex(
             }
             report
                 .failed
-                .push((track.number, format!("写入失败（产物已隔离）: {e}")));
+                .push((track.number, format!("write failed (artifact quarantined): {e}")));
             continue;
         }
 
