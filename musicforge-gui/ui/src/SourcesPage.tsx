@@ -100,7 +100,8 @@ export default function SourcesPage() {
       setBusy(false);
       setPendingRemove(null);
     }
-  }, [pendingRemove, t, reload]);
+    // `t` 在本回调内并未使用（此前误列入依赖）——移除可避免无谓重建。
+  }, [pendingRemove, reload]);
 
   if (!IS_DESKTOP) {
     return (

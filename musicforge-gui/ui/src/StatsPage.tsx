@@ -77,9 +77,12 @@ export default function StatsPage({
   );
   const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
   const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
+  // useSelection 每次渲染返回**新对象**（不稳定）→ 若按 eslint 建议依赖 `selApi`，
+  // 本回调会每次渲染重建，破坏 TrackRow memo。故取其中**稳定的成员函数**再依赖它。
+  const toggleSel = selApi.toggle;
   const handleToggleSelect = useCallback(
-    (tr: Track) => selApi.toggle(String(tr.id)),
-    [selApi.toggle]
+    (tr: Track) => toggleSel(String(tr.id)),
+    [toggleSel]
   );
 
   if (!IS_DESKTOP) {

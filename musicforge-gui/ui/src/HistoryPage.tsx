@@ -88,9 +88,12 @@ export default function HistoryPage({
     [rows]
   );
   const w = useWindowedTracks(200, undefined, undefined, historyFetch);
+  // useWindowedTracks 每次渲染返回新对象 → 把 `w` 写进依赖会让本 effect 每帧重跑
+  // （reset → setState → 再渲染 → 死循环）。取稳定的 `reset` 成员依赖。
+  const { reset: resetWindow } = w;
   useEffect(() => {
-    w.reset(rows?.length ?? 0);
-  }, [rows, w.reset]);
+    resetWindow(rows?.length ?? 0);
+  }, [rows, resetWindow]);
 
   const liked = useLiked();
 
@@ -154,12 +157,18 @@ export default function HistoryPage({
 
   // P2-16：行内动作稳定化，配合 TrackRow memo
   const handlePlay = useCallback((tr: Track) => playFrom(tr), [playFrom]);
-  const handleLike = useCallback((tr: Track) => void liked.toggle(tr.id), [liked.toggle]);
+  // useLiked 每次渲染返回新对象（不稳定）→ 依赖它会让回调每帧重建、破坏 TrackRow memo。
+  // 取稳定的 `toggle` 成员函数再依赖。
+  const toggleLike = liked.toggle;
+  const handleLike = useCallback((tr: Track) => void toggleLike(tr.id), [toggleLike]);
   const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
   const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
+  // useSelection 每次渲染返回**新对象**（不稳定）→ 若按 eslint 建议依赖 `selApi`，
+  // 本回调会每次渲染重建，破坏 TrackRow memo。故取其中**稳定的成员函数**再依赖它。
+  const toggleSel = selApi.toggle;
   const handleToggleSelect = useCallback(
-    (tr: Track) => selApi.toggle(String(tr.id)),
-    [selApi.toggle]
+    (tr: Track) => toggleSel(String(tr.id)),
+    [toggleSel]
   );
 
   const clear = useCallback(async () => {

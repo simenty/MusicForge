@@ -63,6 +63,14 @@ export default function AlbumsPage({
   /** 加入歌单弹层 */
   const [addTarget, setAddTarget] = useState<Track | null>(null);
 
+  /** stale response 守卫：连点不同专辑时，先发但**晚到**的请求不得覆盖后发的结果 */
+  // P2-17：列表/封面/详情写入守卫。
+  // ⚠️ 必须**置于依赖它们的 effect 之前**——依赖数组在渲染期求值，若声明在后面
+  // 会撞 TDZ（Cannot access 'listGuard' before initialization）。
+  const tracksGuard = useRequestGuard();
+  const listGuard = useRequestGuard();
+  const coverGuard = useRequestGuard();
+
   useEffect(() => {
     if (!IS_DESKTOP) return;
     const token = listGuard.token();
@@ -73,13 +81,7 @@ export default function AlbumsPage({
       .catch(() => {
         if (!listGuard.isStale(token)) setRows([]);
       });
-  }, []);
-
-  /** stale response 守卫：连点不同专辑时，先发但**晚到**的请求不得覆盖后发的结果 */
-  const tracksGuard = useRequestGuard();
-  // P2-17：列表/封面写入守卫
-  const listGuard = useRequestGuard();
-  const coverGuard = useRequestGuard();
+  }, [listGuard]);
 
   const openAlbum = (a: Album) => {
     setSel(a);
@@ -130,9 +132,12 @@ export default function AlbumsPage({
   const handleAdd = useCallback((tr: Track) => setAddTarget(tr), []);
   const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
   const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
+  // useSelection 每次渲染返回**新对象**（不稳定）→ 若按 eslint 建议依赖 `selApi`，
+  // 本回调会每次渲染重建，破坏 TrackRow memo。故取其中**稳定的成员函数**再依赖它。
+  const toggleSel = selApi.toggle;
   const handleToggleSelect = useCallback(
-    (tr: Track) => selApi.toggle(String(tr.id)),
-    [selApi.toggle]
+    (tr: Track) => toggleSel(String(tr.id)),
+    [toggleSel]
   );
 
   // P2-20：复用 useWindowedTracks 虚拟化专辑曲目列表（内存 slice，免改后端）
@@ -141,9 +146,12 @@ export default function AlbumsPage({
     [tracks]
   );
   const w = useWindowedTracks(200, undefined, undefined, albumFetch);
+  // 同上：useWindowedTracks 每次渲染返回新对象，把 `w` 写进依赖会导致本 effect
+  // 每次渲染重跑（reset → setState → 再渲染 → 死循环）。取稳定的 `reset` 成员依赖。
+  const { reset: resetWindow } = w;
   useEffect(() => {
-    w.reset(tracks?.length ?? 0);
-  }, [tracks, w.reset]);
+    resetWindow(tracks?.length ?? 0);
+  }, [tracks, resetWindow]);
 
   if (!IS_DESKTOP) {
     return (

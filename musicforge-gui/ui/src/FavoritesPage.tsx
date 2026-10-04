@@ -67,40 +67,50 @@ export default function FavoritesPage({
     reload();
   }, [reload, reloadGuard]);
 
+  // useLiked / useSelection 每次渲染返回**新对象**（不稳定）→ 若按 eslint 建议依赖
+  // 容器对象（liked / selApi），回调与 memo 会每次渲染重建，破坏 TrackRow memo
+  // （P2-16 的核心渲染优化）。故取其中**实际用到的成员**再依赖：稳定成员函数
+  // （toggle / reset）零性能变化；`isLiked` 随 liked 集合变化，此时重算才是对的。
+  const { isLiked, loaded: likedLoaded, toggle: toggleLike } = liked;
+
   // P2-20：复用 useWindowedTracks 虚拟化收藏列表（内存 slice，免改后端）。
   // live 提升为 useMemo 并置于早返回之前，使其引用稳定（避免 fetchPage 每帧重建导致死循环重取）。
   const live = useMemo(
-    () => (rows && liked.loaded ? rows.filter((r) => liked.isLiked(r.id)) : rows),
-    [rows, liked.loaded, liked.isLiked]
+    () => (rows && likedLoaded ? rows.filter((r) => isLiked(r.id)) : rows),
+    [rows, likedLoaded, isLiked]
   );
   const favFetch = useCallback(
     (off: number, lim: number) => Promise.resolve((live ?? []).slice(off, off + lim)),
     [live]
   );
   const w = useWindowedTracks(200, undefined, undefined, favFetch);
+  // 同上：把 `w` 写进依赖会让本 effect 每帧重跑（reset → setState → 再渲染 → 死循环），
+  // 故取稳定的 `reset` 成员依赖。
+  const { reset: resetWindow } = w;
   useEffect(() => {
-    w.reset(live?.length ?? 0);
-  }, [live, w.reset]);
+    resetWindow(live?.length ?? 0);
+  }, [live, resetWindow]);
 
   // P2-16：playFrom 改为稳定 useCallback（依赖稳定原语，避免每帧重建闭包），配合 TrackRow memo。
   // 必须置于 if (!IS_DESKTOP) 早返回之前，遵守 hooks 顺序（react-hooks/rules-of-hooks）。
   const handlePlay = useCallback(
     (tr: Track) => {
       if (!onPlay || !rows) return;
-      const arr = liked.loaded ? rows.filter((r) => liked.isLiked(r.id)) : rows;
+      const arr = likedLoaded ? rows.filter((r) => isLiked(r.id)) : rows;
       const idx = arr.findIndex((x) => x.id === tr.id);
       void onPlay(arr, idx >= 0 ? idx : 0);
     },
-    [onPlay, rows, liked.loaded, liked.isLiked]
+    [onPlay, rows, likedLoaded, isLiked]
   );
 
   // P2-16：行内动作稳定化，配合 TrackRow memo
-  const handleLike = useCallback((tr: Track) => void liked.toggle(tr.id), [liked.toggle]);
+  const handleLike = useCallback((tr: Track) => void toggleLike(tr.id), [toggleLike]);
   const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
   const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
+  const toggleSel = selApi.toggle;
   const handleToggleSelect = useCallback(
-    (tr: Track) => selApi.toggle(String(tr.id)),
-    [selApi.toggle]
+    (tr: Track) => toggleSel(String(tr.id)),
+    [toggleSel]
   );
 
   if (!IS_DESKTOP) {

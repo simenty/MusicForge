@@ -58,7 +58,9 @@ export default function LibraryPage({
       .catch((e: unknown) => {
         if (!statsGuard.isStale(token)) setInitErr(String(e));
       });
-  }, []);
+    // useRequestGuard 返回 useMemo(...,[]) 的稳定对象，可安全列入依赖
+    // （对齐 StatsPage 的 [statsGuard] 写法）。守卫声明在本 effect 之前，无 TDZ 风险。
+  }, [statsGuard]);
 
   // P6.25：输入防抖 250ms → 下推服务端过滤（虚拟化列表因此不必一次性拉全量）
   useEffect(() => {
@@ -105,14 +107,18 @@ export default function LibraryPage({
   );
 
   // P2-16：行内动作稳定化，配合 TrackRow memo（依赖具体稳定方法，避免每次渲染重建闭包）
+  // useLiked / useSelection 每次渲染返回**新对象**（不稳定）→ 依赖容器对象会让回调
+  // 每次渲染重建、破坏 TrackRow memo。故取其中**稳定的成员函数**再依赖。
+  const toggleLike = liked.toggle;
+  const toggleSel = selApi.toggle;
   const handlePlay = useCallback((tr: Track) => playFrom(tr), [playFrom]);
-  const handleLike = useCallback((tr: Track) => void liked.toggle(tr.id), [liked.toggle]);
+  const handleLike = useCallback((tr: Track) => void toggleLike(tr.id), [toggleLike]);
   const handleAdd = useCallback((tr: Track) => setAddTarget(tr), []);
   const handleQueue = useCallback((tr: Track) => void onQueue?.([tr]), [onQueue]);
   const handlePlayNext = useCallback((tr: Track) => void onPlayNext?.([tr]), [onPlayNext]);
   const handleToggleSelect = useCallback(
-    (tr: Track) => selApi.toggle(String(tr.id)),
-    [selApi.toggle]
+    (tr: Track) => toggleSel(String(tr.id)),
+    [toggleSel]
   );
 
   // 可见列表 = 虚拟化已加载快照（P6.25：过滤已下推到服务端，不再有独立的
@@ -124,7 +130,14 @@ export default function LibraryPage({
   //
   // 必须置于所有早返回之前：`initErr` 会在运行时被置位（批量移除失败），
   // 若在其后的早返回之后调用这些 hook 会触发「Rendered fewer hooks」。
-  const list = useMemo(() => snapshot(), [w.total, w.loadedPages, w.busy]);
+  // `w.total` / `w.loadedPages` / `w.busy` **必须**留在依赖里，尽管函数体只调用了
+  // `snapshot()`：后者读的是可变 ref（`pages.current`），其 identity 只随 `total` 变化，
+  // **不会**因「新一页加载完成」而改变——若只依赖 snapshot，新页到货时 list 仍是旧数组
+  // （列表停在旧数据，要再滚一次才刷新）。loadedPages 单调增、busy 反映在飞状态，
+  // 二者才是「页缓存已变」的真实信号（P2-15 修复的审计 #15 首要热点即依赖这三个值）。
+  // 故此处禁用 exhaustive-deps 的「不必要依赖」提示（依赖是刻意的、有据的）。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const list = useMemo(() => snapshot(), [snapshot, w.total, w.loadedPages, w.busy]);
   const selectedTracks = useMemo(
     () => list.filter((x) => selApi.sel.has(String(x.id))),
     [list, selApi]
