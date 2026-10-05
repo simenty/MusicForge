@@ -155,7 +155,7 @@ pub fn load_or_create_token(path: &std::path::Path) -> Result<(String, bool), St
         }
     }
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("token 目录创建失败: {e}"))?;
+        std::fs::create_dir_all(dir).map_err(|e| format!("token dir creation failed: {e}"))?;
     }
     let token = generate_token();
     // B18: 0o600 -- token 属敏感凭据，默认 umask 的 0644 会泄露给同机其他用户
@@ -169,12 +169,12 @@ pub fn load_or_create_token(path: &std::path::Path) -> Result<(String, bool), St
             .truncate(true)
             .mode(0o600)
             .open(path)
-            .map_err(|e| format!("token 写入失败: {e}"))?;
+            .map_err(|e| format!("token write failed: {e}"))?;
         f.write_all(token.as_bytes())
-            .map_err(|e| format!("token 写入失败: {e}"))?;
+            .map_err(|e| format!("token write failed: {e}"))?;
     }
     #[cfg(not(unix))]
-    std::fs::write(path, &token).map_err(|e| format!("token 写入失败: {e}"))?;
+    std::fs::write(path, &token).map_err(|e| format!("token write failed: {e}"))?;
     Ok((token, true))
 }
 
@@ -506,9 +506,9 @@ async fn auth_middleware(
                 tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
             }
             let msg = if code == "MF-AUTH-STALE" {
-                "请求时间戳超出窗口（请校准系统时间后重试）"
+                "request timestamp outside window (please sync system time and retry)"
             } else {
-                "请求签名无效"
+                "request signature invalid"
             };
             (
                 StatusCode::UNAUTHORIZED,

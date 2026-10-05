@@ -98,7 +98,7 @@ fn path_rejected(state: &ServerState, p: &std::path::Path) -> Response {
         StatusCode::FORBIDDEN,
         "MF-PATH-NOT-ALLOWED",
         format!(
-            "路径不在允许根目录内: {}（已配置 MUSICFORGE_ALLOWED_ROOTS）",
+            "path is outside allowed root: {} (MUSICFORGE_ALLOWED_ROOTS is configured)",
             p.display()
         ),
     )
@@ -156,7 +156,7 @@ pub async fn scan(State(state): State<ServerState>, body: Option<JsonBody<Value>
         return err(
             StatusCode::BAD_REQUEST,
             "MF-API-BAD-REQUEST",
-            "缺 dir 且服务端未配置 MUSICFORGE_LIBRARY_DIR",
+            "missing dir and server has no MUSICFORGE_LIBRARY_DIR configured",
         );
     };
     // P9 路径域（配置白名单时生效）
@@ -188,7 +188,7 @@ pub async fn scan(State(state): State<ServerState>, body: Option<JsonBody<Value>
         Err(e) => err(
             StatusCode::INTERNAL_SERVER_ERROR,
             "MF-INTERNAL",
-            format!("扫描任务执行失败: {e}"),
+            format!("scan task failed: {e}"),
         ),
     }
 }
@@ -213,7 +213,7 @@ pub async fn library_refresh(
         return err(
             StatusCode::BAD_REQUEST,
             "MF-API-BAD-REQUEST",
-            "缺 dir 且服务端未配置 MUSICFORGE_LIBRARY_DIR",
+            "missing dir and server has no MUSICFORGE_LIBRARY_DIR configured",
         );
     };
     // P9 路径域（配置白名单时生效）
@@ -256,7 +256,7 @@ pub async fn library_refresh(
         Err(e) => err(
             StatusCode::INTERNAL_SERVER_ERROR,
             "MF-INTERNAL",
-            format!("库刷新任务执行失败: {e}"),
+            format!("library refresh task failed: {e}"),
         ),
     }
 }
@@ -306,11 +306,11 @@ pub async fn convert(
         return err(
             StatusCode::BAD_REQUEST,
             "MF-API-BAD-REQUEST",
-            "缺 plugin（如 qmc-migration / kwm-migration）",
+            "missing plugin (e.g. qmc-migration / kwm-migration)",
         );
     };
     let Some(source) = body.get("source").and_then(|v| v.as_str()) else {
-        return err(StatusCode::BAD_REQUEST, "MF-API-BAD-REQUEST", "缺 source");
+        return err(StatusCode::BAD_REQUEST, "MF-API-BAD-REQUEST", "missing source");
     };
     let output_dir = body
         .get("output_dir")
@@ -347,7 +347,7 @@ pub async fn convert(
         Err(e) => err(
             StatusCode::INTERNAL_SERVER_ERROR,
             "MF-INTERNAL",
-            format!("迁移任务执行失败: {e}"),
+            format!("migration task failed: {e}"),
         ),
     }
 }
@@ -370,7 +370,7 @@ pub async fn batch(State(state): State<ServerState>, JsonBody(body): JsonBody<Va
         return err(
             StatusCode::BAD_REQUEST,
             "MF-API-BAD-REQUEST",
-            "缺 inputs 数组",
+            "missing inputs array",
         );
     };
     let expanded: Vec<(PathBuf, Option<PathBuf>)> = inputs
@@ -482,7 +482,7 @@ pub async fn batch(State(state): State<ServerState>, JsonBody(body): JsonBody<Va
         Err(e) => err(
             StatusCode::INTERNAL_SERVER_ERROR,
             "MF-INTERNAL",
-            format!("批处理任务执行失败: {e}"),
+            format!("batch task failed: {e}"),
         ),
     }
 }
@@ -509,7 +509,7 @@ fn parse_organize_req(body: &Value) -> Result<OrganizeReq, Response> {
         return Err(err(
             StatusCode::BAD_REQUEST,
             "MF-API-BAD-REQUEST",
-            "缺 dir（整理根目录）",
+            "missing dir (organize root)",
         ));
     };
     let template = body
@@ -530,7 +530,7 @@ fn parse_organize_req(body: &Value) -> Result<OrganizeReq, Response> {
                 err(
                     StatusCode::BAD_REQUEST,
                     "MF-API-BAD-REQUEST",
-                    format!("未知 strategy: {s}（skip/suffix/overwrite-never）"),
+                    format!("unknown strategy: {s} (skip/suffix/overwrite-never)"),
                 )
             })
         })
@@ -611,7 +611,7 @@ pub async fn organize_plan(
         Err(e) => err(
             StatusCode::INTERNAL_SERVER_ERROR,
             "MF-INTERNAL",
-            format!("整理规划任务执行失败: {e}"),
+            format!("organize-plan task failed: {e}"),
         ),
     }
 }
@@ -634,7 +634,7 @@ pub async fn organize_apply(
         return err(
             StatusCode::FORBIDDEN,
             "MF-OP-NEEDS-YES",
-            "破坏类操作需显式确认：先调 /api/organize/plan 预览，再以 confirm:true 执行",
+            "destructive op requires explicit confirmation: preview via /api/organize/plan first, then execute with confirm:true",
         );
     }
     let r = match parse_organize_req(&body) {
@@ -692,7 +692,7 @@ pub async fn organize_apply(
         Err(e) => err(
             StatusCode::INTERNAL_SERVER_ERROR,
             "MF-INTERNAL",
-            format!("整理执行任务失败: {e}"),
+            format!("organize-execute task failed: {e}"),
         ),
     }
 }
@@ -725,7 +725,7 @@ pub async fn clean_plan(
     JsonBody(body): JsonBody<Value>,
 ) -> Response {
     let Some(dir) = body.get("dir").and_then(|v| v.as_str()) else {
-        return err(StatusCode::BAD_REQUEST, "MF-API-BAD-REQUEST", "缺 dir");
+        return err(StatusCode::BAD_REQUEST, "MF-API-BAD-REQUEST", "missing dir");
     };
     let dir = PathBuf::from(dir);
     // P9 路径域（配置白名单时生效）
@@ -747,7 +747,7 @@ pub async fn clean_plan(
             return err(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "MF-INTERNAL",
-                format!("清洗规划任务执行失败: {e}"),
+                format!("clean-plan task failed: {e}"),
             )
         }
     };
@@ -777,11 +777,11 @@ pub async fn clean_apply(
         return err(
             StatusCode::FORBIDDEN,
             "MF-OP-NEEDS-YES",
-            "清洗为破坏类操作：先调 /api/clean/plan 预览，再以 confirm:true 执行（可整体还原）",
+            "clean is a destructive op: preview via /api/clean/plan first, then execute with confirm:true (fully restorable)",
         );
     }
     let Some(dir) = body.get("dir").and_then(|v| v.as_str()) else {
-        return err(StatusCode::BAD_REQUEST, "MF-API-BAD-REQUEST", "缺 dir");
+        return err(StatusCode::BAD_REQUEST, "MF-API-BAD-REQUEST", "missing dir");
     };
     let dir = PathBuf::from(dir);
     // P9 路径域（配置白名单时生效）
@@ -828,7 +828,7 @@ pub async fn clean_apply(
         Err(e) => err(
             StatusCode::INTERNAL_SERVER_ERROR,
             "MF-INTERNAL",
-            format!("清洗执行任务失败: {e}"),
+            format!("clean-execute task failed: {e}"),
         ),
     }
 }
@@ -848,11 +848,11 @@ pub async fn trash_restore(
         return err(
             StatusCode::FORBIDDEN,
             "MF-OP-NEEDS-YES",
-            "还原会覆盖恢复路径上的同名文件（如存在）：请以 confirm:true 确认",
+            "restore will overwrite same-named files on the recovery path (if present): confirm with confirm:true",
         );
     }
     let Some(manifest) = body.get("manifest").and_then(|v| v.as_str()) else {
-        return err(StatusCode::BAD_REQUEST, "MF-API-BAD-REQUEST", "缺 manifest");
+        return err(StatusCode::BAD_REQUEST, "MF-API-BAD-REQUEST", "missing manifest");
     };
     // AUD-6（安全修复）：此前接受任意路径的 manifest——持 token 者可借 restore
     // 读取/「还原」任意 jsonl 文件描述的任意路径（越权面）。最小约束：manifest
@@ -902,7 +902,7 @@ pub async fn trash_restore(
         Err(e) => err(
             StatusCode::INTERNAL_SERVER_ERROR,
             "MF-INTERNAL",
-            format!("还原任务执行失败: {e}"),
+            format!("restore task failed: {e}"),
         ),
     }
 }
