@@ -1,5 +1,6 @@
 //! 风格代码解析器（X15 / 蓝图能力 #11）：文件名 `[Y23-S01-E01-C01-C02-V00]`
-//! → year/style/mood/scene/version 结构化字段（卡片显示中文标签）。
+//! → year/style/mood/scene/version 结构化字段（卡片标签 **locale 中立**，渲染时按
+//! UI 语言展开，见 [`StyleCode::display_with_locale`]——数据层不嵌中文，英文界面不弹中文）。
 //!
 //! 代码语义（蓝图 v3.0 §2.2 #64 权威定义）：
 //! - `Y##` → 年份（Y23 = 2023）
@@ -15,9 +16,10 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::dedupe::Locale;
 use crate::error::NcmError;
 
-/// 解析结果（原始码保留；display 用中文标签前缀）。
+/// 解析结果（原始码保留；展示标签见 [`Self::display_with_locale`]，locale 中立）。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StyleCode {
     /// `Y23` → Some(2023)
@@ -52,29 +54,42 @@ impl StyleCode {
         Some(parts.join(" / "))
     }
 
-    /// 中文标签卡片（蓝图：结构化字段，卡片显示中文标签）。
-    pub fn display_cn(&self, map: &BTreeMap<String, String>) -> String {
+    /// 展示标签（卡片显示）：**locale 中立**，渲染时按语言展开——不把中文塞进数据层
+    /// （与 `dedupe::Locale` 同款思路，英文界面不再弹中文标签）。
+    ///
+    /// `map` 为用户提供的码→名 codebook（飞牛风格页）；查不到回退原始码，绝不编造。
+    /// 项间分隔统一用 ` · `（标点，语言中立）；场景内多个码在中文用 `、`、英文用 `, `。
+    pub fn display_with_locale(&self, map: &BTreeMap<String, String>, locale: Locale) -> String {
+        let (l_year, l_style, l_mood, l_scene, l_version, l_other, inner_sep) = match locale {
+            Locale::Zh => ("年份", "风格", "情绪", "场景", "版本", "其他", "、"),
+            Locale::En => ("Year", "Style", "Mood", "Scene", "Version", "Other", ", "),
+        };
         let mut items: Vec<String> = Vec::new();
         if let Some(y) = self.year {
-            items.push(format!("年份: {y}"));
+            items.push(format!("{l_year}: {y}"));
         }
         if let Some(s) = &self.style {
-            items.push(format!("风格: {}", lookup(map, s)));
+            items.push(format!("{l_style}: {}", lookup(map, s)));
         }
         if let Some(m) = &self.mood {
-            items.push(format!("情绪: {}", lookup(map, m)));
+            items.push(format!("{l_mood}: {}", lookup(map, m)));
         }
         if !self.scenes.is_empty() {
             let sc: Vec<String> = self.scenes.iter().map(|c| lookup(map, c)).collect();
-            items.push(format!("场景: {}", sc.join("、")));
+            items.push(format!("{l_scene}: {}", sc.join(inner_sep)));
         }
         if let Some(v) = &self.version {
-            items.push(format!("版本: {}", lookup(map, v)));
+            items.push(format!("{l_version}: {}", lookup(map, v)));
         }
         for o in &self.other {
-            items.push(format!("其他: {o}"));
+            items.push(format!("{l_other}: {o}"));
         }
         items.join(" · ")
+    }
+
+    /// 中文展示标签（[`Self::display_with_locale`] 的 `Zh` 便捷别名；保持旧测试/调用兼容）。
+    pub fn display_cn(&self, map: &BTreeMap<String, String>) -> String {
+        self.display_with_locale(map, Locale::Zh)
     }
 }
 

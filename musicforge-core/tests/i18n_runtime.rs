@@ -1,6 +1,8 @@
 //! 运行时验证：i18n 补丁在 Locale::En 下必须产出纯英文、不含中文（编译通过 ≠ 英文生效）。
 use musicforge_core::dedupe::*;
-use std::path::PathBuf;
+use musicforge_core::stylecode::parse_style_code;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 fn has_cjk(s: &str) -> bool {
     s.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
@@ -85,4 +87,25 @@ fn same_name_group_candidate_reason_en_is_english() {
         "en candidate: {en}"
     );
     assert!(!has_cjk(&en), "en candidate leaked CJK: {en}");
+}
+
+// ---- stylecode 展示标签：locale 中立，镜像 dedupe 的 Locale 模式 ----
+
+#[test]
+fn stylecode_display_en_is_english_and_no_cjk() {
+    let sc = parse_style_code(Path::new("[Y23-S01-E01-C01-C02-V00] sun.flac")).unwrap();
+    let mut map = BTreeMap::new();
+    map.insert("S01".to_string(), "Pop".to_string());
+    map.insert("C01".to_string(), "Study".to_string());
+    let en = sc.display_with_locale(&map, Locale::En);
+    assert!(en.contains("Year: 2023"), "en: {en}");
+    assert!(en.contains("Style: Pop"), "en: {en}");
+    assert!(en.contains("Mood: E01"), "en: {en}");
+    assert!(en.contains("Scene: Study, C02"), "en: {en}");
+    assert!(en.contains("Version: V00"), "en: {en}");
+    assert!(!has_cjk(&en), "en stylecode leaked CJK: {en}");
+    // 对照：中文路径应含中文标签（display_cn 即 Zh 别名）
+    let zh = sc.display_cn(&map);
+    assert!(has_cjk(&zh), "zh stylecode should contain CJK: {zh}");
+    assert!(zh.contains("年份: 2023"), "zh: {zh}");
 }
