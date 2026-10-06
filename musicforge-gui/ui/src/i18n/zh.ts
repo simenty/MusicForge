@@ -795,6 +795,11 @@ export const zh = {
     scene: "场景",
     version: "版本",
     other: "其他",
+    // —— 设置项（codebook 路径）——
+    codebookLabel: "风格码 codebook",
+    codebookPlaceholder: "codebook.json 路径（留空则显示原始码）",
+    codebookHint:
+      "JSON 映射 {\"S01\":\"流行\",…}；留空时卡片显示原始码（如 S01）。CLI 用 --map 指定同一文件。",
   },
 };
 // 注意：刻意不加 `as const`——加了会把字符串收窄成字面量类型，

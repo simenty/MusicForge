@@ -13,12 +13,15 @@ import { useLang } from "./i18n";
 export default function StyleCodePanel({
   path,
   title,
+  codebookPath,
   onClose,
 }: {
   /** 当前曲目路径（无 → 直接显示"无码"） */
   path: string | null;
   /** 标题栏展示的曲名 */
   title: string;
+  /** codebook 路径（设置项；空 = 未配置 → 显示原始码） */
+  codebookPath?: string;
   onClose: () => void;
 }) {
   const { t } = useLang();
@@ -34,7 +37,7 @@ export default function StyleCodePanel({
     let alive = true;
     setCode(undefined);
     setErr(null);
-    void styleCode(path)
+    void styleCode(path, codebookPath)
       .then((r) => {
         if (alive) setCode(r);
       })
@@ -47,7 +50,7 @@ export default function StyleCodePanel({
     return () => {
       alive = false;
     };
-  }, [path]);
+  }, [path, codebookPath]);
 
   // Esc 关闭（惯例同 LyricsPanel / ConfirmDialog）
   useEffect(() => {
@@ -58,16 +61,18 @@ export default function StyleCodePanel({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // 结构化数据 → 展示行（空值字段不出行：绝不为凑版面显示"—"）
+  // 结构化数据 → 展示行（空值字段不出行：绝不为凑版面显示"—"）。
+  // 码名：codebook 查到用码名，查不到**回退原始码**（绝不编造）。
+  const name = (c: string) => code?.labels[c] ?? c;
   const rows: { label: string; value: string }[] = [];
   if (code) {
     if (code.year !== null) rows.push({ label: t.styleCode.year, value: String(code.year) });
-    if (code.style) rows.push({ label: t.styleCode.style, value: code.style });
-    if (code.mood) rows.push({ label: t.styleCode.mood, value: code.mood });
+    if (code.style) rows.push({ label: t.styleCode.style, value: name(code.style) });
+    if (code.mood) rows.push({ label: t.styleCode.mood, value: name(code.mood) });
     if (code.scenes.length > 0) {
-      rows.push({ label: t.styleCode.scene, value: code.scenes.join(" · ") });
+      rows.push({ label: t.styleCode.scene, value: code.scenes.map(name).join(" · ") });
     }
-    if (code.version) rows.push({ label: t.styleCode.version, value: code.version });
+    if (code.version) rows.push({ label: t.styleCode.version, value: name(code.version) });
     for (const o of code.other) rows.push({ label: t.styleCode.other, value: o });
   }
 
@@ -100,7 +105,10 @@ export default function StyleCodePanel({
               ))}
             </dl>
           )}
-          {rows.length > 0 && <p className="scan-note sc-hint">{t.styleCode.rawHint}</p>}
+          {/* 仅在**未配置** codebook 时提示（配了还显示原始码说明该码未收录，非配置问题） */}
+          {rows.length > 0 && !codebookPath && (
+            <p className="scan-note sc-hint">{t.styleCode.rawHint}</p>
+          )}
         </div>
         <div className="modal-foot">
           <button type="button" className="btn sm" onClick={onClose}>

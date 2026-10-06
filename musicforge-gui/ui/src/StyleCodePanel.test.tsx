@@ -17,7 +17,7 @@ import type { StyleCodeDto } from "./lib/types";
 
 const mockStyleCode = vi.mocked(styleCode);
 
-/** 完整码块：`[Y23-S01-E01-C01-C02-V00]` */
+/** 完整码块：`[Y23-S01-E01-C01-C02-V00]`（未配 codebook → labels 空） */
 const FULL: StyleCodeDto = {
   year: 2023,
   style: "S01",
@@ -25,6 +25,13 @@ const FULL: StyleCodeDto = {
   scenes: ["C01", "C02"],
   version: "V00",
   other: [],
+  labels: {},
+};
+
+/** 配了 codebook：S01 → 流行，C01 → 学习（C02 未收录 → 仍需回退原始码） */
+const WITH_BOOK: StyleCodeDto = {
+  ...FULL,
+  labels: { S01: "流行", C01: "学习" },
 };
 
 const hasCjk = (s: string) => /[一-鿿]/.test(s);
@@ -99,5 +106,37 @@ describe("StyleCodePanel", () => {
     mockStyleCode.mockRejectedValue(new Error("boom"));
     renderPanel("/lib/[Y23] a.flac");
     expect(await screen.findByText("Error: boom")).toBeTruthy();
+  });
+
+  // ---- codebook：查到用码名，查不到回退原始码（绝不编造）----
+  it("配 codebook 时显示码名，未收录的码回退原始码", async () => {
+    mockStyleCode.mockResolvedValue(WITH_BOOK);
+    render(
+      <I18nProvider>
+        <StyleCodePanel
+          path="/lib/[Y23-S01-E01-C01-C02-V00] 晴天.flac"
+          title="晴天"
+          codebookPath="/cfg/codebook.json"
+          onClose={() => {}}
+        />
+      </I18nProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("流行")).toBeTruthy());
+    // 场景行：C01 → 学习（译名），C02 未收录 → 回退原始码，绝不编造
+    expect(screen.getByText("学习 · C02")).toBeTruthy();
+    // 已配置 codebook 时不再显示「未配置」提示
+    expect(screen.queryByText(/未配置 codebook/)).toBeNull();
+    // 且把 codebook 路径传给了后端
+    expect(mockStyleCode).toHaveBeenCalledWith(
+      "/lib/[Y23-S01-E01-C01-C02-V00] 晴天.flac",
+      "/cfg/codebook.json",
+    );
+  });
+
+  it("未配 codebook 时给出「显示为原始码」说明", async () => {
+    mockStyleCode.mockResolvedValue(FULL);
+    renderPanel("/lib/[Y23-S01] a.flac");
+    await waitFor(() => expect(screen.getByText("S01")).toBeTruthy());
+    expect(screen.getByText(/未配置 codebook/)).toBeTruthy();
   });
 });

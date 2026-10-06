@@ -9,7 +9,14 @@ import type { PlayerApi } from "./hooks/usePlayer";
 import LyricsPanel from "./LyricsPanel";
 import StyleCodePanel from "./StyleCodePanel";
 
-export default function PlayerBar({ player }: { player: PlayerApi }) {
+export default function PlayerBar({
+  player,
+  /** X15：codebook 路径（设置项；空 = 未配置，卡片显示原始码） */
+  codebookPath,
+}: {
+  player: PlayerApi;
+  codebookPath?: string;
+}) {
   const { t } = useLang();
   const { status, playing, restored } = player;
   /** 会话恢复的当前曲目（引擎空闲时的展示数据；P6.12） */
@@ -470,6 +477,7 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
         <StyleCodePanel
           path={scPath}
           title={status?.title ?? resumed?.title ?? "—"}
+          codebookPath={codebookPath}
           onClose={() => setScOpen(false)}
         />
       )}

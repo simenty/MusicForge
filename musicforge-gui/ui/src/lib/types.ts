@@ -386,6 +386,11 @@ export interface StyleCodeDto {
   version: string | null;
   /** 无法归类的 token（原样保留，兼容未来新增键） */
   other: string[];
+  /**
+   * 码 → 码名（**仅查到的条目**）。查不到则该码不在表中，前端**回退原始码**
+   * （绝不编造码名）。未配置 codebook 时为空对象。
+   */
+  labels: Record<string, string>;
 }
 
 /** 播放历史行（Track 字段 + 播放时刻） */

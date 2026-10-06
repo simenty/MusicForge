@@ -768,9 +768,12 @@ export async function lyricsFetch(trackId: number): Promise<string | null> {
  *
  * 后端只回结构化数据，字段标签由组件按 UI 语言渲染（I18N-7）。
  */
-export async function styleCode(path: string): Promise<StyleCodeDto | null> {
+export async function styleCode(
+  path: string,
+  codebookPath?: string,
+): Promise<StyleCodeDto | null> {
   if (!IS_DESKTOP) return null;
-  return invoke<StyleCodeDto | null>("style_code", { path });
+  return invoke<StyleCodeDto | null>("style_code", { path, codebookPath });
 }
 
 // ---------------------------------------------------------------------------

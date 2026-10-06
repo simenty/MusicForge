@@ -815,5 +815,10 @@ export const en: typeof zh = {
     scene: "Scene",
     version: "Version",
     other: "Other",
+    // —— setting (codebook path) ——
+    codebookLabel: "Style-code codebook",
+    codebookPlaceholder: "Path to codebook.json (blank = show raw codes)",
+    codebookHint:
+      'JSON map {"S01":"Pop",…}; blank shows raw codes (e.g. S01). The CLI uses --map with the same file.',
   },
 };

@@ -22,6 +22,9 @@ export interface Settings {
   /** 在线元数据（P6）：允许按需从 MusicBrainz / Cover Art Archive 抓取专辑封面。
    *  默认关——开启才使「补全封面」按钮可用（网络请求仅由该按钮触发）。 */
   onlineMeta: boolean;
+  /** X15 风格码 codebook（JSON：`{"S01":"流行",...}`）路径。
+   *  空 = 未配置 → 卡片按**原始码**显示（绝不编造码名）。 */
+  codebookPath: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -33,6 +36,7 @@ export const DEFAULT_SETTINGS: Settings = {
   jobs: 4,
   dryRun: false,
   onlineMeta: false,
+  codebookPath: "",
 };
 
 const KEY = "musicforge.settings.v1";
@@ -68,6 +72,8 @@ export function loadSettings(): Settings {
         typeof parsed.onlineMeta === "boolean"
           ? parsed.onlineMeta
           : DEFAULT_SETTINGS.onlineMeta,
+      codebookPath:
+        typeof parsed.codebookPath === "string" ? parsed.codebookPath : "",
       jobs,
     };
   } catch {

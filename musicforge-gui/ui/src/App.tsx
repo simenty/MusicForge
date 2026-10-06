@@ -1012,6 +1012,21 @@ export default function App() {
           </div>
         </div>
 
+        {/* X15：风格码 codebook（留空 → 卡片按原始码显示） */}
+        <div className="row">
+          <label className="lbl">{t.styleCode.codebookLabel}</label>
+          <div className="tpl">
+            <input
+              className="val mono"
+              value={settings.codebookPath}
+              onChange={(e) => patch({ codebookPath: e.target.value })}
+              spellCheck={false}
+              placeholder={t.styleCode.codebookPlaceholder}
+            />
+            <div className="tpl-help">{t.styleCode.codebookHint}</div>
+          </div>
+        </div>
+
         {/* 其它选项 */}
         <div className="row">
           <label className="lbl">{t.app.options}</label>
@@ -1090,7 +1105,7 @@ export default function App() {
       </main>
 
       {/* P2：播放底栏（常驻；.main 内部滚动、底栏固定） */}
-      <PlayerBar player={player} />
+      <PlayerBar player={player} codebookPath={settings.codebookPath} />
 
       <div className="legal">{t.app.legal}</div>
       </div>
