@@ -11,6 +11,8 @@ vi.mock("./api", () => ({
   playlistRemove: vi.fn(),
   playlistRename: vi.fn(),
   playlistDelete: vi.fn(),
+  // X15：列表内风格码 chip（批量解析）
+  styleCodes: vi.fn(async () => ({})),
 }));
 
 import { playlistCreate, playlistTracks, playlistsCovers, playlistsList } from "./api";

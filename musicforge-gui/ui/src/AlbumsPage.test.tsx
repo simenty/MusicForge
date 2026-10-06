@@ -9,6 +9,8 @@ vi.mock("./api", () => ({
   coverFetch: vi.fn(),
   coverPickImage: vi.fn(),
   coverSetLocal: vi.fn(),
+  // X15：列表内风格码 chip（批量解析）
+  styleCodes: vi.fn(async () => ({})),
 }));
 
 vi.mock("./hooks/useSettings", () => ({

@@ -21,6 +21,7 @@ import TrackRow from "./TrackRow";
 import SelectionBar from "./SelectionBar";
 import { useSelection } from "./hooks/useSelection";
 import { useRequestGuard } from "./hooks/useRequestGuard";
+import { useTrackStyleChips } from "./hooks/useStyleCodes";
 import { useLang } from "./i18n";
 import { assetUrl } from "./lib/asset";
 import { IconList, IconPlus } from "./icons";
@@ -30,6 +31,7 @@ export default function PlaylistsPage({
   focusId = null,
   onQueue,
   onPlayNext,
+  codebookPath,
 }: {
   onPlay?: (tracks: Track[], index: number) => Promise<void>;
   /** P6.14 搜索跳转：命中的歌单 id（消费一次即进入详情） */
@@ -38,6 +40,8 @@ export default function PlaylistsPage({
   onQueue?: (tracks: Track[]) => Promise<void>;
   /** P6.17 下一首播放 */
   onPlayNext?: (tracks: Track[]) => Promise<void>;
+  /** X15：风格码 codebook 路径（设置项；空 = 显示原始码） */
+  codebookPath?: string;
 }) {
   const { t } = useLang();
   const selApi = useSelection();
@@ -146,6 +150,10 @@ export default function PlaylistsPage({
     (tr: Track) => toggleSel(String(tr.id)),
     [toggleSel]
   );
+
+  // X15：风格码 chip（批量解析 + 缓存）。必须置于下方 `if (!IS_DESKTOP)` 早返回
+  // **之前**——hooks 不得条件调用（早返回会让 hook 调用次序变化）。
+  const styleChips = useTrackStyleChips(items ?? [], codebookPath);
 
   if (!IS_DESKTOP) {
     return (
@@ -446,6 +454,7 @@ export default function PlaylistsPage({
                 selectable={selApi.selMode}
                 selected={selApi.has(String(r.id))}
                 onToggleSelect={handleToggleSelect}
+                styleChip={styleChips[r.path]}
                 trailing={
                   <button
                     className="row-mini"

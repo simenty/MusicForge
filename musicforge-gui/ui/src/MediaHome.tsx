@@ -8,6 +8,7 @@ import { IconClock, IconDisc, IconFolder, IconHeart, IconMusic, IconUser } from 
 import TrackRow from "./TrackRow";
 import SelectionBar from "./SelectionBar";
 import { useSelection } from "./hooks/useSelection";
+import { useTrackStyleChips } from "./hooks/useStyleCodes";
 
 /**
  * 概览页。`goSources` / `onNavigate` / `onPlay` 由外层注入——
@@ -19,6 +20,7 @@ export default function MediaHome({
   onPlay,
   onQueue,
   onPlayNext,
+  codebookPath,
 }: {
   goSources: () => void;
   onNavigate?: (tab: "favorites" | "history" | "sources") => void;
@@ -27,6 +29,8 @@ export default function MediaHome({
   onQueue?: (tracks: Track[]) => Promise<void>;
   /** P6.17 下一首播放 */
   onPlayNext?: (tracks: Track[]) => Promise<void>;
+  /** X15：风格码 codebook 路径（设置项；空 = 显示原始码） */
+  codebookPath?: string;
 }) {
   const { t } = useLang();
   const selApi = useSelection();
@@ -72,6 +76,10 @@ export default function MediaHome({
     (tr: Track) => toggleSel(String(tr.id)),
     [toggleSel]
   );
+
+  // X15：风格码 chip（批量解析 + 缓存）。必须置于下方 `if (!IS_DESKTOP)` 早返回
+  // **之前**——hooks 不得条件调用。
+  const styleChips = useTrackStyleChips(recent, codebookPath);
 
   if (!IS_DESKTOP) {
     return (
@@ -243,6 +251,7 @@ export default function MediaHome({
               selectable={selApi.selMode}
               selected={selApi.has(String(tr.id))}
               onToggleSelect={handleToggleSelect}
+              styleChip={styleChips[tr.path]}
             />
           ))}
         </div>

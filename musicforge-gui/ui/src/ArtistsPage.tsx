@@ -20,6 +20,7 @@ import SortControl from "./SortControl";
 import FilterInput from "./FilterInput";
 import { SORT_SUPPORTED, useSort } from "./hooks/useSort";
 import { useRequestGuard } from "./hooks/useRequestGuard";
+import { useTrackStyleChips } from "./hooks/useStyleCodes";
 import { sortTracks } from "./lib/sortTracks";
 import { filterArtists, filterTracks } from "./lib/filterTracks";
 import AddToPlaylistDialog from "./AddToPlaylistDialog";
@@ -30,6 +31,7 @@ export default function ArtistsPage({
   focusId = null,
   onQueue,
   onPlayNext,
+  codebookPath,
 }: {
   onPlay?: (tracks: Track[], index: number) => Promise<void>;
   /** P6.14 搜索跳转：命中的艺术家 id（消费一次即展开详情） */
@@ -38,6 +40,8 @@ export default function ArtistsPage({
   onQueue?: (tracks: Track[]) => Promise<void>;
   /** P6.17 下一首播放 */
   onPlayNext?: (tracks: Track[]) => Promise<void>;
+  /** X15：风格码 codebook 路径（设置项；空 = 显示原始码） */
+  codebookPath?: string;
 }) {
   const { t } = useLang();
   const { settings } = useSettings();
@@ -60,6 +64,8 @@ export default function ArtistsPage({
   /** 详情态：选中的艺术家（null = 列表态） */
   const [sel, setSel] = useState<Artist | null>(null);
   const [tracks, setTracks] = useState<Track[] | null>(null);
+  // X15：风格码 chip（批量解析 + 缓存）。**置于所有早返回之前**——hooks 不得条件调用。
+  const styleChips = useTrackStyleChips(tracks ?? [], codebookPath);
   const [addTarget, setAddTarget] = useState<Track | null>(null);
 
   useEffect(() => {
@@ -298,6 +304,7 @@ export default function ArtistsPage({
                 selectable={selApi.selMode}
                 selected={selApi.has(String(r.id))}
                 onToggleSelect={handleToggleSelect}
+                styleChip={styleChips[r.path]}
               />
             ))}
           </div>

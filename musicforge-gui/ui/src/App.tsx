@@ -873,6 +873,7 @@ export default function App() {
               onNavigate={(tab) => setMediaTab(tab)}
               onPlay={player.playTracks}
               onQueue={player.queueAppend} onPlayNext={player.playNext}
+              codebookPath={settings.codebookPath}
             />
           )}
           {mediaTab === "library" && (
@@ -888,6 +889,7 @@ export default function App() {
               onPlay={player.playTracks}
               focusId={focusId?.kind === "artist" ? focusId.id : null}
               onQueue={player.queueAppend} onPlayNext={player.playNext}
+              codebookPath={settings.codebookPath}
             />
           )}
           {mediaTab === "albums" && (
@@ -895,6 +897,7 @@ export default function App() {
               onPlay={player.playTracks}
               focusId={focusId?.kind === "album" ? focusId.id : null}
               onQueue={player.queueAppend} onPlayNext={player.playNext}
+              codebookPath={settings.codebookPath}
             />
           )}
           {mediaTab === "playlists" && (
@@ -902,16 +905,32 @@ export default function App() {
               onPlay={player.playTracks}
               focusId={focusId?.kind === "playlist" ? focusId.id : null}
               onQueue={player.queueAppend} onPlayNext={player.playNext}
+              codebookPath={settings.codebookPath}
             />
           )}
           {mediaTab === "favorites" && (
-            <FavoritesPage onPlay={player.playTracks} onQueue={player.queueAppend} onPlayNext={player.playNext} />
+            <FavoritesPage
+              onPlay={player.playTracks}
+              onQueue={player.queueAppend}
+              onPlayNext={player.playNext}
+              codebookPath={settings.codebookPath}
+            />
           )}
           {mediaTab === "history" && (
-            <HistoryPage onPlay={player.playTracks} onQueue={player.queueAppend} onPlayNext={player.playNext} />
+            <HistoryPage
+              onPlay={player.playTracks}
+              onQueue={player.queueAppend}
+              onPlayNext={player.playNext}
+              codebookPath={settings.codebookPath}
+            />
           )}
           {mediaTab === "stats" && (
-            <StatsPage onPlay={player.playTracks} onQueue={player.queueAppend} onPlayNext={player.playNext} />
+            <StatsPage
+              onPlay={player.playTracks}
+              onQueue={player.queueAppend}
+              onPlayNext={player.playNext}
+              codebookPath={settings.codebookPath}
+            />
           )}
           {mediaTab === "sources" && <SourcesPage />}
         </div>

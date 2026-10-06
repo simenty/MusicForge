@@ -11,6 +11,7 @@ import SortControl from "./SortControl";
 import FilterInput from "./FilterInput";
 import { SORT_SUPPORTED, useSort } from "./hooks/useSort";
 import { useRequestGuard } from "./hooks/useRequestGuard";
+import { useTrackStyleChips } from "./hooks/useStyleCodes";
 import { useWindowedTracks, TRACK_ROW_H } from "./hooks/useWindowedTracks";
 import ConfirmDialog from "./ConfirmDialog";
 
@@ -35,15 +36,21 @@ export default function HistoryPage({
   onPlay,
   onQueue,
   onPlayNext,
+  codebookPath,
 }: {
   onPlay?: (tracks: Track[], index: number) => Promise<void>;
   /** P6.16 加入队列 */
   onQueue?: (tracks: Track[]) => Promise<void>;
   /** P6.17 下一首播放 */
   onPlayNext?: (tracks: Track[]) => Promise<void>;
+  /** X15：风格码 codebook 路径（设置项；空 = 显示原始码） */
+  codebookPath?: string;
 }) {
   const { t } = useLang();
   const [rows, setRows] = useState<HistoryEntry[] | null>(null);
+  // X15：风格码 chip（批量解析 + 缓存）。**置于所有早返回之前**——hooks 不得条件调用
+  // （原先放在下方分组逻辑前，仍在 `if (rows === null)` 等早返回之后）。
+  const styleChips = useTrackStyleChips(rows ?? [], codebookPath);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   // P2-18：清空历史原本 window.confirm —— 改为 ConfirmDialog（可样式化/可测/可 i18n）
@@ -279,6 +286,7 @@ export default function HistoryPage({
                   selectable={selApi.selMode}
                   selected={selApi.has(String(r.id))}
                   onToggleSelect={handleToggleSelect}
+                  styleChip={styleChips[r.path]}
               />
               ))}
             </div>
@@ -303,6 +311,7 @@ export default function HistoryPage({
                     selectable={selApi.selMode}
                     selected={selApi.has(String(tr.id))}
                     onToggleSelect={handleToggleSelect}
+                    styleChip={styleChips[tr.path]}
                   />
                 ) : (
                   <div className="vt-row" key={`ph-${i}`}>

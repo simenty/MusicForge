@@ -6,9 +6,9 @@
 //
 // 缓存值 `null` = 该路径**无前导码块**（绝大多数曲目）；不进返回集，故调用方
 // 用 `chips[path]` 取不到即表示"无码"，无需区分 undefined/null。
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { styleCodes } from "../api";
-import type { StyleCodeDto } from "../lib/types";
+import type { StyleCodeDto, Track } from "../lib/types";
 import { useRequestGuard } from "./useRequestGuard";
 
 /** 路径 → 短标签（如 `2023 · 流行 · 学习`）；无码的曲目不在表中。 */
@@ -64,4 +64,16 @@ export function useStyleCodes(paths: string[], codebookPath?: string): StyleCode
   }, [paths, codebookPath, guard]);
 
   return chips;
+}
+
+/**
+ * `useStyleCodes` 的便捷包装：直接吃 `Track[]`，内部把路径数组 memo 稳定
+ * （调用方不必各自引 `useMemo`，也避免忘记 memo 导致每次渲染 O(N) 重算待补集合）。
+ */
+export function useTrackStyleChips(
+  tracks: Track[],
+  codebookPath?: string,
+): StyleCodeChips {
+  const paths = useMemo(() => tracks.map((t) => t.path), [tracks]);
+  return useStyleCodes(paths, codebookPath);
 }

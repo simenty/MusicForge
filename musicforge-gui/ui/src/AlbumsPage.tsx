@@ -20,6 +20,7 @@ import SortControl from "./SortControl";
 import FilterInput from "./FilterInput";
 import { SORT_SUPPORTED, useSort } from "./hooks/useSort";
 import { useRequestGuard } from "./hooks/useRequestGuard";
+import { useTrackStyleChips } from "./hooks/useStyleCodes";
 import { useWindowedTracks, TRACK_ROW_H } from "./hooks/useWindowedTracks";
 import { sortTracks } from "./lib/sortTracks";
 import { filterAlbums, filterTracks } from "./lib/filterTracks";
@@ -31,6 +32,7 @@ export default function AlbumsPage({
   focusId = null,
   onQueue,
   onPlayNext,
+  codebookPath,
 }: {
   onPlay?: (tracks: Track[], index: number) => Promise<void>;
   /** P6.14 搜索跳转：命中的专辑 id（消费一次即展开详情） */
@@ -39,6 +41,8 @@ export default function AlbumsPage({
   onQueue?: (tracks: Track[]) => Promise<void>;
   /** P6.17 下一首播放 */
   onPlayNext?: (tracks: Track[]) => Promise<void>;
+  /** X15：风格码 codebook 路径（设置项；空 = 显示原始码） */
+  codebookPath?: string;
 }) {
   const { t } = useLang();
   const { settings } = useSettings();
@@ -60,6 +64,9 @@ export default function AlbumsPage({
   /** 详情态：选中的专辑（null = 列表态） */
   const [sel, setSel] = useState<Album | null>(null);
   const [tracks, setTracks] = useState<Track[] | null>(null);
+  // X15：风格码 chip（批量解析 + 缓存）。**置于所有早返回之前**——hooks 不得条件调用
+  // （放在下方「详情态」里会因 `if (sel)` 分支而破坏调用次序）。
+  const styleChips = useTrackStyleChips(tracks ?? [], codebookPath);
   /** 加入歌单弹层 */
   const [addTarget, setAddTarget] = useState<Track | null>(null);
 
@@ -332,6 +339,7 @@ export default function AlbumsPage({
                         selectable={selApi.selMode}
                         selected={selApi.has(String(tr.id))}
                         onToggleSelect={handleToggleSelect}
+                        styleChip={styleChips[tr.path]}
                       />
                     ) : (
                       <div className="vt-row" key={`ph-${i}`}>

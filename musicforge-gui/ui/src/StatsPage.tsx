@@ -8,6 +8,7 @@ import { fmtHours, fmtSizeGB } from "./lib/format";
 import TrackRow from "./TrackRow";
 import SelectionBar from "./SelectionBar";
 import { useSelection } from "./hooks/useSelection";
+import { useTrackStyleChips } from "./hooks/useStyleCodes";
 import { IconClock, IconDisc, IconMusic, IconUser } from "./icons";
 
 /** 近 7 天日期键（本地时区 `YYYY-MM-DD`，与后端 `date(...,'localtime')` 同口径） */
@@ -27,12 +28,15 @@ export default function StatsPage({
   onPlay,
   onQueue,
   onPlayNext,
+  codebookPath,
 }: {
   onPlay?: (tracks: Track[], index: number) => Promise<void>;
   /** P6.16 加入队列 */
   onQueue?: (tracks: Track[]) => Promise<void>;
   /** P6.17 下一首播放 */
   onPlayNext?: (tracks: Track[]) => Promise<void>;
+  /** X15：风格码 codebook 路径（设置项；空 = 显示原始码） */
+  codebookPath?: string;
 }) {
   const { t } = useLang();
   const [data, setData] = useState<StatsOverview | null>(null);
@@ -84,6 +88,10 @@ export default function StatsPage({
     (tr: Track) => toggleSel(String(tr.id)),
     [toggleSel]
   );
+
+  // X15：风格码 chip（批量解析 + 缓存）。必须置于下方 `if (!IS_DESKTOP)` 早返回
+  // **之前**——hooks 不得条件调用。
+  const styleChips = useTrackStyleChips(data?.top ?? [], codebookPath);
 
   if (!IS_DESKTOP) {
     return (
@@ -225,6 +233,7 @@ export default function StatsPage({
                 selectable={selApi.selMode}
                 selected={selApi.has(String(tr.id))}
                 onToggleSelect={handleToggleSelect}
+                styleChip={styleChips[tr.path]}
               />
             ))
           )}

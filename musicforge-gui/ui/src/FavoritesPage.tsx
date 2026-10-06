@@ -14,6 +14,7 @@ import SortControl from "./SortControl";
 import FilterInput from "./FilterInput";
 import { SORT_SUPPORTED, useSort } from "./hooks/useSort";
 import { useRequestGuard } from "./hooks/useRequestGuard";
+import { useTrackStyleChips } from "./hooks/useStyleCodes";
 import { useWindowedTracks, TRACK_ROW_H } from "./hooks/useWindowedTracks";
 import ConfirmDialog from "./ConfirmDialog";
 
@@ -21,12 +22,15 @@ export default function FavoritesPage({
   onPlay,
   onQueue,
   onPlayNext,
+  codebookPath,
 }: {
   onPlay?: (tracks: Track[], index: number) => Promise<void>;
   /** P6.16 加入队列 */
   onQueue?: (tracks: Track[]) => Promise<void>;
   /** P6.17 下一首播放 */
   onPlayNext?: (tracks: Track[]) => Promise<void>;
+  /** X15：风格码 codebook 路径（设置项；空 = 显示原始码） */
+  codebookPath?: string;
 }) {
   const { t } = useLang();
   const [rows, setRows] = useState<Track[] | null>(null);
@@ -83,6 +87,8 @@ export default function FavoritesPage({
     (off: number, lim: number) => Promise.resolve((live ?? []).slice(off, off + lim)),
     [live]
   );
+  // X15：风格码 chip（批量解析 + 缓存；`live` 是 memo，引用稳定）
+  const styleChips = useTrackStyleChips(live ?? [], codebookPath);
   const w = useWindowedTracks(200, undefined, undefined, favFetch);
   // 同上：把 `w` 写进依赖会让本 effect 每帧重跑（reset → setState → 再渲染 → 死循环），
   // 故取稳定的 `reset` 成员依赖。
@@ -226,6 +232,7 @@ export default function FavoritesPage({
                       selectable={selApi.selMode}
                       selected={selApi.has(String(tr.id))}
                       onToggleSelect={handleToggleSelect}
+                      styleChip={styleChips[tr.path]}
                     />
                   ) : (
                     <div className="vt-row" key={`ph-${i}`}>

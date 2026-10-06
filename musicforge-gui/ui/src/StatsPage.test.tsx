@@ -2,7 +2,12 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("./api", () => ({ IS_DESKTOP: true, statsOverview: vi.fn() }));
+vi.mock("./api", () => ({
+  IS_DESKTOP: true,
+  statsOverview: vi.fn(),
+  // X15：列表内风格码 chip（批量解析）
+  styleCodes: vi.fn(async () => ({})),
+}));
 
 import { statsOverview } from "./api";
 import { I18nProvider } from "./i18n";

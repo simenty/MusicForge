@@ -16,7 +16,7 @@ import ConfirmDialog from "./ConfirmDialog";
 import SortControl from "./SortControl";
 import { SORT_SUPPORTED, useSort } from "./hooks/useSort";
 import { useRequestGuard } from "./hooks/useRequestGuard";
-import { useStyleCodes } from "./hooks/useStyleCodes";
+import { useTrackStyleChips } from "./hooks/useStyleCodes";
 
 export default function LibraryPage({
   onPlay,
@@ -145,8 +145,7 @@ export default function LibraryPage({
 
   // X15：风格码 chip。**批量**解析（一次 IPC 拉整批，而非每行一次）——路径数组必须
   // memo 稳定引用，否则每次渲染都会重算待补集合（十万行量级的 O(N) 开销）。
-  const chipPaths = useMemo(() => list.map((tr) => tr.path), [list]);
-  const styleChips = useStyleCodes(chipPaths, codebookPath);
+  const styleChips = useTrackStyleChips(list, codebookPath);
   const selectedTracks = useMemo(
     () => list.filter((x) => selApi.sel.has(String(x.id))),
     [list, selApi]
