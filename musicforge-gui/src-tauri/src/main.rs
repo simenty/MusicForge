@@ -247,7 +247,8 @@ fn main() {
             player_set_mode,
             player_status,
             player_queue,
-            style_code
+            style_code,
+            style_codes
         ])
         .on_window_event(|window, event| {
             // P2：关闭 = 隐藏到托盘（播放不中断）；真正的退出走托盘菜单「退出 MusicForge」。

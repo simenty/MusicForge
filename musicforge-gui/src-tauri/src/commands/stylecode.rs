@@ -10,11 +10,16 @@
 //!
 //! 码名来自**用户提供的 codebook**（`{"S01": "流行", ...}`）：查到才有条目，查不到
 //! 前端回退原始码——**绝不编造**。未配置 codebook 时 `labels` 为空，行为同纯原始码。
+//!
+//! 两个命令：`style_code`（单曲，卡片用）/ `style_codes`（批量，列表用——避免
+//! 虚拟列表每行一次 IPC）。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use serde::Serialize;
+
+use musicforge_core::stylecode::StyleCode;
 
 /// 风格码解析结果（前端按 UI 语言渲染标签）。
 #[derive(Debug, Clone, Serialize)]
@@ -37,31 +42,20 @@ pub struct StyleCodeDto {
     pub labels: BTreeMap<String, String>,
 }
 
-/// 解析路径中的风格码；**无前导 `[...]` 码块 → `Ok(None)`**（不是错误：多数曲目无码）。
-///
-/// `codebookPath` 为可选的用户 codebook（设置项）：
-/// - 传入但**读不到 / 格式非法 → 返回 Err**（显式失败，让界面提示路径有问题，
-///   而不是静默退回原始码让人以为"没有译名"）；
-/// - 不传 → `labels` 为空，前端全按原始码显示。
-///
-/// 纯字符串解析（不读音频、不查库、不发网络），只在打开卡片时按当前曲目调一次。
-#[tauri::command]
-pub fn style_code(
-    path: String,
-    codebook_path: Option<String>,
-) -> Result<Option<StyleCodeDto>, String> {
-    let map: BTreeMap<String, String> = match codebook_path.as_deref() {
+/// 加载 codebook（可选）。传了但读不到 / 格式非法 → 报错（显式失败，
+/// 让界面提示路径有问题，而不是静默退回原始码让人以为"没有译名"）。
+fn load_codebook(codebook_path: Option<&str>) -> Result<BTreeMap<String, String>, String> {
+    match codebook_path {
         Some(p) if !p.trim().is_empty() => {
-            musicforge_core::stylecode::load_genre_map(Path::new(p))?
+            musicforge_core::stylecode::load_genre_map(Path::new(p))
         }
-        _ => BTreeMap::new(),
-    };
+        _ => Ok(BTreeMap::new()),
+    }
+}
 
-    let Some(sc) = musicforge_core::stylecode::parse_style_code(Path::new(&path)) else {
-        return Ok(None);
-    };
-
-    // 只为本风格码**实际出现**的码建索引——避免把整个 codebook 塞给前端。
+/// 结构化数据 → DTO；`labels` 只含**本风格码实际出现且查到**的码
+/// （不把整个 codebook 塞给前端）。
+fn to_dto(sc: StyleCode, map: &BTreeMap<String, String>) -> StyleCodeDto {
     let mut labels = BTreeMap::new();
     for code in sc
         .style
@@ -75,8 +69,7 @@ pub fn style_code(
             labels.insert(code.clone(), name.clone());
         }
     }
-
-    Ok(Some(StyleCodeDto {
+    StyleCodeDto {
         year: sc.year,
         style: sc.style,
         mood: sc.mood,
@@ -84,5 +77,37 @@ pub fn style_code(
         version: sc.version,
         other: sc.other,
         labels,
-    }))
+    }
+}
+
+/// 解析路径中的风格码；**无前导 `[...]` 码块 → `Ok(None)`**（不是错误：多数曲目无码）。
+#[tauri::command]
+pub fn style_code(
+    path: String,
+    codebook_path: Option<String>,
+) -> Result<Option<StyleCodeDto>, String> {
+    let map = load_codebook(codebook_path.as_deref())?;
+    let Some(sc) = musicforge_core::stylecode::parse_style_code(Path::new(&path)) else {
+        return Ok(None);
+    };
+    Ok(Some(to_dto(sc, &map)))
+}
+
+/// **批量**解析（列表用）：返回 `路径 → 风格码`，**只含有码块的路径**
+/// （查不到即无码，前端按缺失处理即可，无需为每个无码曲目回传 null）。
+///
+/// 目的是把虚拟列表的 N 次 IPC 压成 1 次——列表里多数曲目无码，回传集很小。
+#[tauri::command]
+pub fn style_codes(
+    paths: Vec<String>,
+    codebook_path: Option<String>,
+) -> Result<HashMap<String, StyleCodeDto>, String> {
+    let map = load_codebook(codebook_path.as_deref())?;
+    let mut out = HashMap::new();
+    for p in paths {
+        if let Some(sc) = musicforge_core::stylecode::parse_style_code(Path::new(&p)) {
+            out.insert(p.clone(), to_dto(sc, &map));
+        }
+    }
+    Ok(out)
 }

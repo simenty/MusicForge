@@ -16,11 +16,13 @@ import ConfirmDialog from "./ConfirmDialog";
 import SortControl from "./SortControl";
 import { SORT_SUPPORTED, useSort } from "./hooks/useSort";
 import { useRequestGuard } from "./hooks/useRequestGuard";
+import { useStyleCodes } from "./hooks/useStyleCodes";
 
 export default function LibraryPage({
   onPlay,
   onQueue,
   onPlayNext,
+  codebookPath,
 }: {
   /** 双击行 → 以当前已缓存曲目为队列播放（App 层注入 player.playTracks） */
   onPlay?: (tracks: Track[], index: number) => Promise<void>;
@@ -28,6 +30,8 @@ export default function LibraryPage({
   onQueue?: (tracks: Track[]) => Promise<void>;
   /** P6.17 下一首播放 */
   onPlayNext?: (tracks: Track[]) => Promise<void>;
+  /** X15：风格码 codebook 路径（设置项；空 = 显示原始码） */
+  codebookPath?: string;
 }) {
   const { t } = useLang();
   const [sort, setSort, sortRejected] = useSort("library", "default", SORT_SUPPORTED.library);
@@ -138,6 +142,11 @@ export default function LibraryPage({
   // 故此处禁用 exhaustive-deps 的「不必要依赖」提示（依赖是刻意的、有据的）。
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const list = useMemo(() => snapshot(), [snapshot, w.total, w.loadedPages, w.busy]);
+
+  // X15：风格码 chip。**批量**解析（一次 IPC 拉整批，而非每行一次）——路径数组必须
+  // memo 稳定引用，否则每次渲染都会重算待补集合（十万行量级的 O(N) 开销）。
+  const chipPaths = useMemo(() => list.map((tr) => tr.path), [list]);
+  const styleChips = useStyleCodes(chipPaths, codebookPath);
   const selectedTracks = useMemo(
     () => list.filter((x) => selApi.sel.has(String(x.id))),
     [list, selApi]
@@ -294,6 +303,7 @@ export default function LibraryPage({
                       onQueue={onQueue ? handleQueue : undefined}
                       onPlayNext={onPlayNext ? handlePlayNext : undefined}
                       selectable={selApi.selMode}
+                      styleChip={styleChips[tr.path]}
                       selected={selApi.has(String(tr.id))}
                       onToggleSelect={handleToggleSelect}
                     />

@@ -32,6 +32,9 @@ export interface TrackRowProps {
   onToggleSelect?: (tr: Track) => void;
   /** 会话自定义的第 6 列（优先于 ＋/爱心；如统计页的播放次数） */
   trailing?: ReactNode;
+  /** X15：风格码短标签（如 `2023 · 流行`）；行内 chip，**不撑高行**
+   *  （`.vt-row` 固定 44px，虚拟滚动按此计算——chip 必须单行不换行）。 */
+  styleChip?: string;
   /** 透传到根 div 的属性（歌单页拖拽排序用：draggable/onDragStart/onDrop…） */
   dragProps?: HTMLAttributes<HTMLDivElement>;
 }
@@ -49,6 +52,7 @@ function TrackRow({
   selected,
   onToggleSelect,
   trailing,
+  styleChip,
   dragProps,
 }: TrackRowProps) {
   const { t } = useLang();
@@ -102,6 +106,8 @@ function TrackRow({
         <span>{tr.artist ?? "—"}</span>
       </span>
       <span className="vt-alb" title={tr.album ?? undefined}>
+        {/* X15：风格码 chip 置前——该列单行省略，置后会被长专辑名挤掉 */}
+        {styleChip && <span className="vt-sc">{styleChip}</span>}
         {tr.album ?? "—"}
       </span>
       <span className="vt-num">{fmtClock(tr.durationMs)}</span>

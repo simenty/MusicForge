@@ -1946,3 +1946,5 @@ button.lyric-line:hover { color: var(--text-2); }
 .sc-row dt { font-size: var(--fs-xs); color: var(--text-3); }
 .sc-row dd { margin: 0; font-size: var(--fs-sm); color: var(--text); font-family: var(--mono); word-break: break-all; }
 .sc-hint { margin: var(--sp-3) 0 0; font-size: var(--fs-xs); color: var(--text-faint); line-height: 1.6; }
+/* 列表内 chip：必须**行内不换行**——.vt-row 固定 44px，虚拟滚动按此计算行偏移 */
+.vt-sc { display: inline-block; max-width: 46%; margin-right: 6px; padding: 1px 6px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim); font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: 1px; }

@@ -876,7 +876,12 @@ export default function App() {
             />
           )}
           {mediaTab === "library" && (
-            <LibraryPage onPlay={player.playTracks} onQueue={player.queueAppend} onPlayNext={player.playNext} />
+            <LibraryPage
+              onPlay={player.playTracks}
+              onQueue={player.queueAppend}
+              onPlayNext={player.playNext}
+              codebookPath={settings.codebookPath}
+            />
           )}
           {mediaTab === "artists" && (
             <ArtistsPage

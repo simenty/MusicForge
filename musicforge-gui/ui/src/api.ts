@@ -776,6 +776,20 @@ export async function styleCode(
   return invoke<StyleCodeDto | null>("style_code", { path, codebookPath });
 }
 
+/**
+ * **批量**解析（列表用）：把虚拟列表的 N 次 IPC 压成 1 次。
+ *
+ * 返回 `路径 → 风格码`，**只含有码块的路径**（多数曲目无码，回传集很小）。
+ * 路径传入但 codebook 读不到时会抛错（由调用方决定如何提示）。
+ */
+export async function styleCodes(
+  paths: string[],
+  codebookPath?: string,
+): Promise<Record<string, StyleCodeDto>> {
+  if (!IS_DESKTOP || paths.length === 0) return {};
+  return invoke<Record<string, StyleCodeDto>>("style_codes", { paths, codebookPath });
+}
+
 // ---------------------------------------------------------------------------
 // P6.4 歌单（库内歌单；与 `playlist.rs` 的 M3U 导入导出是两回事）
 // ---------------------------------------------------------------------------
