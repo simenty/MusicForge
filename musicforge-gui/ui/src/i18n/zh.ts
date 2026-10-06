@@ -788,7 +788,10 @@ export const zh = {
     none: "该曲目文件名无风格码块（形如 [Y23-S01-E01-C01-V00]）",
     loading: "解析中…",
     /** 未配置 codebook：码名查不到，回退原始码（绝不编造） */
-    rawHint: "未配置 codebook，显示为原始码（可在 CLI 用 --map codebook.json 查看译名）",
+    rawHint: "未配置 codebook，显示为原始码（到「设置 → 风格码 codebook」选择 JSON 即可显示译名）",
+    /** 设置项「浏览…」按钮 + 原生对话框标题 */
+    browse: "浏览…",
+    pickTitle: "选择 codebook.json",
     year: "年份",
     style: "风格",
     mood: "情绪",

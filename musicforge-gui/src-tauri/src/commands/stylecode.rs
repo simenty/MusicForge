@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use serde::Serialize;
+use tauri_plugin_dialog::DialogExt;
 
 use musicforge_core::stylecode::StyleCode;
 
@@ -91,6 +92,21 @@ pub fn style_code(
         return Ok(None);
     };
     Ok(Some(to_dto(sc, &map)))
+}
+
+/// 原生选择 codebook JSON 文件；用户取消 → `Ok(None)`。
+///
+/// `title` 由**前端按 UI 语言**传入（I18N-7：服务端/命令层不产出中文显示文案）——
+/// 既存的 `cue_pick` 把中文标题写死在 Rust 里，那在英文界面下就是中文弹窗。
+#[tauri::command]
+pub async fn style_codebook_pick(app: tauri::AppHandle, title: String) -> Option<String> {
+    app.dialog()
+        .file()
+        .add_filter("JSON", &["json"])
+        .set_title(title)
+        .blocking_pick_file()
+        .and_then(|p| p.into_path().ok())
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 /// **批量**解析（列表用）：返回 `路径 → 风格码`，**只含有码块的路径**

@@ -7,6 +7,7 @@ import {
   setServerToken,
   takeStartupFiles,
   IS_DESKTOP,
+  styleCodebookPick,
 } from "./api";
 import { useLang, type Lang } from "./i18n";
 import { useServerAuth } from "./useServerAuth";
@@ -1040,13 +1041,27 @@ export default function App() {
         <div className="row">
           <label className="lbl">{t.styleCode.codebookLabel}</label>
           <div className="tpl">
-            <input
-              className="val mono"
-              value={settings.codebookPath}
-              onChange={(e) => patch({ codebookPath: e.target.value })}
-              spellCheck={false}
-              placeholder={t.styleCode.codebookPlaceholder}
-            />
+            <div className="outdir">
+              <input
+                className="val mono"
+                value={settings.codebookPath}
+                onChange={(e) => patch({ codebookPath: e.target.value })}
+                spellCheck={false}
+                placeholder={t.styleCode.codebookPlaceholder}
+              />
+              {/* 原生文件选择：免手输路径（手输易错且无反馈）。
+                  标题按 UI 语言传入——命令层不写死中文（I18N-7）。 */}
+              <button
+                type="button"
+                className="btn sm"
+                onClick={async () => {
+                  const p = await styleCodebookPick(t.styleCode.pickTitle);
+                  if (p) patch({ codebookPath: p });
+                }}
+              >
+                {t.styleCode.browse}
+              </button>
+            </div>
             <div className="tpl-help">{t.styleCode.codebookHint}</div>
           </div>
         </div>

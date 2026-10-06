@@ -790,6 +790,16 @@ export async function styleCodes(
   return invoke<Record<string, StyleCodeDto>>("style_codes", { paths, codebookPath });
 }
 
+/**
+ * 原生选择 codebook JSON（设置项「浏览…」）。用户取消 → null。
+ *
+ * `title` 由前端按当前 UI 语言传入——命令层不产出中文文案（I18N-7）。
+ */
+export async function styleCodebookPick(title: string): Promise<string | null> {
+  if (!IS_DESKTOP) return null;
+  return invoke<string | null>("style_codebook_pick", { title });
+}
+
 // ---------------------------------------------------------------------------
 // P6.4 歌单（库内歌单；与 `playlist.rs` 的 M3U 导入导出是两回事）
 // ---------------------------------------------------------------------------

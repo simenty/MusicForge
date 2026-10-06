@@ -808,7 +808,10 @@ export const en: typeof zh = {
     none: "This track's filename has no style-code block (e.g. [Y23-S01-E01-C01-V00])",
     loading: "Parsing…",
     rawHint:
-      "No codebook configured — raw codes shown (use --map codebook.json in the CLI for names)",
+      "No codebook configured — raw codes shown (pick the JSON under Settings → Style-code codebook to see names)",
+    /** settings "Browse…" button + native dialog title */
+    browse: "Browse…",
+    pickTitle: "Select codebook.json",
     year: "Year",
     style: "Style",
     mood: "Mood",
