@@ -1935,3 +1935,14 @@ button.lyric-line:hover { color: var(--text-2); }
 .qd-head button { border: none; background: none; color: var(--text-3); cursor: pointer; font: inherit; font-size: var(--fs-xs); padding: 2px 6px; border-radius: var(--r-sm); }
 .qd-head button:hover { background: var(--surface-2); color: var(--text); }
 .vt-heart { display: inline-flex; align-items: center; gap: 2px; }
+
+/* ========================================================================
+ * X15：风格码卡片（文件名 [Y23-S01-E01-C01-V00]）
+ * ====================================================================== */
+.sc-modal { width: min(460px, 92vw); }
+.sc-card { margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.sc-row { display: grid; grid-template-columns: 76px 1fr; align-items: baseline; gap: var(--sp-3); padding: 7px var(--sp-3); border-radius: var(--r-sm); }
+.sc-row:nth-child(odd) { background: var(--surface-2); }
+.sc-row dt { font-size: var(--fs-xs); color: var(--text-3); }
+.sc-row dd { margin: 0; font-size: var(--fs-sm); color: var(--text); font-family: var(--mono); word-break: break-all; }
+.sc-hint { margin: var(--sp-3) 0 0; font-size: var(--fs-xs); color: var(--text-faint); line-height: 1.6; }

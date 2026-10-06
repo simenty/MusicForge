@@ -366,6 +366,28 @@ export interface QueueItem {
   durationMs: number | null;
 }
 
+/**
+ * 风格码解析结果（X15：文件名 `[Y23-S01-E01-C01-C02-V00]` 块）。
+ *
+ * I18N-7：后端只回**结构化数据 / 原始码**，字段标签（年份 / Year、风格 / Style…）
+ * 由前端按当前 UI 语言渲染——服务端不产出中文显示文案。
+ * 未配置 codebook 时码名查不到，**回退原始码**（core 既定策略：绝不编造）。
+ */
+export interface StyleCodeDto {
+  /** `Y23` → 2023 */
+  year: number | null;
+  /** `S01`（风格原始码） */
+  style: string | null;
+  /** `E01`（情绪原始码） */
+  mood: string | null;
+  /** 场景原始码（可多个，保序） */
+  scenes: string[];
+  /** `V00`（版本原始码） */
+  version: string | null;
+  /** 无法归类的 token（原样保留，兼容未来新增键） */
+  other: string[];
+}
+
 /** 播放历史行（Track 字段 + 播放时刻） */
 export interface HistoryEntry extends Track {
   /** 播放发生时刻（UNIX 秒） */

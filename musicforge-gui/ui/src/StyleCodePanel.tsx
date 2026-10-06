@@ -1,0 +1,113 @@
+// 风格码卡片（X15 / 蓝图能力 #11）：展示当前曲目文件名中的 `[Y23-S01-E01-C01-C02-V00]` 块。
+//
+// I18N-7：后端（`style_code` 命令）只回**结构化数据 / 原始码**，字段标签（年份 / Year、
+// 风格 / Style…）由本组件按当前 UI 语言渲染——服务端不产出中文显示文案，英文界面不会
+// 弹中文标签。
+//
+// 未配置 codebook 时码名查不到，按 core 既定策略**回退原始码**（绝不编造），
+// 卡片底部给出说明，不假装知道码的含义。
+import { useEffect, useState } from "react";
+import { IS_DESKTOP, styleCode, type StyleCodeDto } from "./api";
+import { useLang } from "./i18n";
+
+export default function StyleCodePanel({
+  path,
+  title,
+  onClose,
+}: {
+  /** 当前曲目路径（无 → 直接显示"无码"） */
+  path: string | null;
+  /** 标题栏展示的曲名 */
+  title: string;
+  onClose: () => void;
+}) {
+  const { t } = useLang();
+  /** undefined = 解析中；null = 无前导码块；对象 = 解析结果 */
+  const [code, setCode] = useState<StyleCodeDto | null | undefined>(undefined);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!path || !IS_DESKTOP) {
+      setCode(null);
+      return;
+    }
+    let alive = true;
+    setCode(undefined);
+    setErr(null);
+    void styleCode(path)
+      .then((r) => {
+        if (alive) setCode(r);
+      })
+      .catch((e: unknown) => {
+        if (alive) {
+          setErr(String(e));
+          setCode(null);
+        }
+      });
+    return () => {
+      alive = false;
+    };
+  }, [path]);
+
+  // Esc 关闭（惯例同 LyricsPanel / ConfirmDialog）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // 结构化数据 → 展示行（空值字段不出行：绝不为凑版面显示"—"）
+  const rows: { label: string; value: string }[] = [];
+  if (code) {
+    if (code.year !== null) rows.push({ label: t.styleCode.year, value: String(code.year) });
+    if (code.style) rows.push({ label: t.styleCode.style, value: code.style });
+    if (code.mood) rows.push({ label: t.styleCode.mood, value: code.mood });
+    if (code.scenes.length > 0) {
+      rows.push({ label: t.styleCode.scene, value: code.scenes.join(" · ") });
+    }
+    if (code.version) rows.push({ label: t.styleCode.version, value: code.version });
+    for (const o of code.other) rows.push({ label: t.styleCode.other, value: o });
+  }
+
+  return (
+    <div className="modal-mask" role="presentation" onClick={onClose}>
+      <div
+        className="modal sc-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="sc-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-head">
+          <h3 id="sc-title">{t.styleCode.title(title)}</h3>
+        </div>
+        <div className="modal-body">
+          {code === undefined ? (
+            <p className="scan-note">{t.styleCode.loading}</p>
+          ) : err ? (
+            <p className="scan-error">{err}</p>
+          ) : rows.length === 0 ? (
+            <p className="scan-note">{t.styleCode.none}</p>
+          ) : (
+            <dl className="sc-card">
+              {rows.map((r, i) => (
+                <div className="sc-row" key={`${r.label}-${i}`}>
+                  <dt>{r.label}</dt>
+                  <dd>{r.value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {rows.length > 0 && <p className="scan-note sc-hint">{t.styleCode.rawHint}</p>}
+        </div>
+        <div className="modal-foot">
+          <button type="button" className="btn sm" onClick={onClose}>
+            {t.player.close}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

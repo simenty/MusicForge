@@ -7,6 +7,7 @@ import { fmtClock } from "./lib/format";
 import { assetUrl } from "./lib/asset";
 import type { PlayerApi } from "./hooks/usePlayer";
 import LyricsPanel from "./LyricsPanel";
+import StyleCodePanel from "./StyleCodePanel";
 
 export default function PlayerBar({ player }: { player: PlayerApi }) {
   const { t } = useLang();
@@ -16,6 +17,8 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
   const [drag, setDrag] = useState<number | null>(null);
   const [qOpen, setQOpen] = useState(false);
   const [lyrOpen, setLyrOpen] = useState(false);
+  /** X15：风格码卡片开合 */
+  const [scOpen, setScOpen] = useState(false);
   /** 当前曲目封面（本地缓存路径 → asset URL；无 → null 显示图标占位） */
   const [cover, setCover] = useState<string | null>(null);
   /** P6.11 睡眠定时：菜单开合 / 到期时刻（epoch ms，null = 未启用） / 剩余毫秒 */
@@ -75,6 +78,12 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
   const dur = status?.durationMs ?? 0;
   const pos = drag ?? status?.positionMs ?? 0;
   const hasTrack = !!status && status.trackId !== null;
+
+  // X15：风格码按**文件名**解析，而播放快照只给 trackId 不给路径——故从队列项取路径
+  // （QueueItem.path 是权威来源；引擎空闲时退回会话恢复项）。
+  const queuePath =
+    status?.queueIndex != null ? player.queue[status.queueIndex]?.path : undefined;
+  const scPath = queuePath ?? resumed?.path ?? null;
 
   /** 封面缺省占位（无封面 / 会话恢复共用） */
   const coverFallback = (
@@ -239,6 +248,27 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
             <path d="M5 7h9M5 12h6" />
             <path d="M17 11v6.5" />
             <circle cx="15" cy="17.5" r="2" />
+          </svg>
+        </button>
+        {/* X15：风格码（文件名 `[Y23-S01-E01-C01-V00]`；卡片只按当前曲目解析一次） */}
+        <button
+          className="pb-btn"
+          onClick={() => setScOpen(true)}
+          disabled={!hasTrack}
+          aria-label={t.styleCode.open}
+          title={t.styleCode.open}
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M4 9h16M4 15h16M10 3L8 21M16 3l-2 18" />
           </svg>
         </button>
       </div>
@@ -434,6 +464,15 @@ export default function PlayerBar({ player }: { player: PlayerApi }) {
 
       {/* P6：歌词面板（LRCLIB；打开且未缓存时联网一次） */}
       {lyrOpen && <LyricsPanel player={player} onClose={() => setLyrOpen(false)} />}
+
+      {/* X15：风格码卡片（纯本地解析；无码块时说明而非报错） */}
+      {scOpen && (
+        <StyleCodePanel
+          path={scPath}
+          title={status?.title ?? resumed?.title ?? "—"}
+          onClose={() => setScOpen(false)}
+        />
+      )}
       </>
     );
 }

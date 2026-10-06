@@ -53,6 +53,7 @@ import type {
   ServerVersion,
   Source,
   StatsOverview,
+  StyleCodeDto,
   Track,
   TrackSortField,
   WizardStatus,
@@ -759,6 +760,20 @@ export async function lyricsFetch(trackId: number): Promise<string | null> {
 }
 
 // ---------------------------------------------------------------------------
+// X15 风格码（文件名 `[Y23-S01-E01-C01-C02-V00]`；纯字符串解析，不读文件不查库）
+// ---------------------------------------------------------------------------
+
+/**
+ * 解析曲目路径中的风格码；**无前导码块 → null**（多数曲目无码，这不是错误）。
+ *
+ * 后端只回结构化数据，字段标签由组件按 UI 语言渲染（I18N-7）。
+ */
+export async function styleCode(path: string): Promise<StyleCodeDto | null> {
+  if (!IS_DESKTOP) return null;
+  return invoke<StyleCodeDto | null>("style_code", { path });
+}
+
+// ---------------------------------------------------------------------------
 // P6.4 歌单（库内歌单；与 `playlist.rs` 的 M3U 导入导出是两回事）
 // ---------------------------------------------------------------------------
 
@@ -916,6 +931,7 @@ export type {
   ServerVersion,
   Source,
   StatsOverview,
+  StyleCodeDto,
   Track,
   WizardStatus,
 } from "./lib/types";

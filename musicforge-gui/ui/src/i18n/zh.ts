@@ -778,6 +778,24 @@ export const zh = {
     serverOnlyServe: "服务端形态提供：扫描 / 格式迁移 / 整理 / 清洗",
     serverOnlyLocal: "本地五域功能（扫描 / 清洗 / 去重 / 转换 / 整轨切分）无需插件即可完整使用",
   },
+  // —— X15 风格码（文件名 `[Y23-S01-E01-C01-C02-V00]`）——
+  // 后端只回结构化数据 / 原始码，字段标签在此按 UI 语言渲染（I18N-7）。
+  styleCode: {
+    /** 底栏入口按钮 */
+    open: "风格码",
+    title: (name: string) => `风格码 · ${name}`,
+    /** 曲目文件名无前导码块 */
+    none: "该曲目文件名无风格码块（形如 [Y23-S01-E01-C01-V00]）",
+    loading: "解析中…",
+    /** 未配置 codebook：码名查不到，回退原始码（绝不编造） */
+    rawHint: "未配置 codebook，显示为原始码（可在 CLI 用 --map codebook.json 查看译名）",
+    year: "年份",
+    style: "风格",
+    mood: "情绪",
+    scene: "场景",
+    version: "版本",
+    other: "其他",
+  },
 };
 // 注意：刻意不加 `as const`——加了会把字符串收窄成字面量类型，
 // en: typeof zh 的英文字符串将无法赋值（TS2322）。宽 string 类型正是我们要的。

@@ -799,4 +799,21 @@ export const en: typeof zh = {
     serverOnlyLocal:
       "All five local domains (scan / clean / dedupe / convert / track-split) work without plugins",
   },
+  // —— X15 style code (filename `[Y23-S01-E01-C01-C02-V00]`) ——
+  // Backend returns structured data / raw codes only; field labels are rendered
+  // here per UI language (I18N-7).
+  styleCode: {
+    open: "Style code",
+    title: (name: string) => `Style code · ${name}`,
+    none: "This track's filename has no style-code block (e.g. [Y23-S01-E01-C01-V00])",
+    loading: "Parsing…",
+    rawHint:
+      "No codebook configured — raw codes shown (use --map codebook.json in the CLI for names)",
+    year: "Year",
+    style: "Style",
+    mood: "Mood",
+    scene: "Scene",
+    version: "Version",
+    other: "Other",
+  },
 };

@@ -9,6 +9,8 @@ vi.mock("./api", () => ({
   IS_DESKTOP: true,
   trackCover: vi.fn(async () => null),
   lyricsFetch: vi.fn(async () => null),
+  // X15：风格码卡片（面板打开时才调用）
+  styleCode: vi.fn(async () => null),
 }));
 
 import { I18nProvider } from "./i18n";
