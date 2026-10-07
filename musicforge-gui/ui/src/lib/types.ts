@@ -393,6 +393,30 @@ export interface StyleCodeDto {
   labels: Record<string, string>;
 }
 
+/** genre 写回规划项（X15；status 与 CLI `--json` 同形） */
+export interface GenrePlanItem {
+  path: string;
+  /** `will-write` / `has-genre` / `no-code` / `no-label` */
+  status: "will-write" | "has-genre" | "no-code" | "no-label";
+  /** 仅 `will-write` 有值：将写入的 genre 串 */
+  genre: string | null;
+}
+
+/** genre 写入规划（只读，不落盘） */
+export interface GenrePlan {
+  items: GenrePlanItem[];
+  will: number;
+  hasGenre: number;
+  noCode: number;
+  noLabel: number;
+}
+
+/** genre 写回结果（写失败显式计数——绝不谎报成功） */
+export interface GenreApplyResult {
+  written: number;
+  failed: number;
+}
+
 /** 播放历史行（Track 字段 + 播放时刻） */
 export interface HistoryEntry extends Track {
   /** 播放发生时刻（UNIX 秒） */

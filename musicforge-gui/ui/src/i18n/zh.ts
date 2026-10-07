@@ -804,6 +804,42 @@ export const zh = {
     codebookHint:
       "JSON 映射 {\"S01\":\"流行\",…}；留空时卡片显示原始码（如 S01）。CLI 用 --map 指定同一文件。",
   },
+  // —— X15 genre 写回（把文件名风格码写成 genre 标签）——
+  genre: {
+    cardTitle: "风格码写回 genre",
+    note: "按文件名风格码写入 genre 标签；默认不覆盖已有 genre",
+    dirLabel: "曲库目录",
+    dirPlaceholder: "选择含风格码命名的曲目目录",
+    browse: "浏览…",
+    /** 原生选目录对话框标题 */
+    pickDirTitle: "选择曲库目录",
+    /** FillMissingOnly 开关（默认关 = 不覆盖） */
+    replaceAll: "覆盖已有 genre",
+    replaceAllHint: "默认关闭：已有 genre 的文件跳过，绝不覆盖用户数据",
+    planBtn: "规划",
+    applyBtn: "写入",
+    planning: "规划中…",
+    applying: "写入中…",
+    summary: (will: number, has: number, noCode: number, noLabel: number) =>
+      `将写入 ${will} · 已有 genre 跳过 ${has} · 无风格码 ${noCode} · 无可写标签 ${noLabel}`,
+    previewHead: "将写入（预览）",
+    /** 只预览前 N 条，避免十万行渲染 */
+    previewMore: (n: number) => `…另有 ${n} 条`,
+    noWrite: "没有可写入的项（均无风格码或无可写标签）",
+    stWillWrite: "将写入",
+    stHasGenre: "已有 genre",
+    stNoCode: "无风格码",
+    stNoLabel: "无可写标签",
+    /** 二次确认 */
+    confirmTitle: "确认写入 genre？",
+    confirmBody: (n: number) =>
+      `将向 ${n} 个文件写入 genre 标签（改写音频文件元数据）。此操作不可撤销。`,
+    /** 三级闸的勾选确认文案 */
+    ack: "我了解：写入会改写音频文件元数据，且不可撤销",
+    applied: (written: number, failed: number) =>
+      `已写入 ${written}${failed > 0 ? ` · 失败 ${failed}` : ""}`,
+    noCodebook: "未配置 codebook：将写入原始码（如 S01）。到「设置」选择 JSON 可写入译名。",
+  },
 };
 // 注意：刻意不加 `as const`——加了会把字符串收窄成字面量类型，
 // en: typeof zh 的英文字符串将无法赋值（TS2322）。宽 string 类型正是我们要的。

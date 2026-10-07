@@ -824,4 +824,40 @@ export const en: typeof zh = {
     codebookHint:
       'JSON map {"S01":"Pop",…}; blank shows raw codes (e.g. S01). The CLI uses --map with the same file.',
   },
+  // —— X15 genre write-back (write filename style code into the genre tag) ——
+  genre: {
+    cardTitle: "Write style code to genre",
+    note: "Writes the genre tag from filename style codes; existing genres kept by default",
+    dirLabel: "Library directory",
+    dirPlaceholder: "Pick the directory holding style-coded tracks",
+    browse: "Browse…",
+    /** native pick-directory dialog title */
+    pickDirTitle: "Select library directory",
+    /** FillMissingOnly toggle (default off = never overwrite) */
+    replaceAll: "Overwrite existing genre",
+    replaceAllHint:
+      "Off by default: files that already have a genre are skipped — never overwrites your data",
+    planBtn: "Plan",
+    applyBtn: "Write",
+    planning: "Planning…",
+    applying: "Writing…",
+    summary: (will: number, has: number, noCode: number, noLabel: number) =>
+      `Will write ${will} · skipped (has genre) ${has} · no style code ${noCode} · no label ${noLabel}`,
+    previewHead: "Will write (preview)",
+    previewMore: (n: number) => `…${n} more`,
+    noWrite: "Nothing to write (no style codes, or no writable labels)",
+    stWillWrite: "Will write",
+    stHasGenre: "Has genre",
+    stNoCode: "No style code",
+    stNoLabel: "No label",
+    confirmTitle: "Write genre tags?",
+    confirmBody: (n: number) =>
+      `This writes genre tags into ${n} audio files (modifies file metadata). It cannot be undone.`,
+    /** three-gate acknowledgement checkbox label */
+    ack: "I understand: writing modifies audio file metadata and cannot be undone",
+    applied: (written: number, failed: number) =>
+      `Written ${written}${failed > 0 ? ` · failed ${failed}` : ""}`,
+    noCodebook:
+      "No codebook configured: raw codes will be written (e.g. S01). Pick the JSON under Settings to write names.",
+  },
 };

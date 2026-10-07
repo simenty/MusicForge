@@ -40,6 +40,8 @@ const OrganizePanel = lazy(() => import("./OrganizePanel"));
 const CleanPanel = lazy(() => import("./CleanPanel"));
 const TrashPanel = lazy(() => import("./TrashPanel"));
 const PluginPanel = lazy(() => import("./PluginPanel"));
+// X15：风格码写回 genre（core 能力已就绪，此前无 UI 入口）
+const GenrePanel = lazy(() => import("./GenrePanel"));
 const UpdateSection = lazy(() => import("./UpdateSection"));
 const SearchPalette = lazy(() => import("./SearchPalette"));
 // 类型只用于接线，不进运行时（避免把面板拉进首屏包）
@@ -57,6 +59,7 @@ import {
   IconLibrary,
   IconList,
   IconMenu,
+  IconMusic,
   IconSearch,
   IconPlan,
   IconPlay,
@@ -112,7 +115,15 @@ export default function App() {
 
   /** 工具箱分区的二级菜单（P4 能力归位）：转换 / 扫描 / 去重 / 整理 / 清理 / 回收站 / CUE / 插件 */
   const [toolboxTab, setToolboxTab] = useState<
-    "convert" | "scan" | "dedupe" | "organize" | "clean" | "trash" | "cue" | "plugins"
+    | "convert"
+    | "scan"
+    | "dedupe"
+    | "organize"
+    | "clean"
+    | "trash"
+    | "cue"
+    | "genre"
+    | "plugins"
   >("convert");
   /** 媒体库分区的二级菜单：概览 / 音乐库 / 艺术家 / 专辑 / 歌单 / 喜欢 / 历史 / 统计 / 媒体源 */
   const [mediaTab, setMediaTab] = useState<
@@ -160,7 +171,9 @@ export default function App() {
                 ? t.library.tabTrash
                 : toolboxTab === "cue"
                   ? t.cue.tab
-                  : t.app.navPlugins;
+                  : toolboxTab === "genre"
+                    ? t.genre.cardTitle
+                    : t.app.navPlugins;
   const viewLabel =
     view === "media"
       ? `${t.media.nav} · ${mediaTabLabel}`
@@ -567,6 +580,17 @@ export default function App() {
                 <span>{t.cue.tab}</span>
               </button>
               <button
+                className={"nav-item sub" + (view === "toolbox" && toolboxTab === "genre" ? " on" : "")}
+                onClick={() => {
+                  setView("toolbox");
+                  setToolboxTab("genre");
+                  setNavOpen(false);
+                }}
+              >
+                <IconMusic />
+                <span>{t.genre.cardTitle}</span>
+              </button>
+              <button
                 className={"nav-item sub" + (view === "toolbox" && toolboxTab === "plugins" ? " on" : "")}
                 onClick={() => {
                   setView("toolbox");
@@ -950,6 +974,8 @@ export default function App() {
           {toolboxTab === "trash" && <TrashPanel />}
           {/* P4：CUE 分轨（核心能力已有，此处只是入口） */}
           {toolboxTab === "cue" && <CuePanel />}
+          {/* X15：风格码写回 genre（同一规划/执行语义，与 CLI `musicforge genre` 同形） */}
+          {toolboxTab === "genre" && <GenrePanel codebookPath={settings.codebookPath} />}
         </div>
       )}
       </ErrorBoundary>

@@ -32,6 +32,8 @@ import type {
   FileEntry,
   FileResult,
   FormatMigrateResponse,
+  GenreApplyResult,
+  GenrePlan,
   HistoryEntry,
   IndexOutcome,
   LibraryRefreshReport,
@@ -800,6 +802,32 @@ export async function styleCodebookPick(title: string): Promise<string | null> {
   return invoke<string | null>("style_codebook_pick", { title });
 }
 
+/**
+ * 规划 genre 写入（**只读**：扫描 → 解析文件名风格码 → 判定，不落盘）。
+ *
+ * `replaceAll = false`（FillMissingOnly，与 CLI 默认档一致）时已有非空 genre 的文件跳过
+ * ——**绝不覆盖用户已有数据**。
+ */
+export async function genrePlan(
+  dir: string,
+  codebookPath?: string,
+  replaceAll = false,
+): Promise<GenrePlan> {
+  return invoke<GenrePlan>("genre_plan", { dir, codebookPath, replaceAll });
+}
+
+/**
+ * 执行 genre 写回（先规划后落盘，与 CLI 同序）。只写 `will-write` 项；
+ * 失败计数继续——绝不谎报成功。
+ */
+export async function genreApply(
+  dir: string,
+  codebookPath?: string,
+  replaceAll = false,
+): Promise<GenreApplyResult> {
+  return invoke<GenreApplyResult>("genre_apply", { dir, codebookPath, replaceAll });
+}
+
 // ---------------------------------------------------------------------------
 // P6.4 歌单（库内歌单；与 `playlist.rs` 的 M3U 导入导出是两回事）
 // ---------------------------------------------------------------------------
@@ -935,6 +963,9 @@ export type {
   FileResult,
   FileStatus,
   FormatMigrateResponse,
+  GenreApplyResult,
+  GenrePlan,
+  GenrePlanItem,
   HistoryEntry,
   IndexOutcome,
   InstalledPlugin,

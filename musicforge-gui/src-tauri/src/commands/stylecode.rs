@@ -94,6 +94,120 @@ pub fn style_code(
     Ok(Some(to_dto(sc, &map)))
 }
 
+// ------------------------------------------------------- genre 写回（X15）--
+
+/// 规划项：单文件的 genre 写入决策。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenrePlanItemDto {
+    pub path: String,
+    /// `will-write` / `has-genre` / `no-code` / `no-label`（与 CLI `--json` 同形）
+    pub status: String,
+    /// 仅 `will-write` 有值：将写入的 genre 串
+    pub genre: Option<String>,
+}
+
+/// genre 写入规划（只读，不落盘）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenrePlanDto {
+    pub items: Vec<GenrePlanItemDto>,
+    pub will: usize,
+    pub has_genre: usize,
+    pub no_code: usize,
+    pub no_label: usize,
+}
+
+/// genre 写入结果。写失败**显式计数**——绝不谎报成功。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenreApplyDto {
+    pub written: usize,
+    pub failed: usize,
+}
+
+fn to_plan_dto(plan: &musicforge_core::stylecode::GenrePlan) -> GenrePlanDto {
+    let (will, has_genre, no_code, no_label) = plan.counts();
+    let items = plan
+        .items
+        .iter()
+        .map(|(p, d)| match d {
+            musicforge_core::stylecode::GenreDecision::WillWrite { genre } => GenrePlanItemDto {
+                path: p.display().to_string(),
+                status: "will-write".into(),
+                genre: Some(genre.clone()),
+            },
+            musicforge_core::stylecode::GenreDecision::HasGenre => GenrePlanItemDto {
+                path: p.display().to_string(),
+                status: "has-genre".into(),
+                genre: None,
+            },
+            musicforge_core::stylecode::GenreDecision::NoCode => GenrePlanItemDto {
+                path: p.display().to_string(),
+                status: "no-code".into(),
+                genre: None,
+            },
+            musicforge_core::stylecode::GenreDecision::NoLabel => GenrePlanItemDto {
+                path: p.display().to_string(),
+                status: "no-label".into(),
+                genre: None,
+            },
+        })
+        .collect();
+    GenrePlanDto {
+        items,
+        will,
+        has_genre,
+        no_code,
+        no_label,
+    }
+}
+
+/// 规划 genre 写入（**只读**：扫描 → 解析文件名风格码 → 判定，不落盘）。
+///
+/// `replace_all = false`（FillMissingOnly，与 CLI 默认档一致）时已有非空 genre 的文件
+/// 跳过——**绝不覆盖用户已有数据**。
+#[tauri::command]
+pub async fn genre_plan(
+    dir: String,
+    codebook_path: Option<String>,
+    replace_all: bool,
+) -> Result<GenrePlanDto, String> {
+    let map = load_codebook(codebook_path.as_deref())?;
+    // 全库扫描属重 IO：放阻塞池，避免卡住 UI 线程（同 cue_split）
+    let plan = tauri::async_runtime::spawn_blocking(move || {
+        musicforge_core::stylecode::plan_genre_writes(Path::new(&dir), &map, replace_all)
+    })
+    .await
+    .map_err(|e| format!("genre plan task failed: {e}"))?
+    .map_err(|e| e.to_string())?;
+    Ok(to_plan_dto(&plan))
+}
+
+/// 执行 genre 写入：先规划（同一 `dir`/`codebook`/`replace_all`，与 CLI 同序）再落盘。
+///
+/// 只写 `will-write` 项；失败计数继续，返回 `(written, failed)`。
+#[tauri::command]
+pub async fn genre_apply(
+    dir: String,
+    codebook_path: Option<String>,
+    replace_all: bool,
+) -> Result<GenreApplyDto, String> {
+    let map = load_codebook(codebook_path.as_deref())?;
+    let plan = tauri::async_runtime::spawn_blocking(move || {
+        musicforge_core::stylecode::plan_genre_writes(Path::new(&dir), &map, replace_all)
+    })
+    .await
+    .map_err(|e| format!("genre plan task failed: {e}"))?
+    .map_err(|e| e.to_string())?;
+    let (written, failed) = tauri::async_runtime::spawn_blocking(move || {
+        musicforge_core::stylecode::apply_genre_writes(&plan)
+    })
+    .await
+    .map_err(|e| format!("genre apply task failed: {e}"))?;
+    Ok(GenreApplyDto { written, failed })
+}
+
 /// 原生选择 codebook JSON 文件；用户取消 → `Ok(None)`。
 ///
 /// `title` 由**前端按 UI 语言**传入（I18N-7：服务端/命令层不产出中文显示文案）——
