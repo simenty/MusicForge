@@ -62,6 +62,21 @@ console.log(
   `  首屏 ${fmt(initial)} / 预算 ${fmt(INITIAL_BUDGET)}    总体积 ${fmt(total)} / 预算 ${fmt(TOTAL_BUDGET)}`
 );
 
+// 余量预警（P6.13 护栏的"提前量"）：预算未被突破时**不失败**，但余量偏薄要显式
+// 提示——否则"291/300"这种只剩 3% 的状态在 CI 日志里和"50/300"看起来一样安全，
+// 直到某次提交突然爆掉才被发现。阈值取 10%（约 30KB / 42KB），留足反应时间。
+const WARN_RATIO = 0.1;
+const headroom = (used, budget) => budget - used;
+const thin = (used, budget) => headroom(used, budget) < budget * WARN_RATIO;
+if (thin(initial, INITIAL_BUDGET) || thin(total, TOTAL_BUDGET)) {
+  // 用 log 而非 warn：warn 走 stderr，Windows PowerShell 会把它渲染成红色
+  // NativeCommandError（本项目 Windows 优先）——预警不该看起来像失败。
+  console.log(
+    `⚠ 余量偏薄（<${WARN_RATIO * 100}%）：首屏剩 ${fmt(headroom(initial, INITIAL_BUDGET))}` +
+      ` / 总体积剩 ${fmt(headroom(total, TOTAL_BUDGET))}——新代码请走 lazy()，共享件入主包前先评估体积`,
+  );
+}
+
 let bad = false;
 if (initial > INITIAL_BUDGET) {
   console.error(
