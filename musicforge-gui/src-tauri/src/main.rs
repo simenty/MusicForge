@@ -251,7 +251,8 @@ fn main() {
             style_codes,
             style_codebook_pick,
             genre_plan,
-            genre_apply
+            genre_apply,
+            track_genre
         ])
         .on_window_event(|window, event| {
             // P2：关闭 = 隐藏到托盘（播放不中断）；真正的退出走托盘菜单「退出 MusicForge」。

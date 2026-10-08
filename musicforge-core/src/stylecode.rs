@@ -221,7 +221,7 @@ pub fn plan_genre_writes(
             Some(code) => match code.genre_label(map) {
                 None => GenreDecision::NoLabel,
                 Some(genre) => {
-                    if !replace_all && genre_tag(&item.path).is_some_and(|g| !g.is_empty()) {
+                    if !replace_all && read_genre_tag(&item.path).is_some_and(|g| !g.is_empty()) {
                         GenreDecision::HasGenre
                     } else {
                         GenreDecision::WillWrite { genre }
@@ -235,7 +235,10 @@ pub fn plan_genre_writes(
 }
 
 /// 读取现有 genre 标签（无标签/解析失败 → None）。
-fn genre_tag(path: &Path) -> Option<String> {
+///
+/// 公开供 GUI / CLI 展示「文件里现在是什么 genre」，与解析出的风格码对照
+/// （写回前可先看现状；`plan_genre_writes` 内部也用它判 FillMissingOnly）。
+pub fn read_genre_tag(path: &Path) -> Option<String> {
     use lofty::prelude::*;
     let tagged = lofty::read_from_path(path).ok()?;
     let tag = tagged.primary_tag().or_else(|| tagged.first_tag())?;

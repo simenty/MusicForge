@@ -797,6 +797,12 @@ export async function styleCodes(
  *
  * `title` 由前端按当前 UI 语言传入——命令层不产出中文文案（I18N-7）。
  */
+/** 读取该文件**当前**的 genre 标签（无 → null），用于与解析出的风格码对照。 */
+export async function trackGenre(path: string): Promise<string | null> {
+  if (!IS_DESKTOP) return null;
+  return invoke<string | null>("track_genre", { path });
+}
+
 export async function styleCodebookPick(title: string): Promise<string | null> {
   if (!IS_DESKTOP) return null;
   return invoke<string | null>("style_codebook_pick", { title });

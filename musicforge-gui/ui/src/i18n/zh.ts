@@ -798,6 +798,9 @@ export const zh = {
     scene: "场景",
     version: "版本",
     other: "其他",
+    /** 文件里**现有**的 genre 标签（与解析结果对照，写回前先看现状） */
+    currentGenre: "文件 genre",
+    currentGenreNone: "（无）",
     // —— 设置项（codebook 路径）——
     codebookLabel: "风格码 codebook",
     codebookPlaceholder: "codebook.json 路径（留空则显示原始码）",

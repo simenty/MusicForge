@@ -818,6 +818,9 @@ export const en: typeof zh = {
     scene: "Scene",
     version: "Version",
     other: "Other",
+    /** the genre tag currently in the file (compare before writing) */
+    currentGenre: "File genre",
+    currentGenreNone: "(none)",
     // —— setting (codebook path) ——
     codebookLabel: "Style-code codebook",
     codebookPlaceholder: "Path to codebook.json (blank = show raw codes)",

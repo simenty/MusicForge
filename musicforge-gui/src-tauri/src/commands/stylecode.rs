@@ -208,6 +208,20 @@ pub async fn genre_apply(
     Ok(GenreApplyDto { written, failed })
 }
 
+/// 读取该音频文件**当前**的 genre 标签（无标签 / 读不了 → `Ok(None)`）。
+///
+/// 用途：卡片里把「文件名解析出的风格码」与「文件里现有的 genre」并排显示——
+/// 写回前先看现状，避免盲改。
+#[tauri::command]
+pub async fn track_genre(path: String) -> Result<Option<String>, String> {
+    // 读标签是文件 IO：放阻塞池，避免卡 UI 线程（同 genre_plan / cue_split）
+    tauri::async_runtime::spawn_blocking(move || {
+        musicforge_core::stylecode::read_genre_tag(Path::new(&path))
+    })
+    .await
+    .map_err(|e| format!("genre read task failed: {e}"))
+}
+
 /// 原生选择 codebook JSON 文件；用户取消 → `Ok(None)`。
 ///
 /// `title` 由**前端按 UI 语言**传入（I18N-7：服务端/命令层不产出中文显示文案）——

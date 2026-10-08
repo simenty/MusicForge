@@ -7,7 +7,7 @@
 // 未配置 codebook 时码名查不到，按 core 既定策略**回退原始码**（绝不编造），
 // 卡片底部给出说明，不假装知道码的含义。
 import { useEffect, useState } from "react";
-import { IS_DESKTOP, styleCode, type StyleCodeDto } from "./api";
+import { IS_DESKTOP, styleCode, trackGenre, type StyleCodeDto } from "./api";
 import { useLang } from "./i18n";
 
 export default function StyleCodePanel({
@@ -28,6 +28,27 @@ export default function StyleCodePanel({
   /** undefined = 解析中；null = 无前导码块；对象 = 解析结果 */
   const [code, setCode] = useState<StyleCodeDto | null | undefined>(undefined);
   const [err, setErr] = useState<string | null>(null);
+  /** 文件里**现有**的 genre（与解析结果对照；null = 无标签，undefined = 未取） */
+  const [genre, setGenre] = useState<string | null | undefined>(undefined);
+
+  // 现有 genre 与风格码解析**并行**发起——二者互不依赖，串行只会白等一个 RTT。
+  useEffect(() => {
+    if (!path || !IS_DESKTOP) {
+      setGenre(undefined);
+      return;
+    }
+    let alive = true;
+    void trackGenre(path)
+      .then((g) => {
+        if (alive) setGenre(g);
+      })
+      .catch(() => {
+        if (alive) setGenre(null); // 读不了按「无」展示，不阻断卡片
+      });
+    return () => {
+      alive = false;
+    };
+  }, [path]);
 
   useEffect(() => {
     if (!path || !IS_DESKTOP) {
@@ -74,6 +95,12 @@ export default function StyleCodePanel({
     }
     if (code.version) rows.push({ label: t.styleCode.version, value: name(code.version) });
     for (const o of code.other) rows.push({ label: t.styleCode.other, value: o });
+    // 文件**现有** genre：写回前先看现状，避免盲改。无标签显式说"（无）"，不留空白；
+    // undefined = 还没取回来，显示占位而非假装"无"。
+    rows.push({
+      label: t.styleCode.currentGenre,
+      value: genre === undefined ? "…" : (genre ?? t.styleCode.currentGenreNone),
+    });
   }
 
   return (

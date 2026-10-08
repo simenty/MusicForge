@@ -8,14 +8,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./api", () => ({
   IS_DESKTOP: true,
   styleCode: vi.fn(async () => null),
+  trackGenre: vi.fn(async () => null),
 }));
 
-import { styleCode } from "./api";
+import { styleCode, trackGenre } from "./api";
 import { I18nProvider } from "./i18n";
 import StyleCodePanel from "./StyleCodePanel";
 import type { StyleCodeDto } from "./lib/types";
 
 const mockStyleCode = vi.mocked(styleCode);
+const mockTrackGenre = vi.mocked(trackGenre);
 
 /** 完整码块：`[Y23-S01-E01-C01-C02-V00]`（未配 codebook → labels 空） */
 const FULL: StyleCodeDto = {
@@ -57,6 +59,8 @@ describe("StyleCodePanel", () => {
   beforeEach(() => {
     mockStyleCode.mockReset();
     mockStyleCode.mockResolvedValue(null);
+    mockTrackGenre.mockReset();
+    mockTrackGenre.mockResolvedValue(null);
     setLang("zh");
   });
 
@@ -131,6 +135,20 @@ describe("StyleCodePanel", () => {
       "/lib/[Y23-S01-E01-C01-C02-V00] 晴天.flac",
       "/cfg/codebook.json",
     );
+  });
+
+  // ---- 文件现有 genre（写回前先看现状）----
+  it("展示文件现有 genre；无标签时显式说「（无）」而非留空", async () => {
+    mockStyleCode.mockResolvedValue(FULL);
+    mockTrackGenre.mockResolvedValue("流行");
+    renderPanel("/lib/[Y23-S01] a.flac");
+    await waitFor(() => expect(screen.getByText("文件 genre")).toBeTruthy());
+    expect(screen.getByText("流行")).toBeTruthy();
+
+    // 无标签分支
+    mockTrackGenre.mockResolvedValue(null);
+    renderPanel("/lib/[Y23-S01] b.flac");
+    await waitFor(() => expect(screen.getByText("（无）")).toBeTruthy());
   });
 
   it("未配 codebook 时给出「显示为原始码」说明", async () => {
