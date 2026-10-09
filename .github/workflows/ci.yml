@@ -204,9 +204,22 @@ jobs:
 
       - name: Build frontend（GUI 构建前置）
         if: matrix.os != 'ubuntu-latest'
+        # 体积护栏（首屏 / 总体积预算 + 余量预警）跑在 `npm run build` 里，但结果埋在
+        # matrix 日志深处——故把关键行提到 Job Summary，一眼可见。
+        # ⚠️ 重定向到文件再 cat（而非 `| tee`）：本 workflow 的 bash 未开 pipefail，
+        # 管道会吞掉 npm 的退出码，构建失败反而变绿。显式取回 $? 再 exit。
         run: |
           npm --prefix musicforge-gui/ui ci
-          npm --prefix musicforge-gui/ui run build
+          npm --prefix musicforge-gui/ui run build > frontend-build.log 2>&1
+          RC=$?
+          cat frontend-build.log
+          {
+            echo "## 前端体积护栏（${{ matrix.os }} / ${{ matrix.target }}）"
+            echo '```'
+            grep -E '产物 OK|首屏|余量偏薄|超预算' frontend-build.log || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" || true
+          exit $RC
 
       - name: Build GUI (release, 非 Linux——Linux GUI 延后)
         if: matrix.os != 'ubuntu-latest'
