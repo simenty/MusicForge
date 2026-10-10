@@ -65,6 +65,51 @@ impl Db {
         Ok(out)
     }
 
+    /// X15：聚合全部风格码 token 及其曲目数（供筛选下拉——用户不必先知道有哪些码）。
+    ///
+    /// 库里存的是规范化串 `-Y23-S01-E01-`，拆分在 **Rust 侧**做：先 `GROUP BY style_code`
+    /// 拿到不同串（数量远小于行数），再拆 token 累加计数——比在 SQL 里拆字符串简单得多。
+    ///
+    /// 排序稳定：先按类别（Y/S/E/C/V，其余归末），再按码字典序——下拉里的顺序不随
+    /// 增删曲目跳变。
+    pub fn style_code_counts(&self) -> Result<Vec<(String, i64)>, NcmError> {
+        let mut st = self
+            .conn
+            .prepare(
+                "SELECT style_code, COUNT(1) FROM tracks
+                 WHERE style_code IS NOT NULL AND style_code <> ''
+                 GROUP BY style_code",
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let mapped = st
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let grouped: Vec<(String, i64)> = mapped
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+
+        let mut acc = std::collections::BTreeMap::<String, i64>::new();
+        for (s, n) in grouped {
+            for tok in s.split('-') {
+                if tok.is_empty() {
+                    continue;
+                }
+                *acc.entry(tok.to_string()).or_default() += n;
+            }
+        }
+        let mut out: Vec<(String, i64)> = acc.into_iter().collect();
+        let rank = |code: &str| match code.chars().next() {
+            Some('Y') => 0,
+            Some('S') => 1,
+            Some('E') => 2,
+            Some('C') => 3,
+            Some('V') => 4,
+            _ => 5,
+        };
+        out.sort_by(|a, b| (rank(&a.0), &a.0).cmp(&(rank(&b.0), &b.0)));
+        Ok(out)
+    }
+
     /// X15：回填 `style_code`（**只处理 `IS NULL` 的行**）——升级到 v4 后，存量曲库
     /// 该列全为 NULL，若不回填就必须整库重扫才能按码筛选。
     ///

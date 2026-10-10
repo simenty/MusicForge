@@ -56,6 +56,7 @@ import type {
   Source,
   StatsOverview,
   StyleCodeDto,
+  StyleCodeItem,
   Track,
   TrackSortField,
   WizardStatus,
@@ -807,6 +808,12 @@ export async function styleCodes(
  *
  * `title` 由前端按当前 UI 语言传入——命令层不产出中文文案（I18N-7）。
  */
+/** 库中全部风格码（含曲目数）——供曲库筛选下拉，用户不必先知道有哪些码。 */
+export async function styleCodeList(): Promise<StyleCodeItem[]> {
+  if (!IS_DESKTOP) return [];
+  return invoke<StyleCodeItem[]>("style_code_list");
+}
+
 /** 读取该文件**当前**的 genre 标签（无 → null），用于与解析出的风格码对照。 */
 export async function trackGenre(path: string): Promise<string | null> {
   if (!IS_DESKTOP) return null;
@@ -1006,6 +1013,7 @@ export type {
   Source,
   StatsOverview,
   StyleCodeDto,
+  StyleCodeItem,
   Track,
   WizardStatus,
 } from "./lib/types";

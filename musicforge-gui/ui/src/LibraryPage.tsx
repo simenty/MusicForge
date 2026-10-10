@@ -2,7 +2,14 @@
 // 搜索走 core 的 search_tracks（一次 ≤500，不走虚拟化）。
 // P2：双击行 → 以「已缓存行快照」为队列开始播放。
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { IS_DESKTOP, countTracks, libraryStats, removeTracks } from "./api";
+import {
+  IS_DESKTOP,
+  countTracks,
+  libraryStats,
+  removeTracks,
+  styleCodeList,
+} from "./api";
+import type { StyleCodeItem } from "./lib/types";
 import type { LibraryStats, Track } from "./api";
 import { useLang } from "./i18n";
 import { fmtSizeGB } from "./lib/format";
@@ -41,6 +48,8 @@ export default function LibraryPage({
   /** X15：风格码筛选词（如 `S01` / `Y23`）；防抖后下推，与 `filter` 同纪律 */
   const [rawCode, setRawCode] = useState("");
   const [styleCode, setStyleCode] = useState("");
+  /** X15：库中已有的风格码（筛选下拉的数据源；空 = 曲库无带码曲目） */
+  const [codes, setCodes] = useState<StyleCodeItem[]>([]);
   // 走默认取数（不传 fetchPage），故第 4 位留 undefined、风格码在第 5 位
   const w = useWindowedTracks(200, sort, filter || undefined, undefined, styleCode || undefined);
   const liked = useLiked();
@@ -76,11 +85,26 @@ export default function LibraryPage({
     return () => window.clearTimeout(id);
   }, [rawQuery]);
 
-  // X15：风格码筛选同样防抖（与文本筛选一致：避免每敲一个字符就重拉计数 + 首屏页）
+  // X15：风格码**下拉选**（非手输），无防抖必要——选中即下推。
+  // 选项来自后端聚合（`style_code_list`）；曲目数变化（如重扫后）由 stats 变动触发重取。
   useEffect(() => {
-    const id = window.setTimeout(() => setStyleCode(rawCode.trim()), 250);
-    return () => window.clearTimeout(id);
+    setStyleCode(rawCode.trim());
   }, [rawCode]);
+
+  // 风格码清单：随库内容（stats.tracks）变化重取——重扫/删除后下拉内容要跟上。
+  // stale response 守卫：连续刷新时旧响应不得覆盖新清单。
+  const codesGuard = useRequestGuard();
+  useEffect(() => {
+    if (!IS_DESKTOP) return;
+    const token = codesGuard.token();
+    styleCodeList()
+      .then((r) => {
+        if (!codesGuard.isStale(token)) setCodes(r);
+      })
+      .catch(() => {
+        /* 清单是辅助能力，失败保留上一次结果（下拉为空）即可 */
+      });
+  }, [stats?.tracks, codesGuard]);
 
   // 过滤词/库内容变化 → 取**服务端过滤后的计数**并重设行数。
   // 行数必须等于过滤结果集大小，否则虚拟滚动会请求越界的页。
@@ -270,18 +294,24 @@ export default function LibraryPage({
               aria-label={t.media.searchPlaceholder}
             />
           </label>
-          {/* X15：风格码筛选（与文本筛选 AND）。码本身由列表 chip / 卡片可见，
-              这里按码做**精确 token** 匹配（S01 不会误中 S012）。 */}
-          <label className="search" style={{ maxWidth: 150 }}>
-            <input
-              className="mono"
-              value={rawCode}
-              onChange={(e) => setRawCode(e.target.value)}
-              placeholder={t.styleCode.filterPlaceholder}
-              aria-label={t.styleCode.filterLabel}
-              spellCheck={false}
-            />
-          </label>
+          {/* X15：风格码筛选（与文本筛选 AND）。下拉列出**库中已有**的码——
+              手输要求用户先知道有哪些码，实用性大打折扣。 */}
+          <select
+            className="cfg-input mono"
+            value={rawCode}
+            onChange={(e) => setRawCode(e.target.value)}
+            aria-label={t.styleCode.filterLabel}
+            disabled={codes.length === 0}
+            title={codes.length === 0 ? t.styleCode.filterEmpty : undefined}
+            style={{ maxWidth: 190 }}
+          >
+            <option value="">{codes.length === 0 ? t.styleCode.filterEmpty : t.styleCode.filterAll}</option>
+            {codes.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.code} · {c.count}
+              </option>
+            ))}
+          </select>
           <button
             className={"btn sm" + (selApi.selMode ? " on" : "")}
             onClick={selApi.toggleSelMode}

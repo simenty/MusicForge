@@ -783,6 +783,45 @@ mod tests {
         );
     }
 
+    /// X15：风格码聚合——下拉要列出**库中已有**的码，顺序稳定（类别→码），
+    /// 且计数是「含该码的曲目数」（同一曲目的多个码各自计数）。
+    #[test]
+    fn style_code_counts_aggregates_tokens_with_stable_order() {
+        let db = Db::open_in_memory().unwrap();
+        let sid = db.upsert_source("/m", None).unwrap();
+        let mk = |path: &str, style_code: Option<&str>| TrackInput {
+            source_id: sid,
+            path: path.to_string(),
+            size: 1024,
+            title: Some(path.to_string()),
+            style_code: style_code.map(str::to_string),
+            ..Default::default()
+        };
+        db.upsert_tracks_batch(
+            &[
+                mk("/m/a.flac", Some("-Y23-S01-C01-")),
+                mk("/m/b.flac", Some("-Y23-S02-")),
+                mk("/m/c.flac", Some("-S01-E01-")),
+                mk("/m/d.flac", Some("")), // 已判定无码 → 不计入
+            ],
+            1,
+        )
+        .unwrap();
+
+        let counts = db.style_code_counts().unwrap();
+        let get = |c: &str| counts.iter().find(|(k, _)| k == c).map(|(_, n)| *n);
+        assert_eq!(get("Y23"), Some(2), "两首带 Y23");
+        assert_eq!(get("S01"), Some(2), "a 与 c 都含 S01");
+        assert_eq!(get("S02"), Some(1));
+        assert_eq!(get("C01"), Some(1));
+        assert_eq!(get("E01"), Some(1));
+        assert_eq!(get(""), None, "无码不列入");
+
+        // 稳定序：Y → S → E → C（类别内按码）
+        let order: Vec<&str> = counts.iter().map(|(c, _)| c.as_str()).collect();
+        assert_eq!(order, vec!["Y23", "S01", "S02", "E01", "C01"]);
+    }
+
     /// X15：存量库回填——升级后无需整库重扫即可按码筛选，且**回填自终止**
     /// （无码行写 `''`，不会被下次打开反复重扫）。
     #[test]

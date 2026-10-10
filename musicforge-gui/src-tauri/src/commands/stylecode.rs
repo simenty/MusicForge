@@ -222,6 +222,27 @@ pub async fn track_genre(path: String) -> Result<Option<String>, String> {
     .map_err(|e| format!("genre read task failed: {e}"))
 }
 
+/// 库中已有的风格码及其曲目数（筛选下拉的数据源；按类别→码稳定排序）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StyleCodeItemDto {
+    /// 码 token（如 `S01` / `Y23`）
+    pub code: String,
+    /// 含该码的曲目数
+    pub count: i64,
+}
+
+/// 列出库中全部风格码（供曲库列表的筛选下拉——用户不必先知道有哪些码）。
+#[tauri::command]
+pub fn style_code_list() -> Result<Vec<StyleCodeItemDto>, String> {
+    let db = crate::commands::library_db::open_db()?;
+    let rows = db.style_code_counts().map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .map(|(code, count)| StyleCodeItemDto { code, count })
+        .collect())
+}
+
 /// 原生选择 codebook JSON 文件；用户取消 → `Ok(None)`。
 ///
 /// `title` 由**前端按 UI 语言**传入（I18N-7：服务端/命令层不产出中文显示文案）——

@@ -393,6 +393,13 @@ export interface StyleCodeDto {
   labels: Record<string, string>;
 }
 
+/** 库中已有的风格码及其曲目数（X15 筛选下拉的数据源） */
+export interface StyleCodeItem {
+  /** 码 token（如 `S01` / `Y23`） */
+  code: string;
+  count: number;
+}
+
 /** genre 写回规划项（X15；status 与 CLI `--json` 同形） */
 export interface GenrePlanItem {
   path: string;

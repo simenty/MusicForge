@@ -801,9 +801,12 @@ export const zh = {
     /** 文件里**现有**的 genre 标签（与解析结果对照，写回前先看现状） */
     currentGenre: "文件 genre",
     currentGenreNone: "（无）",
-    /** 曲库列表的风格码筛选框 */
+    /** 曲库列表的风格码筛选下拉 */
     filterLabel: "按风格码筛选",
     filterPlaceholder: "风格码（S01 / Y23）",
+    filterAll: "全部风格码",
+    /** 库中无带码曲目时下拉显示（并禁用） */
+    filterEmpty: "无风格码曲目",
     // —— 设置项（codebook 路径）——
     codebookLabel: "风格码 codebook",
     codebookPlaceholder: "codebook.json 路径（留空则显示原始码）",
