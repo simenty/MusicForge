@@ -28,11 +28,13 @@ use crate::error::NcmError;
 /// - v1（历史）：files / tasks / ack —— 转换状态与哈希缓存层。
 /// - v2（P1 曲库）：sources / artists / albums / tracks —— 曲库浏览维度层。
 /// - v3（P2 播放行为）：likes / play_history / playlists / playlist_items。
+/// - v4（X15 风格码）：`tracks.style_code` —— 文件名风格码的规范化串，供按码筛选。
+///   属**派生缓存**（由 `path` 可再生），故只需 ALTER 加列，存量行留 NULL 待重扫填充。
 ///   与 v1 同库共存：v1 表管"转换/缓存"，v2 表管"曲库视图"，v3 表管"用户行为"，
 ///   全部遵循同一铁律——**db 是可再生的，真相在文件系统**
 ///   （例外：likes 与 play_history 是**用户产生的一次性数据**，
 ///   删库即丢失，属于「本地偏好」而非缓存——这也是它留在本地库的理由）。
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// SQLite 单语句 host 参数上限（rusqlite bundled 默认 `SQLITE_MAX_VARIABLE_NUMBER`
 /// = 999；见 2026-09-12 设计备忘：十万 path 直接撞上限）。`IN (?,?,...)` 由用户
@@ -207,6 +209,10 @@ pub struct TrackInput {
     pub bit_depth: Option<i64>,
     pub channels: Option<i64>,
     pub is_lossless: bool,
+    /// X15：文件名风格码的规范化串（`-Y23-S01-E01-C01-C02-V00-`；无码块 → `None`）。
+    /// **派生自 `path` 的可再生缓存**（见 `stylecode::style_code_key`）——真相在文件系统，
+    /// 删库重扫即恢复，故不做独立维护。
+    pub style_code: Option<String>,
 }
 
 /// 曲目行（v2 读路径）：`artist` / `album` 已解析为显示名。
@@ -226,6 +232,8 @@ pub struct TrackRow {
     pub bit_depth: Option<i64>,
     pub channels: Option<i64>,
     pub is_lossless: bool,
+    /// X15：规范化风格码（`-Y23-S01-…`；无码块 → `None`）
+    pub style_code: Option<String>,
 }
 
 /// 艺术家聚合行（列表视图）。
@@ -385,6 +393,38 @@ impl Db {
         Ok(Self { conn })
     }
 
+    /// v4：给 `tracks` 加 `style_code` 列 + 索引（X15 风格码筛选）。
+    ///
+    /// **幂等**：SQLite 无 `ADD COLUMN IF NOT EXISTS`，故先查 `PRAGMA table_info`
+    /// 判断列是否存在——重复执行（如迁移重试）必须不报错，否则库会卡在半套状态。
+    fn migrate_v4_add_style_code(conn: &Connection) -> Result<(), NcmError> {
+        let has_col = {
+            let mut st = conn
+                .prepare("PRAGMA table_info(tracks)")
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+            let names: Vec<String> = st
+                .query_map([], |r| r.get::<_, String>(1))
+                .map_err(|e| NcmError::Db(e.to_string()))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+            names.iter().any(|n| n == "style_code")
+        };
+        if !has_col {
+            conn.execute_batch(
+                "ALTER TABLE tracks ADD COLUMN style_code TEXT;
+                 CREATE INDEX IF NOT EXISTS idx_tracks_style_code ON tracks(style_code);",
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        } else {
+            // 列已存在（异常中间态）→ 至少保证索引在位
+            conn.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_tracks_style_code ON tracks(style_code);",
+            )
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        }
+        Ok(())
+    }
+
     fn migrate(conn: &Connection) -> Result<(), NcmError> {
         let version: u32 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
@@ -418,6 +458,13 @@ impl Db {
             if version < 3 {
                 conn.execute_batch(V3_SCHEMA_SQL)
                     .map_err(|e| NcmError::Db(e.to_string()))?;
+            }
+            // v4 是全项目首个 ALTER（此前只有 CREATE ... IF NOT EXISTS）。
+            // SQLite **没有** `ADD COLUMN IF NOT EXISTS`，故幂等靠 `PRAGMA table_info`
+            // 先查列：本函数整体包在事务里，且只在 `version < 4` 时进入，但「新建库」
+            // 走的是 v1→v2→v3→v4 全链路，v2 的 CREATE 已建好 tracks，此处 ALTER 才加列。
+            if version < 4 {
+                Self::migrate_v4_add_style_code(conn)?;
             }
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)
                 .map_err(|e| NcmError::Db(e.to_string()))?;
@@ -455,7 +502,8 @@ include!("db_impl/playlists.rs");
 /// 曲目读取的公共 SELECT（`list_tracks` / `search_tracks` 共用，列序与
 /// [`map_track_row`] 一一对应）。
 const TRACK_SELECT: &str = "SELECT t.id, t.source_id, t.path, t.size, t.title, ar.name, al.title, \
-     t.track_no, t.duration_ms, t.format, t.sample_rate, t.bit_depth, t.channels, t.is_lossless \
+     t.track_no, t.duration_ms, t.format, t.sample_rate, t.bit_depth, t.channels, t.is_lossless, \
+     t.style_code \
      FROM tracks t \
      LEFT JOIN artists ar ON ar.id = t.artist_id \
      LEFT JOIN albums  al ON al.id = t.album_id";
@@ -477,6 +525,7 @@ fn map_track_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<TrackRow> {
         bit_depth: r.get(11)?,
         channels: r.get(12)?,
         is_lossless: r.get::<_, i64>(13)? != 0,
+        style_code: r.get(14)?,
     })
 }
 
@@ -521,6 +570,33 @@ fn track_filter_pred(query: &str, idx: usize) -> Option<(String, String)> {
         ),
         pat,
     ))
+}
+
+/// X15 风格码筛选谓词：命中 `tracks.style_code` 中的**某一个 token**。
+///
+/// 与 [`track_filter_pred`] 同构（返回 `Some((sql, pattern))`），且**必须**与它一样被
+/// `list_tracks_with` 与 `count_tracks_filtered` **共用**——两处谓词一旦漂移，虚拟化列表
+/// 的行索引就会与实际结果集错位（结果行数来自 count，行内容来自 list）。
+///
+/// 匹配方式：`code` 被包成 `-S01-` 再 `LIKE '%-S01-%'`，对应入库时两端补 `-` 的规范化
+/// 串，保证**整 token 命中**（`S01` 不会误中 `S012`）。空输入 → `None`。
+pub fn style_code_pred(code: &str, idx: usize) -> Option<(String, String)> {
+    let raw = code.trim().trim_matches('-').trim();
+    if raw.is_empty() {
+        return None;
+    }
+    // 只保留码 token 的合法字符（字母/数字）：既防 LIKE 元字符，也防注入式输入。
+    // （pattern 仍以绑定参数传入，这里是**第二道**约束。）
+    let tok: String = raw
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+    if tok.is_empty() {
+        return None;
+    }
+    let pat = format!("%-{tok}-%");
+    Some((format!("(t.style_code LIKE ?{idx} ESCAPE '\\')"), pat))
 }
 
 #[cfg(test)]
@@ -631,6 +707,104 @@ mod tests {
         };
         assert_eq!(positions, vec![0, 1, 2], "位置重排连续");
         assert_eq!(db.list_playlists().unwrap()[0].track_count, 3, "计数同步");
+    }
+
+    /// X15：`style_code` 落库 + 按码筛选，且**行数与结果集一致**（虚拟化列表靠
+    /// `count` 定行索引，谓词漂移会出现越界占位行）。
+    #[test]
+    fn style_code_persisted_and_filterable() {
+        let db = Db::open_in_memory().unwrap();
+        let sid = db.upsert_source("/m", None).unwrap();
+        let mk = |path: &str, style_code: Option<&str>| TrackInput {
+            source_id: sid,
+            path: path.to_string(),
+            size: 1024,
+            title: Some(path.to_string()),
+            style_code: style_code.map(str::to_string),
+            ..Default::default()
+        };
+        // 规范化串两端带 `-`：任意 token 都能被 `%-S01-%` 精确命中
+        db.upsert_tracks_batch(
+            &[
+                mk("/m/[Y23-S01-E01] a.flac", Some("-Y23-S01-E01-")),
+                mk("/m/[Y23-S02] b.flac", Some("-Y23-S02-")),
+                mk("/m/plain c.flac", None),
+            ],
+            1,
+        )
+        .unwrap();
+
+        // 落库可读回
+        let all = db.list_tracks(10, 0).unwrap();
+        assert_eq!(all.len(), 3);
+        let a = all.iter().find(|t| t.path.contains("a.flac")).unwrap();
+        assert_eq!(a.style_code.as_deref(), Some("-Y23-S01-E01-"));
+        assert!(all.iter().any(|t| t.style_code.is_none()), "无码曲目为 NULL");
+
+        // 按风格码筛选
+        let s01 = db
+            .list_tracks_filtered(TrackSort::Default, 10, 0, None, Some("S01"))
+            .unwrap();
+        assert_eq!(s01.len(), 1, "S01 只命中 a");
+        assert!(s01[0].path.contains("a.flac"));
+        assert_eq!(
+            db.count_tracks_filtered_with(None, Some("S01")).unwrap(),
+            1,
+            "count 与 list 同谓词"
+        );
+
+        // 按年份筛选（同一列、同一 token 机制）
+        assert_eq!(
+            db.count_tracks_filtered_with(None, Some("Y23")).unwrap(),
+            2,
+            "Y23 命中两条带码曲目"
+        );
+
+        // 文本 + 风格码**叠加**（AND）
+        assert_eq!(
+            db.count_tracks_filtered_with(Some("a.flac"), Some("S01"))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            db.count_tracks_filtered_with(Some("a.flac"), Some("S02"))
+                .unwrap(),
+            0,
+            "两个条件都满足才计入"
+        );
+    }
+
+    /// X15：入库串两端补 `-` 的意义——**整 token 命中**，`S01` 不得误中 `S012`。
+    #[test]
+    fn style_code_pred_matches_whole_token_only() {
+        let db = Db::open_in_memory().unwrap();
+        let sid = db.upsert_source("/m", None).unwrap();
+        let mk = |path: &str, style_code: Option<&str>| TrackInput {
+            source_id: sid,
+            path: path.to_string(),
+            size: 1024,
+            title: Some(path.to_string()),
+            style_code: style_code.map(str::to_string),
+            ..Default::default()
+        };
+        db.upsert_tracks_batch(
+            &[
+                mk("/m/a.flac", Some("-S012-")),
+                mk("/m/b.flac", Some("-S01-")),
+            ],
+            1,
+        )
+        .unwrap();
+        assert_eq!(
+            db.count_tracks_filtered_with(None, Some("S01")).unwrap(),
+            1,
+            "S01 不得命中 S012"
+        );
+        // 用户输入带 - 或小写都归一
+        assert_eq!(
+            db.count_tracks_filtered_with(None, Some("-s01-")).unwrap(),
+            1
+        );
     }
 
     /// P6.25 文本过滤：按 标题 / 艺术家 / 专辑 / 路径 匹配，且行数随之收敛。

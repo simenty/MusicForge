@@ -97,19 +97,44 @@ fn lookup(map: &BTreeMap<String, String>, code: &str) -> String {
     map.get(code).cloned().unwrap_or_else(|| code.to_string())
 }
 
+/// 前导 `[...]` 码块的**内容**（不含方括号）；无前导块或空块 → `None`。
+///
+/// `parse_style_code` 与 [`style_code_key`] 共用——两处若各自判定「前导块」会漂移。
+fn style_code_body(path: &Path) -> Option<&str> {
+    let stem = path.file_stem().and_then(|s| s.to_str())?;
+    let inner = stem.strip_prefix('[')?;
+    let end = inner.find(']')?;
+    let body = &inner[..end];
+    (!body.is_empty()).then_some(body)
+}
+
+/// **入库 / 筛选**用的规范化码串：`"-Y23-S01-E01-C01-C02-V00-"`。
+///
+/// 前后各带一个 `-` 是刻意的：任意码都能用 `LIKE '%-S01-%'` **精确命中一个 token**——
+/// 既不会把 `S01` 误匹配到 `S012`，也不会漏掉首尾位置的码。大小写统一大写。
+/// 无前导码块 → `None`（表示「该曲目无风格码」，与「尚未索引」用同一列区分见 db 层）。
+pub fn style_code_key(path: &Path) -> Option<String> {
+    let body = style_code_body(path)?;
+    let mut out = String::with_capacity(body.len() + 2);
+    out.push('-');
+    for tok in body.split('-') {
+        let tok = tok.trim();
+        if tok.is_empty() {
+            continue;
+        }
+        out.push_str(&tok.to_ascii_uppercase());
+        out.push('-');
+    }
+    (out.len() > 1).then_some(out)
+}
+
 /// 从文件名解析风格代码块。
 ///
 /// 识别**前导** `[...]` 块（`[Y23-S01-E01-C01-C02-V00] 歌名.flac`）——
 /// 这是蓝图约定的放置位置；非前导的方括号不误伤（避免把 `(Live Version)`
 /// 之类用户命名当风格码）。
 pub fn parse_style_code(path: &Path) -> Option<StyleCode> {
-    let stem = path.file_stem().and_then(|s| s.to_str())?;
-    let inner = stem.strip_prefix('[')?;
-    let end = inner.find(']')?;
-    let body = &inner[..end];
-    if body.is_empty() {
-        return None;
-    }
+    let body = style_code_body(path)?;
     let mut sc = StyleCode::default();
     for tok in body.split('-') {
         let tok = tok.trim();

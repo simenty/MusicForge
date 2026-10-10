@@ -420,21 +420,31 @@ export async function listTracks(
   limit = 200,
   offset = 0,
   sort?: TrackSortField,
-  query?: string
+  query?: string,
+  /** X15：风格码筛选（如 `S01` / `Y23`）；与 `query` 为 AND 关系 */
+  styleCode?: string
 ): Promise<Track[]> {
   return invoke<Track[]>("list_tracks", {
     limit,
     offset,
     sort: sort ?? null,
     query: query && query.trim() ? query.trim() : null,
+    styleCode: styleCode && styleCode.trim() ? styleCode.trim() : null,
   });
 }
 
 /** P6.25：曲目计数（`query` 非空 = 过滤后的结果集大小）。
  *  虚拟化列表用它重设行数，避免过滤后滚动出现越界占位行。 */
-export async function countTracks(query?: string): Promise<number> {
+/**
+ * 曲目计数（`query` / `styleCode` 非空时为**过滤后**的计数）。
+ *
+ * ⚠️ 必须与 `listTracks` 传**同一组**筛选条件：虚拟化列表按此计数分页，
+ * 二者不一致会在滚动到底时出现越界占位行。
+ */
+export async function countTracks(query?: string, styleCode?: string): Promise<number> {
   return invoke<number>("count_tracks", {
     query: query && query.trim() ? query.trim() : null,
+    styleCode: styleCode && styleCode.trim() ? styleCode.trim() : null,
   });
 }
 

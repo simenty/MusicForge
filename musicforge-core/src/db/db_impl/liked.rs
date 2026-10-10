@@ -138,26 +138,53 @@ impl Db {
     }
     /// 曲目总数（P6.25：`query` 非空时返回**过滤后**的计数——虚拟化列表的
     /// 行索引必须映射到过滤结果集，否则会出现越界占位行）。
-    pub fn count_tracks_filtered(&self, query: Option<&str>) -> Result<i64, NcmError> {
-        let pred = query.and_then(|q| track_filter_pred(q, 1));
-        let n = match &pred {
-            Some((sql, pat)) => {
-                let full = format!(
-                    "SELECT COUNT(1) FROM tracks t \
-                     LEFT JOIN artists ar ON ar.id = t.artist_id \
-                     LEFT JOIN albums al ON al.id = t.album_id \
-                     WHERE {sql}"
-                );
-                let mut stmt = self
-                    .conn
-                    .prepare(&full)
-                    .map_err(|e| NcmError::Db(e.to_string()))?;
-                stmt.query_row([pat], |r| r.get::<_, i64>(0))
-                    .map_err(|e| NcmError::Db(e.to_string()))?
-            }
-            None => self.count_tracks()?,
+    /// 同 [`Self::count_tracks_filtered`]，额外按**风格码**计数（X15）。
+    ///
+    /// **必须与 `list_tracks_filtered` 用同一对谓词 helper**——虚拟化列表的结果行数
+    /// 来自这里、行内容来自那里，谓词漂移会导致越界占位行。
+    pub fn count_tracks_filtered_with(
+        &self,
+        query: Option<&str>,
+        style_code: Option<&str>,
+    ) -> Result<i64, NcmError> {
+        // 与 `list_tracks_with` 同构：同一对 helper、同样的组合顺序，占位符从 ?1 起。
+        let mut conds: Vec<String> = Vec::new();
+        let mut pats: Vec<String> = Vec::new();
+        let mut next_idx = 1;
+        if let Some(p) = query.and_then(|q| track_filter_pred(q, next_idx)) {
+            next_idx += 1;
+            pats.push(p.1);
+            conds.push(p.0);
+        }
+        if let Some(p) = style_code.and_then(|c| style_code_pred(c, next_idx)) {
+            pats.push(p.1);
+            conds.push(p.0);
+        }
+        let n = if conds.is_empty() {
+            self.count_tracks()?
+        } else {
+            let full = format!(
+                "SELECT COUNT(1) FROM tracks t \
+                 LEFT JOIN artists ar ON ar.id = t.artist_id \
+                 LEFT JOIN albums al ON al.id = t.album_id \
+                 WHERE {}",
+                conds.join(" AND ")
+            );
+            let mut stmt = self
+                .conn
+                .prepare(&full)
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+            stmt.query_row(rusqlite::params_from_iter(pats.iter()), |r| {
+                r.get::<_, i64>(0)
+            })
+            .map_err(|e| NcmError::Db(e.to_string()))?
         };
         Ok(n)
+    }
+    /// 曲目总数（`query` 非空时返回**过滤后**的计数）。委托给
+    /// [`Self::count_tracks_filtered_with`]（风格码 `None`）——保持单一实现。
+    pub fn count_tracks_filtered(&self, query: Option<&str>) -> Result<i64, NcmError> {
+        self.count_tracks_filtered_with(query, None)
     }
     /// 全部已喜欢的曲目 id（前端一次性拉取做行状态判定——避免逐行查询）。
     ///

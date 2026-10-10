@@ -821,6 +821,9 @@ export const en: typeof zh = {
     /** the genre tag currently in the file (compare before writing) */
     currentGenre: "File genre",
     currentGenreNone: "(none)",
+    /** style-code filter box on the library list */
+    filterLabel: "Filter by style code",
+    filterPlaceholder: "Code (S01 / Y23)",
     // —— setting (codebook path) ——
     codebookLabel: "Style-code codebook",
     codebookPlaceholder: "Path to codebook.json (blank = show raw codes)",

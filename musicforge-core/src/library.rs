@@ -185,6 +185,9 @@ fn parse_one(item: &ScanItem, source_id: i64) -> Parsed {
         mtime: item.mtime,
         format: (!ext.is_empty()).then(|| ext.clone()),
         is_lossless: is_lossless_ext(&ext),
+        // X15：风格码**派生自文件名**（纯字符串解析，不读音频），与标签解析并行期
+        // 计算零额外 IO；入库后即可按码筛选。
+        style_code: crate::stylecode::style_code_key(&item.path),
         ..Default::default()
     };
 

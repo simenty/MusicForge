@@ -45,7 +45,11 @@ export function useWindowedTracks(
   /** P2-20：自定义取数，使非库列表（Albums/Favorites/History）也能复用本 hook 做窗口化渲染。
    *  不传则走默认 listTracks（LibraryPage）。三页均传「内存 slice」——数据已全量加载，
    *  仅虚拟化渲染层，零后端改动、零新增计数 API。 */
-  fetchPage?: (offset: number, limit: number) => Promise<Track[]>
+  fetchPage?: (offset: number, limit: number) => Promise<Track[]>,
+  /** X15：风格码筛选（如 `S01` / `Y23`）。
+   *  ⚠️ 只对**默认取数**生效（传了 `fetchPage` 时数据在内存里，筛选由该页自行处理）。
+   *  置于 `fetchPage` **之后**：既有调用方按位置传 fetchPage，插入到前面会静默错位。 */
+  styleCode?: string
 ): WindowedTracks {
   const [total, setTotal] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
@@ -81,7 +85,9 @@ export function useWindowedTracks(
     // 作废旧代：仍在飞行的旧 sort/query 请求返回后不得写入刚清空的新缓存
     guard.bump();
     setTick((v) => v + 1);
-  }, [sort, query, guard]);
+    // X15：`styleCode` 与 sort/query 同为「结果集变化」的信号——漏掉它会导致换了
+    // 风格码却仍显示上一份缓存（与 sort/query 完全同类的失效条件）。
+  }, [sort, query, styleCode, guard]);
 
   useEffect(() => {
     if (total <= 0 || end < start) return;
@@ -91,7 +97,9 @@ export function useWindowedTracks(
       if (pages.current.has(p) || inflight.current.has(p)) continue;
       inflight.current.add(p);
       const token = guard.token();
-      (fetchPage ? fetchPage(p * pageSize, pageSize) : listTracks(pageSize, p * pageSize, sort, query))
+      (fetchPage
+        ? fetchPage(p * pageSize, pageSize)
+        : listTracks(pageSize, p * pageSize, sort, query, styleCode))
         .then((rows) => {
           if (guard.isStale(token)) return; // 旧代际/已卸载 → 丢弃
           pages.current.set(p, rows);
@@ -104,7 +112,7 @@ export function useWindowedTracks(
           if (guard.isMounted()) setTick((v) => v + 1);
         });
     }
-  }, [start, end, total, pageSize, sort, query, guard, fetchPage]);
+  }, [start, end, total, pageSize, sort, query, styleCode, guard, fetchPage]);
 
   const rowAt = useCallback(
     (i: number): Track | undefined => pages.current.get(Math.floor(i / pageSize))?.[i % pageSize],

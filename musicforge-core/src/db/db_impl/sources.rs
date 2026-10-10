@@ -218,9 +218,11 @@ impl Db {
                 .prepare(
                     "INSERT INTO tracks (source_id, path, size, mtime, title, artist_id,
                                          album_id, track_no, disc_no, duration_ms, format,
-                                         sample_rate, bit_depth, channels, is_lossless, indexed_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+                                         sample_rate, bit_depth, channels, is_lossless, indexed_at,
+                                         style_code)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
                      ON CONFLICT(path) DO UPDATE SET
+                        style_code=excluded.style_code,
                         source_id=excluded.source_id, size=excluded.size, mtime=excluded.mtime,
                         title=excluded.title, artist_id=excluded.artist_id,
                         album_id=excluded.album_id, track_no=excluded.track_no,
@@ -290,7 +292,8 @@ impl Db {
                         t.bit_depth,
                         t.channels,
                         t.is_lossless as i64,
-                        indexed_at
+                        indexed_at,
+                        &t.style_code
                     ])
                     .map_err(|e| NcmError::Db(e.to_string()))?;
             }

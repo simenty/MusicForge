@@ -4,12 +4,17 @@ impl Db {
     /// `limit` 硬上限 500：IPC 层禁止全量序列化，分页是契约而非建议。
     /// `query` 为空/None = 不过滤；否则按 标题 / 艺术家 / 专辑 / 路径 模糊匹配
     /// （服务端过滤——虚拟化列表必须对**结果集**分页，不能前端切部分数据）。
-    pub fn list_tracks_with(
+    /// 同 [`Self::list_tracks_with`]，额外按**风格码**筛选（X15）。
+    ///
+    /// 刻意**新增方法**而非给 `list_tracks_with` 加参数：后者被大量既有测试与调用点
+    /// 以 4 参形式使用，改签名会连带改动十余处断言（与本次功能无关的噪音）。
+    pub fn list_tracks_filtered(
         &self,
         sort: TrackSort,
         limit: i64,
         offset: i64,
         query: Option<&str>,
+        style_code: Option<&str>,
     ) -> Result<Vec<TrackRow>, NcmError> {
         let limit = limit.clamp(1, 500);
         let offset = offset.max(0);
@@ -22,17 +27,27 @@ impl Db {
             (TrackSort::PlayedAt, _) | (TrackSort::LikedAt, _) | (_, true) => "t.path",
             _ => order_raw,
         };
-        let pred = query.and_then(|q| track_filter_pred(q, 3));
-        let where_sql = match &pred {
-            Some((sql, _)) => format!(" WHERE {sql}"),
-            None => String::new(),
-        };
-        let sql = format!("{TRACK_SELECT} {join}{where_sql} ORDER BY {order} LIMIT ?1 OFFSET ?2");
+        // 两个谓词（文本 / 风格码）按序占位：?1=?limit ?2=?offset，谓词从 ?3 起。
+        // ⚠️ 必须与 `count_tracks_filtered` 用**同一对 helper**，否则结果行数与行内容错位。
         let mut binds: Vec<Box<dyn rusqlite::types::ToSql>> =
             vec![Box::new(limit), Box::new(offset)];
-        if let Some((_, pat)) = &pred {
-            binds.push(Box::new(pat.clone()));
+        let mut conds: Vec<String> = Vec::new();
+        let mut next_idx = 3;
+        if let Some(p) = query.and_then(|q| track_filter_pred(q, next_idx)) {
+            next_idx += 1;
+            binds.push(Box::new(p.1.clone()));
+            conds.push(p.0);
         }
+        if let Some(p) = style_code.and_then(|c| style_code_pred(c, next_idx)) {
+            binds.push(Box::new(p.1.clone()));
+            conds.push(p.0);
+        }
+        let where_sql = if conds.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", conds.join(" AND "))
+        };
+        let sql = format!("{TRACK_SELECT} {join}{where_sql} ORDER BY {order} LIMIT ?1 OFFSET ?2");
         let mut stmt = self
             .conn
             .prepare(&sql)
@@ -48,6 +63,20 @@ impl Db {
             out.push(r.map_err(|e| NcmError::Db(e.to_string()))?);
         }
         Ok(out)
+    }
+
+    /// 分页读取曲目（P6.21 排序 + P6.25 文本过滤）——**不含**风格码筛选。
+    ///
+    /// 委托给 [`Self::list_tracks_filtered`]（风格码传 `None`）：单一实现保证两处
+    /// 谓词不会漂移。
+    pub fn list_tracks_with(
+        &self,
+        sort: TrackSort,
+        limit: i64,
+        offset: i64,
+        query: Option<&str>,
+    ) -> Result<Vec<TrackRow>, NcmError> {
+        self.list_tracks_filtered(sort, limit, offset, query, None)
     }
     /// 分页读取曲目（P6.21：支持排序；`Default` = path 稳定序，不过滤）。
     pub fn list_tracks_sorted(

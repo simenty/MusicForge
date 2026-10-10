@@ -83,15 +83,19 @@ pub fn list_tracks(
     offset: Option<i64>,
     sort: Option<String>,
     query: Option<String>,
+    // X15：风格码筛选（如 `S01` / `Y23`；与 `query` 为 AND 关系）
+    style_code: Option<String>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let db = open_db()?;
     let q = query.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let sc = style_code.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let rows = db
-        .list_tracks_with(
+        .list_tracks_filtered(
             parse_track_sort(sort),
             limit.unwrap_or(200),
             offset.unwrap_or(0),
             q,
+            sc,
         )
         .map_err(|e| e.to_string())?;
     Ok(rows.iter().map(track_json).collect())
@@ -102,10 +106,17 @@ pub fn list_tracks(
 /// 虚拟化列表用它对结果集分页——行索引必须映射到过滤结果，
 /// 否则滚动到底会出现越界占位行。
 #[tauri::command]
-pub fn count_tracks(query: Option<String>) -> Result<i64, String> {
+pub fn count_tracks(
+    query: Option<String>,
+    // X15：风格码筛选——**必须与 `list_tracks` 传同一个值**，否则虚拟化列表的
+    // 行数与行内容会错位（滚动到底出现越界占位行）。
+    style_code: Option<String>,
+) -> Result<i64, String> {
     let db = open_db()?;
     let q = query.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    db.count_tracks_filtered(q).map_err(|e| e.to_string())
+    let sc = style_code.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    db.count_tracks_filtered_with(q, sc)
+        .map_err(|e| e.to_string())
 }
 
 /// 艺术家聚合列表（按曲目数降序）。

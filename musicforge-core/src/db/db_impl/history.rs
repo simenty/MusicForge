@@ -41,9 +41,10 @@ impl Db {
         let mut stmt = self
             .conn
             .prepare(&format!(
+                // 前 15 列必须与 `map_track_row` 对齐（含 t.style_code），聚合列在其后
                 "SELECT t.id, t.source_id, t.path, t.size, t.title, ar.name, al.title, \
                  t.track_no, t.duration_ms, t.format, t.sample_rate, t.bit_depth, t.channels, \
-                 t.is_lossless, h.played_at, h.ms_played \
+                 t.is_lossless, t.style_code, h.played_at, h.ms_played \
                  FROM play_history h \
                  JOIN tracks t ON t.id = h.track_id \
                  LEFT JOIN artists ar ON ar.id = t.artist_id \
@@ -57,8 +58,8 @@ impl Db {
                 |r| {
                     Ok(HistoryRow {
                         track: map_track_row(r)?,
-                        played_at: r.get(14)?,
-                        ms_played: r.get(15)?,
+                        played_at: r.get(15)?,
+                        ms_played: r.get(16)?,
                     })
                 },
             )

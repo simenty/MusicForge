@@ -38,7 +38,11 @@ export default function LibraryPage({
   /** P6.25：输入框原文；`filter` 是防抖后真正下推到服务端的过滤词 */
   const [rawQuery, setRawQuery] = useState("");
   const [filter, setFilter] = useState("");
-  const w = useWindowedTracks(200, sort, filter || undefined);
+  /** X15：风格码筛选词（如 `S01` / `Y23`）；防抖后下推，与 `filter` 同纪律 */
+  const [rawCode, setRawCode] = useState("");
+  const [styleCode, setStyleCode] = useState("");
+  // 走默认取数（不传 fetchPage），故第 4 位留 undefined、风格码在第 5 位
+  const w = useWindowedTracks(200, sort, filter || undefined, undefined, styleCode || undefined);
   const liked = useLiked();
   // P6.19 批量操作（hook 须无条件调用，置于早返回之前）
   const selApi = useSelection();
@@ -72,6 +76,12 @@ export default function LibraryPage({
     return () => window.clearTimeout(id);
   }, [rawQuery]);
 
+  // X15：风格码筛选同样防抖（与文本筛选一致：避免每敲一个字符就重拉计数 + 首屏页）
+  useEffect(() => {
+    const id = window.setTimeout(() => setStyleCode(rawCode.trim()), 250);
+    return () => window.clearTimeout(id);
+  }, [rawCode]);
+
   // 过滤词/库内容变化 → 取**服务端过滤后的计数**并重设行数。
   // 行数必须等于过滤结果集大小，否则虚拟滚动会请求越界的页。
   //
@@ -83,21 +93,23 @@ export default function LibraryPage({
   const countGuard = useRequestGuard();
   useEffect(() => {
     if (!IS_DESKTOP) return;
-    if (!filter) {
+    // X15：风格码也是筛选维度——「有/无筛选」的判定必须把它算进去，
+    // 否则只填了风格码时会误走 `stats.tracks`（全局计数），行数与结果集错位。
+    if (!filter && !styleCode) {
       if (stats) reset(stats.tracks);
       countGuard.bump();
       return;
     }
     countGuard.bump();
     const token = countGuard.token();
-    countTracks(filter)
+    countTracks(filter, styleCode)
       .then((n) => {
         if (!countGuard.isStale(token)) reset(n);
       })
       .catch(() => {
         if (!countGuard.isStale(token)) reset(0);
       });
-  }, [filter, stats, reset, countGuard]);
+  }, [filter, styleCode, stats, reset, countGuard]);
 
   const playFrom = useCallback(
     (tr: Track) => {
@@ -256,6 +268,18 @@ export default function LibraryPage({
               onChange={(e) => setRawQuery(e.target.value)}
               placeholder={t.media.searchPlaceholder}
               aria-label={t.media.searchPlaceholder}
+            />
+          </label>
+          {/* X15：风格码筛选（与文本筛选 AND）。码本身由列表 chip / 卡片可见，
+              这里按码做**精确 token** 匹配（S01 不会误中 S012）。 */}
+          <label className="search" style={{ maxWidth: 150 }}>
+            <input
+              className="mono"
+              value={rawCode}
+              onChange={(e) => setRawCode(e.target.value)}
+              placeholder={t.styleCode.filterPlaceholder}
+              aria-label={t.styleCode.filterLabel}
+              spellCheck={false}
             />
           </label>
           <button

@@ -36,13 +36,13 @@ impl Db {
     /// 最常播放的曲目（按播放次数降序；同次数按标题稳定排序）。
     pub fn top_tracks(&self, limit: i64) -> Result<Vec<TopTrackRow>, NcmError> {
         let limit = limit.clamp(1, 100);
-        // 列序 0..13 与 map_track_row 对齐，14 为聚合列
+        // 列序 0..14 与 map_track_row 对齐（含 style_code），15 为聚合列
         let mut stmt = self
             .conn
             .prepare(
                 "SELECT t.id, t.source_id, t.path, t.size, t.title, ar.name, al.title, \
                  t.track_no, t.duration_ms, t.format, t.sample_rate, t.bit_depth, t.channels, \
-                 t.is_lossless, COUNT(h.id) AS plays \
+                 t.is_lossless, t.style_code, COUNT(h.id) AS plays \
                  FROM play_history h \
                  JOIN tracks t ON t.id = h.track_id \
                  LEFT JOIN artists ar ON ar.id = t.artist_id \
@@ -56,7 +56,7 @@ impl Db {
             .query_map([limit], |r| {
                 Ok(TopTrackRow {
                     track: map_track_row(r)?,
-                    play_count: r.get(14)?,
+                    play_count: r.get(15)?,
                 })
             })
             .map_err(|e| NcmError::Db(e.to_string()))?

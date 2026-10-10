@@ -44,7 +44,10 @@ describe("useWindowedTracks", () => {
     const { result } = renderHook(() => useWindowedTracks(200));
 
     act(() => result.current.reset(500));
-    await waitFor(() => expect(mockList).toHaveBeenCalledWith(200, 0, undefined, undefined));
+    // 第 5 个实参 = X15 风格码筛选（默认 undefined）
+    await waitFor(() =>
+      expect(mockList).toHaveBeenCalledWith(200, 0, undefined, undefined, undefined),
+    );
     await waitFor(() => expect(result.current.rowAt(0)?.title).toBe("t0"));
     expect(result.current.total).toBe(500);
     // 未加载页的行返回 undefined（渲染占位）
@@ -63,10 +66,14 @@ describe("useWindowedTracks", () => {
     act(() => result.current.onScroll(el));
 
     // 可视区间 ≈ 第 392..420 行 → 页 1（offset 200）与页 2（offset 400）
-    await waitFor(() => expect(mockList).toHaveBeenCalledWith(200, 200, undefined, undefined));
-    await waitFor(() => expect(mockList).toHaveBeenCalledWith(200, 400, undefined, undefined));
+    await waitFor(() =>
+      expect(mockList).toHaveBeenCalledWith(200, 200, undefined, undefined, undefined),
+    );
+    await waitFor(() =>
+      expect(mockList).toHaveBeenCalledWith(200, 400, undefined, undefined, undefined),
+    );
     // 页 0 早已拉取；未请求过的页（如 offset 600）不应出现
-    expect(mockList).not.toHaveBeenCalledWith(200, 600, undefined, undefined);
+    expect(mockList).not.toHaveBeenCalledWith(200, 600, undefined, undefined, undefined);
   });
 
   // P6.25：过滤词下推——同一 hook 需把 query 透传给服务端取页
@@ -77,9 +84,39 @@ describe("useWindowedTracks", () => {
     );
 
     act(() => result.current.reset(2));
-    await waitFor(() => expect(mockList).toHaveBeenCalledWith(200, 0, undefined, undefined));
+    await waitFor(() =>
+      expect(mockList).toHaveBeenCalledWith(200, 0, undefined, undefined, undefined),
+    );
 
     act(() => rerender({ q: "晴天" }));
-    await waitFor(() => expect(mockList).toHaveBeenCalledWith(200, 0, undefined, "晴天"));
+    await waitFor(() =>
+      expect(mockList).toHaveBeenCalledWith(200, 0, undefined, "晴天", undefined),
+    );
+  });
+
+  // X15：风格码筛选——必须与 query 一样透传，且变化后**重拉**（否则换码仍显示旧缓存）
+  it("styleCode 变化时透传给 listTracks 并重拉", async () => {
+    const { result, rerender } = renderHook(
+      ({ sc }: { sc?: string }) => useWindowedTracks(200, undefined, undefined, undefined, sc),
+      { initialProps: {} }
+    );
+
+    act(() => result.current.reset(2));
+    await waitFor(() =>
+      expect(mockList).toHaveBeenCalledWith(200, 0, undefined, undefined, undefined),
+    );
+
+    act(() => rerender({ sc: "S01" }));
+    await waitFor(() =>
+      expect(mockList).toHaveBeenCalledWith(200, 0, undefined, undefined, "S01"),
+    );
+  });
+
+  it("query 与 styleCode 可叠加（AND）", async () => {
+    const { result } = renderHook(() =>
+      useWindowedTracks(200, undefined, "晴天", undefined, "S01")
+    );
+    act(() => result.current.reset(1));
+    await waitFor(() => expect(mockList).toHaveBeenCalledWith(200, 0, undefined, "晴天", "S01"));
   });
 });

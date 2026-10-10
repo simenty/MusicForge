@@ -13,7 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use musicforge_core::dedupe::similar_cover_scan;
 use musicforge_core::stylecode::{
-    apply_genre_writes, parse_style_code, plan_genre_writes, GenreDecision,
+    apply_genre_writes, parse_style_code, plan_genre_writes, style_code_key, GenreDecision,
 };
 
 fn uniq_root(tag: &str) -> PathBuf {
@@ -67,6 +67,25 @@ fn parse_style_code_structured() {
     );
     // 查不到的码回退原始码，绝不编造
     assert!(cn.contains("C02"), "{cn}");
+}
+
+/// X15 入库串（`style_code_key`）：两端补 `-`，使筛选能整 token 命中。
+#[test]
+fn style_code_key_normalized_for_filtering() {
+    assert_eq!(
+        style_code_key(Path::new("[Y23-S01-E01-C01-C02-V00] 晴天.flac")).as_deref(),
+        Some("-Y23-S01-E01-C01-C02-V00-"),
+        "大写归一 + 前后补 -"
+    );
+    assert_eq!(
+        style_code_key(Path::new("[s01] x.flac")).as_deref(),
+        Some("-S01-"),
+        "小写入库也归一"
+    );
+    // 无前导码块 → None（非前导方括号不误伤）
+    assert_eq!(style_code_key(Path::new("song [Live] mix.flac")), None);
+    assert_eq!(style_code_key(Path::new("普通歌名.flac")), None);
+    assert_eq!(style_code_key(Path::new("[] x.flac")), None, "空码块");
 }
 
 #[test]
