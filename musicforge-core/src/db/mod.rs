@@ -375,7 +375,11 @@ impl Db {
             "CREATE INDEX IF NOT EXISTS idx_history_track ON play_history(track_id);
              CREATE INDEX IF NOT EXISTS idx_playlist_items_track ON playlist_items(track_id);",
         );
-        Ok(Self { conn })
+        let db = Self { conn };
+        // X15：v4 升级后存量行的 style_code 为 NULL，回填一次即可按码筛选——
+        // 否则用户必须整库重扫。属**派生缓存**，失败仅降级（`let _ =`），不阻断开库。
+        let _ = db.backfill_style_codes();
+        Ok(db)
     }
 
     /// 内存库（测试用）。
@@ -390,7 +394,10 @@ impl Db {
             "CREATE INDEX IF NOT EXISTS idx_history_track ON play_history(track_id);
              CREATE INDEX IF NOT EXISTS idx_playlist_items_track ON playlist_items(track_id);",
         );
-        Ok(Self { conn })
+        let db = Self { conn };
+        // 与 `open()` 同源：回填一次 style_code（失败仅降级）
+        let _ = db.backfill_style_codes();
+        Ok(db)
     }
 
     /// v4：给 `tracks` 加 `style_code` 列 + 索引（X15 风格码筛选）。
@@ -525,7 +532,9 @@ fn map_track_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<TrackRow> {
         bit_depth: r.get(11)?,
         channels: r.get(12)?,
         is_lossless: r.get::<_, i64>(13)? != 0,
-        style_code: r.get(14)?,
+        // `''` = 已判定无码（回填写入），对外统一表示为 None——调用方只需区分
+        // 「有码 / 无码」，不必感知「尚未判定」这一内部态。
+        style_code: r.get::<_, Option<String>>(14)?.filter(|s| !s.is_empty()),
     })
 }
 
@@ -772,6 +781,62 @@ mod tests {
             0,
             "两个条件都满足才计入"
         );
+    }
+
+    /// X15：存量库回填——升级后无需整库重扫即可按码筛选，且**回填自终止**
+    /// （无码行写 `''`，不会被下次打开反复重扫）。
+    #[test]
+    fn style_code_backfill_covers_legacy_rows_and_is_idempotent() {
+        let db = Db::open_in_memory().unwrap();
+        let sid = db.upsert_source("/m", None).unwrap();
+        // 模拟「v4 之前的存量行」：直接插入、style_code 留 NULL
+        let legacy = |path: &str| TrackInput {
+            source_id: sid,
+            path: path.to_string(),
+            size: 1024,
+            title: Some(path.to_string()),
+            style_code: None,
+            ..Default::default()
+        };
+        db.upsert_tracks_batch(
+            &[legacy("/m/[Y23-S01] a.flac"), legacy("/m/plain b.flac")],
+            1,
+        )
+        .unwrap();
+        // 手工清成 NULL（upsert 会把 None 写为 NULL，此处显式确认起点）
+        db.conn
+            .execute("UPDATE tracks SET style_code = NULL", [])
+            .unwrap();
+        assert_eq!(
+            db.count_tracks_filtered_with(None, Some("S01")).unwrap(),
+            0,
+            "回填前筛不到（存量行全 NULL）"
+        );
+
+        assert_eq!(db.backfill_style_codes().unwrap(), 2, "回填 2 行");
+        // 有码行填出规范化串；无码行写 ''（对外读作 None）
+        let a = db
+            .list_tracks(10, 0)
+            .unwrap()
+            .into_iter()
+            .find(|t| t.path.contains("a.flac"))
+            .unwrap();
+        assert_eq!(a.style_code.as_deref(), Some("-Y23-S01-"));
+        let b = db
+            .list_tracks(10, 0)
+            .unwrap()
+            .into_iter()
+            .find(|t| t.path.contains("b.flac"))
+            .unwrap();
+        assert_eq!(b.style_code, None, "无码对外为 None（库内为 ''）");
+
+        assert_eq!(
+            db.count_tracks_filtered_with(None, Some("S01")).unwrap(),
+            1,
+            "回填后即可按码筛选"
+        );
+        // 自终止：再次回填为 0 行（不是把无码行反复重扫）
+        assert_eq!(db.backfill_style_codes().unwrap(), 0);
     }
 
     /// X15：入库串两端补 `-` 的意义——**整 token 命中**，`S01` 不得误中 `S012`。

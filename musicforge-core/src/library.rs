@@ -187,7 +187,13 @@ fn parse_one(item: &ScanItem, source_id: i64) -> Parsed {
         is_lossless: is_lossless_ext(&ext),
         // X15：风格码**派生自文件名**（纯字符串解析，不读音频），与标签解析并行期
         // 计算零额外 IO；入库后即可按码筛选。
-        style_code: crate::stylecode::style_code_key(&item.path),
+        //
+        // ⚠️ 无码曲目写 `Some("")` 而非 `None`：列语义里 `NULL` 表示「尚未判定
+        // （待回填）」，`''` 表示「已判定无码」。若写 NULL，这些行每次打开都会被
+        // 回填逻辑重新扫一遍（见 `Db::backfill_style_codes`）。
+        style_code: Some(
+            crate::stylecode::style_code_key(&item.path).unwrap_or_default(),
+        ),
         ..Default::default()
     };
 

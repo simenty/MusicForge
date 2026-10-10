@@ -65,6 +65,54 @@ impl Db {
         Ok(out)
     }
 
+    /// X15：回填 `style_code`（**只处理 `IS NULL` 的行**）——升级到 v4 后，存量曲库
+    /// 该列全为 NULL，若不回填就必须整库重扫才能按码筛选。
+    ///
+    /// 列语义（刻意区分两态，否则回填无法自终止）：
+    /// - `NULL` = 尚未判定（待回填）
+    /// - `''`   = 已判定：**该曲目无风格码**
+    /// - `'-Y23-S01-'` = 有码
+    ///
+    /// 因此**无码的行也必须写值**（写 `''`），否则下次打开仍被当成"待回填"反复扫描。
+    /// 回填完成后不再有 NULL 行 → 后续调用是「一条 SELECT 返回 0 行」的空操作。
+    ///
+    /// 返回回填行数。
+    pub fn backfill_style_codes(&self) -> Result<usize, NcmError> {
+        // 分步绑定：`query_map` 的 `MappedRows` 借用 `st`，若在同一表达式里链式
+        // collect 到块尾，`st` 会先于借用被丢弃（E0597）。
+        let mut st = self
+            .conn
+            .prepare("SELECT id, path FROM tracks WHERE style_code IS NULL")
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let mapped = st
+            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        let pending: Vec<(i64, String)> = mapped
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        if pending.is_empty() {
+            return Ok(0);
+        }
+        // 单事务：中途失败整体回滚，下次打开安全重试（不留半回填状态）
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|e| NcmError::Db(e.to_string()))?;
+        {
+            let mut up = tx
+                .prepare("UPDATE tracks SET style_code = ?1 WHERE id = ?2")
+                .map_err(|e| NcmError::Db(e.to_string()))?;
+            for (id, path) in &pending {
+                let key = crate::stylecode::style_code_key(std::path::Path::new(path))
+                    .unwrap_or_default();
+                up.execute(rusqlite::params![key, id])
+                    .map_err(|e| NcmError::Db(e.to_string()))?;
+            }
+        }
+        tx.commit().map_err(|e| NcmError::Db(e.to_string()))?;
+        Ok(pending.len())
+    }
+
     /// 分页读取曲目（P6.21 排序 + P6.25 文本过滤）——**不含**风格码筛选。
     ///
     /// 委托给 [`Self::list_tracks_filtered`]（风格码传 `None`）：单一实现保证两处
